@@ -74,19 +74,25 @@ export class ClaudeProcessManager extends EventEmitter {
     const claudePath = process.env.CLAUDE_PATH || "claude";
     console.log(`[Claude] Using claude path: ${claudePath}`);
 
-    // Spawn Claude Code process
-    const claudeProcess = spawn(claudePath, [
+    // Build arguments array
+    const args = [
       "-p", message,
       "--output-format", "stream-json",
       "--verbose",
-    ], {
+    ];
+    console.log(`[Claude] Spawning: ${claudePath} ${args.join(" ")}`);
+
+    // Spawn Claude Code process
+    const claudeProcess = spawn(claudePath, args, {
       cwd: info.session.worktreePath,
       env: {
         ...process.env,
         // Ensure Claude Code runs in non-interactive mode
         CI: "true",
+        // Ensure PATH includes common locations
+        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin",
       },
-      shell: true, // Use shell to resolve PATH correctly
+      stdio: ["pipe", "pipe", "pipe"], // Explicitly set stdio
     });
 
     info.process = claudeProcess;
