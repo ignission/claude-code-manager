@@ -2,16 +2,16 @@
  * Claude Code Process Manager
  * 
  * Manages Claude Code CLI processes for each session.
- * Uses stream-json output format for structured communication.
+ * Uses node-pty for TTY emulation and stream-json output format.
  */
 
-import { spawn, ChildProcess } from "child_process";
+import { spawn as ptySpawn, IPty } from "node-pty";
 import { EventEmitter } from "events";
 import { nanoid } from "nanoid";
-import type { Session, Message, ClaudeStreamEvent, SessionStatus } from "../../shared/types.js";
+import type { Session, Message, ClaudeStreamEvent } from "../../shared/types.js";
 
 interface ProcessInfo {
-  process: ChildProcess;
+  process: IPty | null;
   session: Session;
   buffer: string;
 }
@@ -36,7 +36,7 @@ export class ClaudeProcessManager extends EventEmitter {
     };
 
     this.processes.set(sessionId, {
-      process: null as unknown as ChildProcess,
+      process: null,
       session,
       buffer: "",
     });
@@ -79,95 +79,71 @@ export class ClaudeProcessManager extends EventEmitter {
       "-p", message,
       "--output-format", "stream-json",
       "--verbose",
-      "--dangerously-skip-permissions", // Skip permission prompts in non-TTY environment
     ];
-    console.log(`[Claude] Spawning: ${claudePath} ${args.join(" ")}`);
+    console.log(`[Claude] Spawning with PTY: ${claudePath} ${args.join(" ")}`);
 
-    // Spawn Claude Code process
-    const claudeProcess = spawn(claudePath, args, {
-      cwd: info.session.worktreePath,
-      env: {
-        ...process.env,
-        // Ensure Claude Code runs in non-interactive mode
-        CI: "true",
-        // Ensure PATH includes common locations
-        PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin",
-      },
-      stdio: ["pipe", "pipe", "pipe"], // Explicitly set stdio
-    });
+    try {
+      // Spawn Claude Code process with PTY
+      const ptyProcess = ptySpawn(claudePath, args, {
+        name: "xterm-256color",
+        cols: 120,
+        rows: 30,
+        cwd: info.session.worktreePath,
+        env: {
+          ...process.env,
+          CI: "true",
+          TERM: "xterm-256color",
+        } as { [key: string]: string },
+      });
 
-    info.process = claudeProcess;
-    info.buffer = "";
+      info.process = ptyProcess;
+      info.buffer = "";
 
-    console.log(`[Claude] Process spawned with PID: ${claudeProcess.pid}`);
+      console.log(`[Claude] PTY process spawned with PID: ${ptyProcess.pid}`);
 
-    // Check if stdout/stderr are available
-    if (!claudeProcess.stdout) {
-      console.error(`[Claude] stdout is null!`);
-      return;
-    }
-    if (!claudeProcess.stderr) {
-      console.error(`[Claude] stderr is null!`);
-      return;
-    }
+      // Handle data from PTY
+      ptyProcess.onData((data: string) => {
+        console.log(`[Claude] PTY data: ${data.substring(0, 100)}...`);
+        info.buffer += data;
 
-    // Log spawn event
-    claudeProcess.on("spawn", () => {
-      console.log(`[Claude] Process spawn event received`);
-    });
+        // Process complete JSON lines
+        const lines = info.buffer.split("\n");
+        info.buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
-    // Handle stdout (stream-json events)
-    claudeProcess.stdout.on("data", (data: Buffer) => {
-      const chunk = data.toString();
-      console.log(`[Claude] stdout: ${chunk.substring(0, 100)}...`);
-      info.buffer += chunk;
-
-      // Process complete JSON lines
-      const lines = info.buffer.split("\n");
-      info.buffer = lines.pop() || ""; // Keep incomplete line in buffer
-
-      for (const line of lines) {
-        if (line.trim()) {
-          this.processStreamEvent(sessionId, line);
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          // Remove ANSI escape codes
+          const cleanLine = trimmedLine.replace(/\x1b\[[0-9;]*m/g, "");
+          if (cleanLine) {
+            this.processStreamEvent(sessionId, cleanLine);
+          }
         }
-      }
-    });
+      });
 
-    // Handle stderr
-    claudeProcess.stderr.on("data", (data: Buffer) => {
-      console.log(`[Claude] stderr: ${data.toString()}`);
+      // Handle process exit
+      ptyProcess.onExit(({ exitCode }) => {
+        console.log(`[Claude] PTY process exited with code: ${exitCode}`);
+        
+        // Process any remaining buffer
+        if (info.buffer.trim()) {
+          const cleanBuffer = info.buffer.trim().replace(/\x1b\[[0-9;]*m/g, "");
+          if (cleanBuffer) {
+            this.processStreamEvent(sessionId, cleanBuffer);
+          }
+        }
+
+        info.session.status = exitCode === 0 ? "idle" : "error";
+        this.emit("session:updated", info.session);
+        this.emit("message:complete", { sessionId, messageId: nanoid() });
+      });
+
+    } catch (error) {
+      console.error(`[Claude] Failed to spawn PTY process: ${error}`);
       const errorMessage: Message = {
         id: nanoid(),
         sessionId,
         role: "system",
-        content: data.toString(),
-        timestamp: new Date(),
-        type: "error",
-      };
-      this.emit("message:received", errorMessage);
-    });
-
-    // Handle process exit
-    claudeProcess.on("close", (code) => {
-      console.log(`[Claude] Process exited with code: ${code}`);
-      // Process any remaining buffer
-      if (info.buffer.trim()) {
-        this.processStreamEvent(sessionId, info.buffer);
-      }
-
-      info.session.status = code === 0 ? "idle" : "error";
-      this.emit("session:updated", info.session);
-      this.emit("message:complete", { sessionId, messageId: nanoid() });
-    });
-
-    // Handle process error
-    claudeProcess.on("error", (error) => {
-      console.error(`[Claude] Process error: ${error.message}`);
-      const errorMessage: Message = {
-        id: nanoid(),
-        sessionId,
-        role: "system",
-        content: `Failed to start Claude Code: ${error.message}`,
+        content: `Failed to start Claude Code: ${error}`,
         timestamp: new Date(),
         type: "error",
       };
@@ -175,7 +151,7 @@ export class ClaudeProcessManager extends EventEmitter {
       
       info.session.status = "error";
       this.emit("session:updated", info.session);
-    });
+    }
   }
 
   // Process a stream-json event
@@ -246,6 +222,7 @@ export class ClaudeProcessManager extends EventEmitter {
       }
     } catch (e) {
       // Not valid JSON, might be plain text output
+      console.log(`[Claude] Non-JSON line: ${line.substring(0, 50)}...`);
       this.emit("message:stream", {
         sessionId,
         chunk: line,
@@ -262,15 +239,12 @@ export class ClaudeProcessManager extends EventEmitter {
     }
 
     // Kill the process if running
-    if (info.process && !info.process.killed) {
-      info.process.kill("SIGTERM");
-      
-      // Force kill after timeout
-      setTimeout(() => {
-        if (info.process && !info.process.killed) {
-          info.process.kill("SIGKILL");
-        }
-      }, 5000);
+    if (info.process) {
+      try {
+        info.process.kill();
+      } catch (e) {
+        console.error(`[Claude] Error killing process: ${e}`);
+      }
     }
 
     info.session.status = "stopped";
