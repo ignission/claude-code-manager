@@ -3,14 +3,15 @@
  * 
  * Design: Terminal-Inspired Dark Mode
  * - Left sidebar: Worktree list with status indicators
- * - Right main area: Chat panel for active session
+ * - Right main area: Multi-pane view or dashboard overview
  * - Real-time communication via Socket.IO
  */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -43,17 +44,21 @@ import {
   MessageSquare,
   Terminal,
   Settings,
-  ChevronRight,
   Send,
   Wifi,
   WifiOff,
   RefreshCw,
   AlertCircle,
+  LayoutGrid,
+  Columns2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useSocket } from "@/hooks/useSocket";
-import { Streamdown } from "streamdown";
-import type { Worktree, Session, Message } from "../../../shared/types";
+import { MultiPaneLayout } from "@/components/MultiPaneLayout";
+import { SessionDashboard } from "@/components/SessionDashboard";
+import type { Worktree, Session } from "../../../shared/types";
+
+type ViewMode = "dashboard" | "panes";
 
 export default function Dashboard() {
   const {
@@ -73,17 +78,15 @@ export default function Dashboard() {
     streamingContent,
   } = useSocket();
 
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
+  const [activePanes, setActivePanes] = useState<string[]>([]);
+  const [maximizedPane, setMaximizedPane] = useState<string | null>(null);
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
-  const [chatInput, setChatInput] = useState("");
   const [repoInput, setRepoInput] = useState("");
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const chatInputRef = useRef<HTMLInputElement>(null);
 
   // Show error toast when error changes
   useEffect(() => {
@@ -91,19 +94,6 @@ export default function Dashboard() {
       toast.error(error);
     }
   }, [error]);
-
-  // Auto-scroll to bottom when new messages arrive
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingContent]);
-
-  // Get active session and worktree
-  const activeSession = activeSessionId ? sessions.get(activeSessionId) : null;
-  const activeWorktree = activeSession
-    ? worktrees.find((w) => w.id === activeSession.worktreeId)
-    : null;
-  const activeMessages = activeSessionId ? messages.get(activeSessionId) || [] : [];
-  const activeStreamingContent = activeSessionId ? streamingContent.get(activeSessionId) : null;
 
   // Find session for a worktree
   const getSessionForWorktree = (worktreeId: string): Session | undefined => {
@@ -144,7 +134,11 @@ export default function Dashboard() {
   const handleStartSession = (worktree: Worktree) => {
     const existingSession = getSessionForWorktree(worktree.id);
     if (existingSession) {
-      setActiveSessionId(existingSession.id);
+      // Add to active panes if not already there
+      if (!activePanes.includes(existingSession.id)) {
+        setActivePanes((prev) => [...prev, existingSession.id]);
+      }
+      setViewMode("panes");
       return;
     }
     startSession(worktree.id, worktree.path);
@@ -153,23 +147,49 @@ export default function Dashboard() {
 
   const handleStopSession = (sessionId: string) => {
     stopSession(sessionId);
-    if (activeSessionId === sessionId) {
-      setActiveSessionId(null);
+    setActivePanes((prev) => prev.filter((id) => id !== sessionId));
+    if (maximizedPane === sessionId) {
+      setMaximizedPane(null);
     }
     toast.info("Session stopped");
   };
 
-  const handleSendMessage = () => {
-    if (!chatInput.trim() || !activeSessionId) return;
-    sendMessage(activeSessionId, chatInput.trim());
-    setChatInput("");
-    chatInputRef.current?.focus();
+  const handleSelectSession = (sessionId: string) => {
+    if (!activePanes.includes(sessionId)) {
+      setActivePanes((prev) => [...prev, sessionId]);
+    }
+    setViewMode("panes");
   };
+
+  const handleClosePane = (sessionId: string) => {
+    setActivePanes((prev) => prev.filter((id) => id !== sessionId));
+    if (maximizedPane === sessionId) {
+      setMaximizedPane(null);
+    }
+  };
+
+  const handleMaximizePane = (sessionId: string) => {
+    setMaximizedPane(maximizedPane === sessionId ? null : sessionId);
+  };
+
+  const handleSendMessage = (sessionId: string, message: string) => {
+    sendMessage(sessionId, message);
+  };
+
+  // Auto-add new sessions to active panes
+  useEffect(() => {
+    sessions.forEach((session, sessionId) => {
+      if (!activePanes.includes(sessionId)) {
+        setActivePanes((prev) => [...prev, sessionId]);
+        setViewMode("panes");
+      }
+    });
+  }, [sessions]);
 
   return (
     <div className="h-screen flex bg-background">
       {/* Sidebar */}
-      <aside className="w-80 border-r border-border flex flex-col bg-sidebar">
+      <aside className="w-80 border-r border-border flex flex-col bg-sidebar shrink-0">
         {/* Header */}
         <div className="p-4 border-b border-sidebar-border">
           <div className="flex items-center justify-between">
@@ -179,7 +199,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <h1 className="font-semibold text-sidebar-foreground">Claude Code Manager</h1>
-                <p className="text-xs text-muted-foreground font-mono">v0.1.0</p>
+                <p className="text-xs text-muted-foreground font-mono">v0.2.0</p>
               </div>
             </div>
             <div className="flex items-center gap-1">
@@ -336,13 +356,13 @@ export default function Dashboard() {
               {worktrees.map((worktree) => {
                 const session = getSessionForWorktree(worktree.id);
                 const isSelected = selectedWorktreeId === worktree.id;
-                const isActive = activeSession?.worktreeId === worktree.id;
+                const isInPane = session && activePanes.includes(session.id);
 
                 return (
                   <div
                     key={worktree.id}
                     className={`group p-3 rounded-lg cursor-pointer transition-all ${
-                      isActive
+                      isInPane
                         ? "bg-sidebar-accent border border-primary/30"
                         : isSelected
                         ? "bg-sidebar-accent"
@@ -377,7 +397,7 @@ export default function Dashboard() {
                               className="h-6 w-6"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setActiveSessionId(session.id);
+                                handleSelectSession(session.id);
                               }}
                             >
                               <MessageSquare className="w-3 h-3" />
@@ -464,201 +484,87 @@ export default function Dashboard() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col">
-        {activeSession && activeWorktree ? (
-          <>
-            {/* Chat Header */}
-            <header className="h-14 border-b border-border flex items-center justify-between px-4">
-              <div className="flex items-center gap-3">
-                <div className={`status-indicator ${activeSession.status}`} />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm">{activeWorktree.branch}</span>
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Session</span>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                  onClick={() => handleStopSession(activeSession.id)}
-                >
-                  <Square className="w-3 h-3 mr-2" />
-                  Stop
-                </Button>
-              </div>
-            </header>
-
-            {/* Chat Messages */}
-            <ScrollArea className="flex-1 p-4">
-              <div className="max-w-3xl mx-auto space-y-4">
-                {activeMessages.length === 0 && !activeStreamingContent ? (
-                  <div className="text-center py-12">
-                    <Terminal className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                    <h3 className="text-lg font-medium mb-2">Start a conversation</h3>
-                    <p className="text-muted-foreground text-sm">
-                      Send a message to Claude Code to begin working on this worktree.
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    {activeMessages.map((message) => (
-                      <MessageBubble key={message.id} message={message} />
-                    ))}
-                    {activeStreamingContent && (
-                      <div className="flex gap-3 justify-start">
-                        <div className="max-w-[80%] rounded-lg p-4 bg-card border border-border">
-                          <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
-                            <Terminal className="w-3 h-3" />
-                            <span>Claude Code</span>
-                            <span className="inline-block w-2 h-2 bg-primary rounded-full animate-pulse" />
-                          </div>
-                          <div className="text-sm">
-                            <Streamdown>{activeStreamingContent}</Streamdown>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </>
+      <main className="flex-1 flex flex-col min-w-0">
+        {/* View Mode Tabs */}
+        <div className="h-12 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+            <TabsList className="bg-sidebar-accent">
+              <TabsTrigger value="dashboard" className="gap-2">
+                <LayoutGrid className="w-4 h-4" />
+                Dashboard
+              </TabsTrigger>
+              <TabsTrigger value="panes" className="gap-2">
+                <Columns2 className="w-4 h-4" />
+                Panes
+                {activePanes.length > 0 && (
+                  <span className="ml-1 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                    {activePanes.length}
+                  </span>
                 )}
-                <div ref={messagesEndRef} />
-              </div>
-            </ScrollArea>
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-            {/* Chat Input */}
-            <div className="border-t border-border p-4">
-              <div className="max-w-3xl mx-auto">
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-accent font-mono text-sm">
-                      {">"}_
-                    </span>
-                    <Input
-                      ref={chatInputRef}
-                      placeholder="Send a message to Claude Code..."
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendMessage();
-                        }
-                      }}
-                      disabled={activeSession.status === "active"}
-                      className="pl-10 font-mono bg-input border-border focus-visible:ring-primary"
-                    />
-                  </div>
-                  <Button
-                    onClick={handleSendMessage}
-                    disabled={!chatInput.trim() || activeSession.status === "active"}
-                    className="glow-green"
-                  >
-                    <Send className="w-4 h-4" />
-                  </Button>
-                </div>
-                {activeSession.status === "active" && (
-                  <p className="text-xs text-muted-foreground mt-2 text-center">
-                    Claude Code is processing...
-                  </p>
-                )}
-              </div>
+          {!isConnected && (
+            <div className="flex items-center gap-2 text-destructive text-sm">
+              <AlertCircle className="w-4 h-4" />
+              <span>Not connected to server</span>
             </div>
-          </>
-        ) : (
-          /* Empty State */
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center max-w-md">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                <Terminal className="w-8 h-8 text-primary" />
-              </div>
-              <h2 className="text-xl font-semibold mb-2">No Active Session</h2>
-              <p className="text-muted-foreground mb-6">
-                {repoPath
-                  ? "Select a worktree from the sidebar and start a session to begin working with Claude Code."
-                  : "Select a repository to get started."}
-              </p>
-              {!isConnected && (
-                <div className="flex items-center justify-center gap-2 text-destructive text-sm mb-6">
-                  <AlertCircle className="w-4 h-4" />
-                  <span>Not connected to server</span>
-                </div>
-              )}
-              <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Play className="w-4 h-4 text-primary" />
-                  <span>Start session</span>
-                </div>
-                <Separator orientation="vertical" className="h-4" />
-                <div className="flex items-center gap-2">
-                  <Plus className="w-4 h-4 text-accent" />
-                  <span>Create worktree</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-    </div>
-  );
-}
-
-// Message bubble component
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.role === "user";
-  const isSystem = message.role === "system";
-  const isError = message.type === "error";
-  const isToolUse = message.type === "tool_use";
-  const isToolResult = message.type === "tool_result";
-
-  return (
-    <div className={`flex gap-3 ${isUser ? "justify-end" : "justify-start"}`}>
-      <div
-        className={`max-w-[80%] rounded-lg p-4 ${
-          isUser
-            ? "bg-primary text-primary-foreground"
-            : isError
-            ? "bg-destructive/10 border border-destructive/30"
-            : isToolUse || isToolResult
-            ? "bg-muted border border-border"
-            : "bg-card border border-border"
-        }`}
-      >
-        {!isUser && (
-          <div className="flex items-center gap-2 mb-2 text-xs text-muted-foreground">
-            {isSystem ? (
-              <>
-                <AlertCircle className="w-3 h-3" />
-                <span>System</span>
-              </>
-            ) : isToolUse ? (
-              <>
-                <Terminal className="w-3 h-3" />
-                <span>Tool Use</span>
-              </>
-            ) : isToolResult ? (
-              <>
-                <Terminal className="w-3 h-3" />
-                <span>Tool Result</span>
-              </>
-            ) : (
-              <>
-                <Terminal className="w-3 h-3" />
-                <span>Claude Code</span>
-              </>
-            )}
-          </div>
-        )}
-        <div className={`text-sm ${isToolUse || isToolResult ? "font-mono text-xs" : ""}`}>
-          {isToolUse || isToolResult ? (
-            <pre className="whitespace-pre-wrap break-words">{message.content}</pre>
-          ) : (
-            <Streamdown>{message.content}</Streamdown>
           )}
         </div>
-      </div>
+
+        {/* Content Area */}
+        <div className="flex-1 overflow-hidden">
+          {viewMode === "dashboard" ? (
+            <SessionDashboard
+              sessions={sessions}
+              worktrees={worktrees}
+              messages={messages}
+              streamingContent={streamingContent}
+              onSelectSession={handleSelectSession}
+              onStopSession={handleStopSession}
+            />
+          ) : (
+            activePanes.length > 0 ? (
+              <MultiPaneLayout
+                activePanes={activePanes}
+                sessions={sessions}
+                worktrees={worktrees}
+                messages={messages}
+                streamingContent={streamingContent}
+                onSendMessage={handleSendMessage}
+                onStopSession={handleStopSession}
+                onClosePane={handleClosePane}
+                onMaximizePane={handleMaximizePane}
+                maximizedPane={maximizedPane}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center">
+                <div className="text-center max-w-md">
+                  <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                    <Terminal className="w-8 h-8 text-primary" />
+                  </div>
+                  <h2 className="text-xl font-semibold mb-2">No Active Panes</h2>
+                  <p className="text-muted-foreground mb-6">
+                    Start a session from the sidebar to open a chat pane.
+                  </p>
+                  <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
+                    <div className="flex items-center gap-2">
+                      <Play className="w-4 h-4 text-primary" />
+                      <span>Start session</span>
+                    </div>
+                    <Separator orientation="vertical" className="h-4" />
+                    <div className="flex items-center gap-2">
+                      <Plus className="w-4 h-4 text-accent" />
+                      <span>Create worktree</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          )}
+        </div>
+      </main>
     </div>
   );
 }
