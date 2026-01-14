@@ -289,18 +289,13 @@ export class ClaudeProcessManager extends EventEmitter {
           break;
 
         case "result":
-          // Final result - contains the complete response
-          if (event.result) {
-            console.log(`[Claude] Result: ${event.result.substring(0, 50)}...`);
-            const finalMessage: Message = {
-              id: nanoid(),
-              sessionId,
-              role: "assistant",
-              content: event.result,
-              timestamp: new Date(),
-              type: "text",
-            };
-            this.emit("message:received", finalMessage);
+          // Final result event - just log it, the actual content was already sent via "assistant" event
+          console.log(`[Claude] Result event received (subtype: ${event.subtype}, success: ${!event.is_error})`);
+          // Update session status to idle when result is received
+          const sessionInfo = this.sessions.get(sessionId);
+          if (sessionInfo) {
+            sessionInfo.session.status = "idle";
+            this.emit("session:updated", sessionInfo.session);
           }
           break;
 
