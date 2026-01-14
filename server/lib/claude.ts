@@ -52,6 +52,9 @@ export class ClaudeProcessManager extends EventEmitter {
       throw new Error("Session not found");
     }
 
+    console.log(`[Claude] Sending message to session ${sessionId}: ${message.substring(0, 50)}...`);
+    console.log(`[Claude] Working directory: ${info.session.worktreePath}`);
+
     // Update session status
     info.session.status = "active";
     this.emit("session:updated", info.session);
@@ -67,8 +70,12 @@ export class ClaudeProcessManager extends EventEmitter {
     };
     this.emit("message:received", userMessage);
 
+    // Use CLAUDE_PATH env var or default to 'claude'
+    const claudePath = process.env.CLAUDE_PATH || "claude";
+    console.log(`[Claude] Using claude path: ${claudePath}`);
+
     // Spawn Claude Code process
-    const claudeProcess = spawn("claude", [
+    const claudeProcess = spawn(claudePath, [
       "-p", message,
       "--output-format", "stream-json",
       "--verbose",
@@ -79,14 +86,18 @@ export class ClaudeProcessManager extends EventEmitter {
         // Ensure Claude Code runs in non-interactive mode
         CI: "true",
       },
+      shell: true, // Use shell to resolve PATH correctly
     });
 
     info.process = claudeProcess;
     info.buffer = "";
 
+    console.log(`[Claude] Process spawned with PID: ${claudeProcess.pid}`);
+
     // Handle stdout (stream-json events)
     claudeProcess.stdout.on("data", (data: Buffer) => {
       const chunk = data.toString();
+      console.log(`[Claude] stdout: ${chunk.substring(0, 100)}...`);
       info.buffer += chunk;
 
       // Process complete JSON lines
@@ -102,6 +113,7 @@ export class ClaudeProcessManager extends EventEmitter {
 
     // Handle stderr
     claudeProcess.stderr.on("data", (data: Buffer) => {
+      console.log(`[Claude] stderr: ${data.toString()}`);
       const errorMessage: Message = {
         id: nanoid(),
         sessionId,
@@ -115,6 +127,7 @@ export class ClaudeProcessManager extends EventEmitter {
 
     // Handle process exit
     claudeProcess.on("close", (code) => {
+      console.log(`[Claude] Process exited with code: ${code}`);
       // Process any remaining buffer
       if (info.buffer.trim()) {
         this.processStreamEvent(sessionId, info.buffer);
@@ -127,6 +140,7 @@ export class ClaudeProcessManager extends EventEmitter {
 
     // Handle process error
     claudeProcess.on("error", (error) => {
+      console.error(`[Claude] Process error: ${error.message}`);
       const errorMessage: Message = {
         id: nanoid(),
         sessionId,
