@@ -50,6 +50,11 @@ export function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Debug: log messages count
+  useEffect(() => {
+    console.log("[ChatPane] Messages count:", messages.length, "Session:", session.id);
+  }, [messages, session.id]);
+
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
