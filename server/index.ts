@@ -1,8 +1,9 @@
 /**
  * Claude Code Manager - Server
- * 
+ *
  * Express server with Socket.IO for real-time communication.
  * Handles git worktree operations and Claude Code process management.
+ * Supports remote access via Cloudflare Tunnel.
  */
 
 import express from "express";
@@ -10,9 +11,26 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { fileURLToPath } from "url";
-import { listWorktrees, createWorktree, deleteWorktree, isGitRepository } from "./lib/git.js";
+import {
+  listWorktrees,
+  createWorktree,
+  deleteWorktree,
+  isGitRepository,
+} from "./lib/git.js";
 import { claudeManager } from "./lib/claude.js";
-import type { ServerToClientEvents, ClientToServerEvents, Message, Session } from "../shared/types.js";
+import { TunnelManager } from "./lib/tunnel.js";
+import { authManager } from "./lib/auth.js";
+import { printRemoteAccessInfo } from "./lib/qrcode.js";
+import type {
+  ServerToClientEvents,
+  ClientToServerEvents,
+  Message,
+  Session,
+} from "../shared/types.js";
+
+// Parse command line arguments
+const args = process.argv.slice(2);
+const enableRemote = args.includes("--remote") || args.includes("-r");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,7 +38,17 @@ const __dirname = path.dirname(__filename);
 async function startServer() {
   const app = express();
   const server = createServer(app);
-  
+  const port = Number(process.env.PORT) || 3001;
+
+  // Enable authentication if remote access is enabled
+  if (enableRemote) {
+    authManager.enable();
+    console.log("Remote access mode enabled - authentication required");
+  }
+
+  // Apply HTTP authentication middleware
+  app.use(authManager.httpMiddleware());
+
   // Initialize Socket.IO
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
     cors: {
@@ -28,6 +56,9 @@ async function startServer() {
       methods: ["GET", "POST"],
     },
   });
+
+  // Apply Socket.IO authentication middleware
+  io.use(authManager.socketMiddleware());
 
   // Serve static files from dist/public in production only
   // In development, Vite dev server handles static files
@@ -195,10 +226,45 @@ async function startServer() {
     });
   });
 
-  const port = process.env.PORT || 3001;
+  server.listen(port, async () => {
+    console.log(
+      `Claude Code Manager server running on http://localhost:${port}/`
+    );
 
-  server.listen(port, () => {
-    console.log(`Claude Code Manager server running on http://localhost:${port}/`);
+    // Start tunnel if remote access is enabled
+    if (enableRemote) {
+      console.log("Starting Cloudflare Tunnel...");
+      const tunnel = new TunnelManager(port);
+
+      try {
+        const publicUrl = await tunnel.start();
+        const authUrl = authManager.buildAuthUrl(publicUrl);
+        await printRemoteAccessInfo(authUrl, authManager.getToken());
+
+        // Handle tunnel events
+        tunnel.on("error", (error) => {
+          console.error("Tunnel error:", error.message);
+        });
+
+        tunnel.on("close", (code) => {
+          console.log(`Tunnel closed with code ${code}`);
+        });
+
+        // Cleanup tunnel on shutdown
+        const originalCleanup = () => {
+          tunnel.stop();
+        };
+
+        process.on("SIGTERM", originalCleanup);
+        process.on("SIGINT", originalCleanup);
+      } catch (error) {
+        console.error(
+          "Failed to start tunnel:",
+          error instanceof Error ? error.message : error
+        );
+        console.log("Continuing without remote access...");
+      }
+    }
   });
 
   // Graceful shutdown
