@@ -16,6 +16,7 @@
 | セッション管理 | ✅ 完了 | 起動、停止、状態管理 |
 | チャットUI | ✅ 完了 | メッセージ表示、入力フォーム |
 | Socket.IO通信 | ✅ 完了 | リアルタイムストリーミング |
+| リモートアクセス | ✅ 完了 | Cloudflare Tunnel + QRコード |
 | Claude Agent SDK統合 | ⚠️ 部分的 | 基本動作するが会話継続に課題 |
 
 ### 未完了・改善が必要な機能
@@ -482,6 +483,65 @@ socket.on('claude_message', (msg) => {
 - [ ] マルチターン会話のテスト
 - [ ] セッション再開のテスト
 - [ ] エラーハンドリングのテスト
+
+---
+
+## リモートアクセス機能
+
+### 概要
+
+Cloudflare Tunnelを使用したリモートアクセス機能。スマートフォンや外部デバイスからClaude Code Managerにアクセスできる。
+
+### 使用方法
+
+```bash
+# ローカルのみ（デフォルト）
+pnpm dev:server
+
+# リモートアクセス有効
+pnpm dev:remote
+
+# 本番環境
+pnpm start:remote
+```
+
+### 前提条件
+
+`cloudflared` がインストールされている必要がある:
+
+```bash
+# macOS
+brew install cloudflared
+
+# Linux
+# https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+```
+
+### 仕組み
+
+1. `--remote` フラグで起動するとトークン認証が有効化
+2. Cloudflare Tunnelが自動起動し、公開URLを生成
+3. ターミナルにQRコードとURLが表示される
+4. スマホでQRコードをスキャン、または URLをブラウザで開く
+
+### セキュリティ
+
+- **トークン認証**: ランダム生成されたトークンがURLに含まれる
+- **HTTPS**: Cloudflare Tunnelが自動的にHTTPSを提供
+- **一時URL**: `*.trycloudflare.com` ドメインを使用（サーバー再起動でURL変更）
+
+### 関連ファイル
+
+```
+server/lib/
+├── tunnel.ts   # Cloudflare Tunnel管理
+├── auth.ts     # トークン認証
+└── qrcode.ts   # QRコード生成
+```
+
+### 参考
+
+- [claude-code-remote](https://github.com/yazinsai/claude-code-remote) - 同様のリモートアクセス実装
 
 ---
 
