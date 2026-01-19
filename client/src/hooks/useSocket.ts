@@ -29,6 +29,9 @@ interface UseSocketReturn {
   isConnected: boolean;
   error: string | null;
 
+  // Allowed repositories (from --repos option)
+  allowedRepos: string[];
+
   // Repository
   repoPath: string | null;
   selectRepo: (path: string) => void;
@@ -55,7 +58,8 @@ export function useSocket(): UseSocketReturn {
   const socketRef = useRef<TypedSocket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+  const [allowedRepos, setAllowedRepos] = useState<string[]>([]);
+
   const [repoPath, setRepoPath] = useState<string | null>(null);
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [sessions, setSessions] = useState<Map<string, Session>>(new Map());
@@ -93,6 +97,12 @@ export function useSocket(): UseSocketReturn {
       console.error("Socket connection error:", err);
       setError("Failed to connect to server");
       setIsConnected(false);
+    });
+
+    // Allowed repositories list (from --repos option)
+    socket.on("repos:list", (repos) => {
+      console.log("Allowed repos received:", repos);
+      setAllowedRepos(repos);
     });
 
     // Repository events
@@ -313,6 +323,7 @@ export function useSocket(): UseSocketReturn {
   return {
     isConnected,
     error,
+    allowedRepos,
     repoPath,
     selectRepo,
     worktrees,

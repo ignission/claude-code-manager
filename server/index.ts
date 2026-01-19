@@ -32,6 +32,17 @@ import type {
 const args = process.argv.slice(2);
 const enableRemote = args.includes("--remote") || args.includes("-r");
 
+// Parse --repos option: --repos /path1,/path2
+let allowedRepos: string[] = [];
+const reposIndex = args.findIndex((arg) => arg === "--repos");
+if (reposIndex !== -1 && args[reposIndex + 1]) {
+  allowedRepos = args[reposIndex + 1]
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  console.log(`Allowed repositories: ${allowedRepos.join(", ")}`);
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -76,20 +87,29 @@ async function startServer() {
   io.on("connection", (socket) => {
     console.log(`Client connected: ${socket.id}`);
 
+    // Send allowed repos list to client on connection
+    socket.emit("repos:list", allowedRepos);
+
     // Store message history per session
     const messageHistory: Map<string, Message[]> = new Map();
 
     // ===== Repository Commands =====
-    
+
     socket.on("repo:select", async (repoPath) => {
       try {
+        // Check if repo is in allowed list (if --repos was specified)
+        if (allowedRepos.length > 0 && !allowedRepos.includes(repoPath)) {
+          socket.emit("repo:error", "Repository not in allowed list");
+          return;
+        }
+
         const isRepo = await isGitRepository(repoPath);
         if (!isRepo) {
           socket.emit("repo:error", "Not a valid git repository");
           return;
         }
         socket.emit("repo:set", repoPath);
-        
+
         // Automatically list worktrees
         const worktrees = await listWorktrees(repoPath);
         socket.emit("worktree:list", worktrees);

@@ -24,6 +24,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -73,6 +80,7 @@ export default function Dashboard() {
   const {
     isConnected,
     error,
+    allowedRepos,
     repoPath,
     selectRepo,
     worktrees,
@@ -218,7 +226,22 @@ export default function Dashboard() {
               <RefreshCw className="w-5 h-5 md:w-4 md:h-4" />
             </Button>
           </div>
+        ) : allowedRepos.length > 0 ? (
+          /* --repos オプションが指定された場合: Selectドロップダウンを表示 */
+          <Select onValueChange={selectRepo}>
+            <SelectTrigger className="w-full mt-2 font-mono h-12 md:h-10 text-base md:text-sm">
+              <SelectValue placeholder="リポジトリを選択..." />
+            </SelectTrigger>
+            <SelectContent>
+              {allowedRepos.map((repo) => (
+                <SelectItem key={repo} value={repo} className="font-mono">
+                  {repo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : (
+          /* --repos オプションなしの場合: 自由入力Dialog */
           <Dialog open={isSelectRepoOpen} onOpenChange={setIsSelectRepoOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" className="w-full mt-2 justify-start gap-2 h-12 md:h-10 text-base md:text-sm">

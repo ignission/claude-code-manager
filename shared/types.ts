@@ -43,6 +43,9 @@ export interface ClaudeStreamEvent {
 
 // WebSocket event types
 export interface ServerToClientEvents {
+  // Repository events
+  "repos:list": (repos: string[]) => void;
+
   // Worktree events
   "worktree:list": (worktrees: Worktree[]) => void;
   "worktree:created": (worktree: Worktree) => void;
