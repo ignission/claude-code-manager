@@ -59,6 +59,13 @@ export class TmuxManager extends EventEmitter {
           const id = name.replace(this.SESSION_PREFIX, "");
           const cwd = this.getTmuxSessionCwd(name);
 
+          // 既存セッションにもマウスモードを有効にする
+          try {
+            execSync(`tmux set-option -t "${name}" mouse on`, { stdio: "pipe" });
+          } catch {
+            // 設定に失敗しても続行
+          }
+
           this.sessions.set(id, {
             id,
             tmuxSessionName: name,
@@ -101,6 +108,11 @@ export class TmuxManager extends EventEmitter {
       // tmuxセッションを作成（detached mode）してclaudeを起動
       execSync(
         `tmux new-session -d -s "${tmuxSessionName}" -c "${worktreePath}" "claude --dangerously-skip-permissions"`,
+        { stdio: "pipe" }
+      );
+      // マウスモードを有効にしてスクロールを可能にする
+      execSync(
+        `tmux set-option -t "${tmuxSessionName}" mouse on`,
         { stdio: "pipe" }
       );
     } catch (error) {
