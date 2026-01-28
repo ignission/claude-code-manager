@@ -73,6 +73,7 @@ import { useSocket, type TtydSession } from "@/hooks/useSocket";
 import { MultiPaneLayout } from "@/components/MultiPaneLayout";
 import { SessionDashboard } from "@/components/SessionDashboard";
 import { RepoSelectDialog } from "@/components/RepoSelectDialog";
+import { isSessionBelongsToRepo } from "@/utils/sessionUtils";
 import type { Worktree } from "../../../shared/types";
 
 type ViewMode = "dashboard" | "panes";
@@ -103,8 +104,23 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
-  const [activePanes, setActivePanes] = useState<string[]>([]);
+  const [activePanesPerRepo, setActivePanesPerRepo] = useState<Map<string, string[]>>(new Map());
   const [maximizedPane, setMaximizedPane] = useState<string | null>(null);
+
+  // 現在のリポジトリのactivePanesを取得
+  const activePanes = repoPath ? (activePanesPerRepo.get(repoPath) || []) : [];
+
+  // activePanesを更新するヘルパー関数
+  const setActivePanes = (updater: string[] | ((prev: string[]) => string[])) => {
+    if (!repoPath) return;
+    setActivePanesPerRepo((prev) => {
+      const newMap = new Map(prev);
+      const currentPanes = newMap.get(repoPath) || [];
+      const newPanes = typeof updater === 'function' ? updater(currentPanes) : updater;
+      newMap.set(repoPath, newPanes);
+      return newMap;
+    });
+  };
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
@@ -120,11 +136,14 @@ export default function Dashboard() {
 
   // リポジトリ切り替え時にビューをリセット
   useEffect(() => {
-    setActivePanes([]);
     setMaximizedPane(null);
     setSelectedWorktreeId(null);
-    setViewMode("dashboard");
-  }, [repoPath]);
+    // activePanesがあればpanesビューを維持、なければdashboardに
+    const currentPanes = repoPath ? (activePanesPerRepo.get(repoPath) || []) : [];
+    if (currentPanes.length === 0) {
+      setViewMode("dashboard");
+    }
+  }, [repoPath, activePanesPerRepo]);
 
   // Find session for a worktree
   const getSessionForWorktree = (worktreeId: string): TtydSession | undefined => {
@@ -207,15 +226,16 @@ export default function Dashboard() {
     sendKey(sessionId, key);
   };
 
-  // Auto-add new sessions to active panes
+  // Auto-add new sessions to active panes (現在のリポジトリに属するセッションのみ)
   useEffect(() => {
+    if (!repoPath) return;
     sessions.forEach((session, sessionId) => {
-      if (!activePanes.includes(sessionId)) {
+      if (isSessionBelongsToRepo(session, repoPath) && !activePanes.includes(sessionId)) {
         setActivePanes((prev) => [...prev, sessionId]);
         setViewMode("panes");
       }
     });
-  }, [sessions]);
+  }, [sessions, repoPath, activePanes]);
 
   // Sidebar content component for reuse
   const SidebarContent = () => (
@@ -640,11 +660,19 @@ export default function Dashboard() {
               onSelectSession={handleSelectSession}
               onStopSession={handleStopSession}
             />
-          ) : (
-            activePanes.length > 0 ? (
+          ) : (() => {
+            // MultiPaneLayoutに渡す前に、現在のリポジトリに属するセッションのみをフィルタ
+            // また、activePanesに存在するセッションのみを表示
+            const filteredSessions = new Map(
+              Array.from(sessions.entries()).filter(([sessionId, session]) =>
+                repoPath && isSessionBelongsToRepo(session, repoPath) && activePanes.includes(sessionId)
+              )
+            );
+            const validActivePanes = activePanes.filter((id) => filteredSessions.has(id));
+            return validActivePanes.length > 0 ? (
               <MultiPaneLayout
-                activePanes={activePanes}
-                sessions={sessions}
+                activePanes={validActivePanes}
+                sessions={filteredSessions}
                 worktrees={worktrees}
                 onSendMessage={handleSendMessage}
                 onSendKey={handleSendKey}
@@ -676,8 +704,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            )
-          )}
+            );
+          })()}
         </div>
       </main>
     </div>

@@ -55,8 +55,10 @@ interface UseSocketReturn {
   scanRepos: (basePath: string) => void;
 
   // Repository
+  repoList: string[];
   repoPath: string | null;
   selectRepo: (path: string) => void;
+  removeRepo: (path: string) => void;
 
   // Worktrees
   worktrees: Worktree[];
