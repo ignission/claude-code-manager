@@ -611,12 +611,7 @@ export default function Dashboard() {
         <div className="flex-1 overflow-hidden">
           {viewMode === "dashboard" ? (
             <SessionDashboard
-              sessions={new Map(
-                Array.from(sessions.entries()).filter(([_, session]) =>
-                  worktrees.some((wt) => wt.id === session.worktreeId)
-                )
-              )}
-              worktrees={worktrees}
+              sessions={sessions}
               onSelectSession={handleSelectSession}
               onStopSession={handleStopSession}
             />
