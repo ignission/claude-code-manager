@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -63,7 +63,7 @@ import { useSocket, type TtydSession } from "@/hooks/useSocket";
 import { MultiPaneLayout } from "@/components/MultiPaneLayout";
 import { SessionDashboard } from "@/components/SessionDashboard";
 import { RepoSelectDialog } from "@/components/RepoSelectDialog";
-import { isSessionBelongsToRepo } from "@/utils/sessionUtils";
+import { isSessionBelongsToRepo, findRepoForSession } from "@/utils/sessionUtils";
 import type { Worktree } from "../../../shared/types";
 
 type ViewMode = "dashboard" | "panes";
@@ -182,9 +182,29 @@ export default function Dashboard() {
   };
 
   const handleSelectSession = (sessionId: string) => {
-    if (!activePanes.includes(sessionId)) {
-      setActivePanes((prev) => [...prev, sessionId]);
+    const session = sessions.get(sessionId);
+    if (!session) return;
+
+    // セッションが属するリポジトリを特定
+    const targetRepo = findRepoForSession(session, repoList);
+    if (targetRepo && targetRepo !== repoPath) {
+      // 別リポジトリの場合は切り替え
+      selectRepo(targetRepo);
     }
+
+    // activePanesPerRepoを直接更新（リポジトリ切り替え後でも正しく動作するように）
+    const targetRepoPath = targetRepo || repoPath;
+    if (targetRepoPath) {
+      setActivePanesPerRepo((prev) => {
+        const newMap = new Map(prev);
+        const currentPanes = newMap.get(targetRepoPath) || [];
+        if (!currentPanes.includes(sessionId)) {
+          newMap.set(targetRepoPath, [...currentPanes, sessionId]);
+        }
+        return newMap;
+      });
+    }
+
     setViewMode("panes");
   };
 
@@ -208,6 +228,17 @@ export default function Dashboard() {
         setViewMode("panes");
       }
     });
+  }, [sessions, repoPath, activePanes]);
+
+  // 現在のリポジトリに属し、かつ存在するセッションのみをフィルタ
+  const { filteredSessions, validActivePanes } = useMemo(() => {
+    const filtered = new Map(
+      Array.from(sessions.entries()).filter(([sessionId, session]) =>
+        repoPath && isSessionBelongsToRepo(session, repoPath) && activePanes.includes(sessionId)
+      )
+    );
+    const valid = activePanes.filter((id) => filtered.has(id));
+    return { filteredSessions: filtered, validActivePanes: valid };
   }, [sessions, repoPath, activePanes]);
 
   const SidebarContent = () => (
@@ -591,9 +622,9 @@ export default function Dashboard() {
               <TabsTrigger value="panes" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
                 <Columns2 className="w-4 h-4 md:w-4 md:h-4" />
                 <span className="hidden sm:inline">Panes</span>
-                {activePanes.length > 0 && (
+                {validActivePanes.length > 0 && (
                   <span className="ml-1 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                    {activePanes.length}
+                    {validActivePanes.length}
                   </span>
                 )}
               </TabsTrigger>
@@ -611,35 +642,23 @@ export default function Dashboard() {
         <div className="flex-1 overflow-hidden">
           {viewMode === "dashboard" ? (
             <SessionDashboard
-              sessions={new Map(
-                Array.from(sessions.entries()).filter(([_, session]) =>
-                  worktrees.some((wt) => wt.id === session.worktreeId)
-                )
-              )}
-              worktrees={worktrees}
+              sessions={sessions}
               onSelectSession={handleSelectSession}
               onStopSession={handleStopSession}
             />
-          ) : (() => {
-            const filteredSessions = new Map(
-              Array.from(sessions.entries()).filter(([sessionId, session]) =>
-                repoPath && isSessionBelongsToRepo(session, repoPath) && activePanes.includes(sessionId)
-              )
-            );
-            const validActivePanes = activePanes.filter((id) => filteredSessions.has(id));
-            return validActivePanes.length > 0 ? (
-              <MultiPaneLayout
-                activePanes={validActivePanes}
-                sessions={filteredSessions}
-                worktrees={worktrees}
-                onSendMessage={sendMessage}
-                onSendKey={sendKey}
-                onStopSession={handleStopSession}
-                onClosePane={handleClosePane}
-                onMaximizePane={handleMaximizePane}
-                maximizedPane={maximizedPane}
-              />
-            ) : (
+          ) : validActivePanes.length > 0 ? (
+            <MultiPaneLayout
+              activePanes={validActivePanes}
+              sessions={filteredSessions}
+              worktrees={worktrees}
+              onSendMessage={sendMessage}
+              onSendKey={sendKey}
+              onStopSession={handleStopSession}
+              onClosePane={handleClosePane}
+              onMaximizePane={handleMaximizePane}
+              maximizedPane={maximizedPane}
+            />
+          ) : (
               <div className="h-full flex items-center justify-center p-6">
                 <div className="text-center max-w-md">
                   <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
@@ -662,8 +681,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            );
-          })()}
+          )}
         </div>
       </main>
     </div>
