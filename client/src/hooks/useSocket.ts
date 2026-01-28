@@ -55,8 +55,10 @@ interface UseSocketReturn {
   scanRepos: (basePath: string) => void;
 
   // Repository
+  repoList: string[];
   repoPath: string | null;
   selectRepo: (path: string) => void;
+  removeRepo: (path: string) => void;
 
   // Worktrees
   worktrees: Worktree[];
@@ -191,22 +193,16 @@ export function useSocket(): UseSocketReturn {
     });
 
     // Session events (ttyd-based)
+    const updateSession = (session: TtydSession): void => {
+      setSessions((prev) => new Map(prev).set(session.id, session));
+    };
+
     socket.on("session:created", (session) => {
       console.log("[Socket] Session created:", session.id, "ttydUrl:", session.ttydUrl);
-      setSessions((prev) => {
-        const next = new Map(prev);
-        next.set(session.id, session);
-        return next;
-      });
+      updateSession(session);
     });
 
-    socket.on("session:updated", (session) => {
-      setSessions((prev) => {
-        const next = new Map(prev);
-        next.set(session.id, session);
-        return next;
-      });
-    });
+    socket.on("session:updated", updateSession);
 
     socket.on("session:stopped", (sessionId) => {
       setSessions((prev) => {
@@ -218,11 +214,7 @@ export function useSocket(): UseSocketReturn {
 
     socket.on("session:restored", (session) => {
       console.log("[Socket] Session restored:", session.id, "ttydUrl:", session.ttydUrl);
-      setSessions((prev) => {
-        const next = new Map(prev);
-        next.set(session.id, session);
-        return next;
-      });
+      updateSession(session);
     });
 
     socket.on("session:restore_failed", ({ worktreePath: _path, error: err }) => {
@@ -305,8 +297,6 @@ export function useSocket(): UseSocketReturn {
   }, []);
 
   const sendMessage = useCallback((sessionId: string, message: string) => {
-    // For ttyd approach, we just send the message to tmux
-    // No local message state management needed (ttyd handles display)
     socketRef.current?.emit("session:send", { sessionId, message });
   }, []);
 

@@ -45,7 +45,7 @@ export function MultiPaneLayout({
   maximizedPane,
 }: MultiPaneLayoutProps) {
   const isMobile = useIsMobile();
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>("split-2");
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("grid-4");
 
   // Force single pane on mobile
   const effectiveLayoutMode = isMobile ? "single" : layoutMode;
@@ -91,15 +91,26 @@ export function MultiPaneLayout({
       return "grid-cols-1";
     }
 
-    if (effectiveLayoutMode === "split-2" || paneCount === 2) {
+    if (effectiveLayoutMode === "split-2") {
       return "grid-cols-1 md:grid-cols-2";
     }
 
-    if (effectiveLayoutMode === "grid-4" || paneCount >= 3) {
-      return "grid-cols-1 md:grid-cols-2 xl:grid-cols-2";
+    // grid-4モード: ペイン数に応じてグリッドを調整
+    if (effectiveLayoutMode === "grid-4") {
+      if (paneCount <= 2) return "grid-cols-1 md:grid-cols-2";
+      if (paneCount <= 4) return "grid-cols-1 md:grid-cols-2";
+      if (paneCount <= 6) return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+      return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
     }
 
-    return "grid-cols-1";
+    return "grid-cols-1 md:grid-cols-2";
+  };
+
+  // 表示するペイン数を決定
+  const getMaxPanes = () => {
+    if (effectiveLayoutMode === "single") return 1;
+    if (effectiveLayoutMode === "split-2") return 2;
+    return visiblePanes.length; // grid-4モードでは全て表示
   };
 
   return (
@@ -144,8 +155,8 @@ export function MultiPaneLayout({
       </div>
 
       {/* Panes Grid */}
-      <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-hidden auto-rows-fr`}>
-        {visiblePanes.slice(0, effectiveLayoutMode === "grid-4" ? 4 : effectiveLayoutMode === "split-2" ? 2 : 1).map((sessionId) => {
+      <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-auto auto-rows-fr`}>
+        {visiblePanes.slice(0, getMaxPanes()).map((sessionId) => {
           const session = sessions.get(sessionId);
           if (!session) return null;
 
@@ -168,9 +179,9 @@ export function MultiPaneLayout({
       </div>
 
       {/* Hidden Panes Indicator */}
-      {visiblePanes.length > (effectiveLayoutMode === "grid-4" ? 4 : effectiveLayoutMode === "split-2" ? 2 : 1) && (
+      {visiblePanes.length > getMaxPanes() && (
         <div className="h-10 md:h-8 border-t border-border flex items-center justify-center text-sm md:text-xs text-muted-foreground shrink-0">
-          +{visiblePanes.length - (effectiveLayoutMode === "grid-4" ? 4 : effectiveLayoutMode === "split-2" ? 2 : 1)} more session(s) hidden
+          +{visiblePanes.length - getMaxPanes()} more session(s) hidden
         </div>
       )}
     </div>

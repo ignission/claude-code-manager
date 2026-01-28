@@ -1,12 +1,3 @@
-/**
- * Dashboard Page - Claude Code Manager
- * 
- * Design: Terminal-Inspired Dark Mode
- * - Left sidebar: Worktree list with status indicators
- * - Right main area: Multi-pane view or dashboard overview
- * - Real-time communication via Socket.IO
- */
-
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -58,7 +49,6 @@ import {
   MessageSquare,
   Terminal,
   Settings,
-  Send,
   Wifi,
   WifiOff,
   RefreshCw,
@@ -73,6 +63,7 @@ import { useSocket, type TtydSession } from "@/hooks/useSocket";
 import { MultiPaneLayout } from "@/components/MultiPaneLayout";
 import { SessionDashboard } from "@/components/SessionDashboard";
 import { RepoSelectDialog } from "@/components/RepoSelectDialog";
+import { isSessionBelongsToRepo } from "@/utils/sessionUtils";
 import type { Worktree } from "../../../shared/types";
 
 type ViewMode = "dashboard" | "panes";
@@ -103,33 +94,42 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("dashboard");
-  const [activePanes, setActivePanes] = useState<string[]>([]);
+  const [activePanesPerRepo, setActivePanesPerRepo] = useState<Map<string, string[]>>(new Map());
   const [maximizedPane, setMaximizedPane] = useState<string | null>(null);
+
+  // 現在のリポジトリのactivePanesを取得
+  const activePanes = repoPath ? (activePanesPerRepo.get(repoPath) || []) : [];
+
+  // activePanesを更新するヘルパー関数
+  const setActivePanes = (updater: string[] | ((prev: string[]) => string[])) => {
+    if (!repoPath) return;
+    setActivePanesPerRepo((prev) => {
+      const newMap = new Map(prev);
+      const currentPanes = newMap.get(repoPath) || [];
+      const newPanes = typeof updater === 'function' ? updater(currentPanes) : updater;
+      newMap.set(repoPath, newPanes);
+      return newMap;
+    });
+  };
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState("");
   const [baseBranch, setBaseBranch] = useState("");
 
-  // Show error toast when error changes
   useEffect(() => {
-    if (error) {
-      toast.error(error);
-    }
+    if (error) toast.error(error);
   }, [error]);
 
-  // リポジトリ切り替え時にビューをリセット
   useEffect(() => {
-    setActivePanes([]);
     setMaximizedPane(null);
     setSelectedWorktreeId(null);
-    setViewMode("dashboard");
-  }, [repoPath]);
+    const currentPanes = repoPath ? (activePanesPerRepo.get(repoPath) || []) : [];
+    setViewMode(currentPanes.length > 0 ? "panes" : "dashboard");
+  }, [repoPath, activePanesPerRepo]);
 
-  // Find session for a worktree
   const getSessionForWorktree = (worktreeId: string): TtydSession | undefined => {
-    const sessionsArray = Array.from(sessions.values());
-    return sessionsArray.find((s) => s.worktreeId === worktreeId);
+    return Array.from(sessions.values()).find((s) => s.worktreeId === worktreeId);
   };
 
   const handleSelectRepo = (path: string) => {
@@ -199,33 +199,23 @@ export default function Dashboard() {
     setMaximizedPane(maximizedPane === sessionId ? null : sessionId);
   };
 
-  const handleSendMessage = (sessionId: string, message: string) => {
-    sendMessage(sessionId, message);
-  };
 
-  const handleSendKey = (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n") => {
-    sendKey(sessionId, key);
-  };
-
-  // Auto-add new sessions to active panes
   useEffect(() => {
+    if (!repoPath) return;
     sessions.forEach((session, sessionId) => {
-      if (!activePanes.includes(sessionId)) {
+      if (isSessionBelongsToRepo(session, repoPath) && !activePanes.includes(sessionId)) {
         setActivePanes((prev) => [...prev, sessionId]);
         setViewMode("panes");
       }
     });
-  }, [sessions]);
+  }, [sessions, repoPath, activePanes]);
 
-  // Sidebar content component for reuse
   const SidebarContent = () => (
     <>
-      {/* Repository List */}
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-xs text-muted-foreground uppercase tracking-wider">Repositories</Label>
           {allowedRepos.length > 0 ? (
-            /* --repos オプションが指定された場合: Selectドロップダウン */
             <Select onValueChange={selectRepo} value={repoPath || undefined}>
               <SelectTrigger className="w-auto h-8 text-xs gap-1">
                 <Plus className="w-3 h-3" />
@@ -239,7 +229,6 @@ export default function Dashboard() {
               </SelectContent>
             </Select>
           ) : (
-            /* --repos オプションなしの場合: ダイアログで追加 */
             <RepoSelectDialog
               isOpen={isSelectRepoOpen}
               onOpenChange={setIsSelectRepoOpen}
@@ -251,7 +240,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* 登録済みリポジトリ一覧 */}
         {repoList.length > 0 ? (
           <div className="space-y-1">
             {repoList.map((repo) => {
@@ -313,7 +301,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Worktrees Section */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -514,7 +501,6 @@ export default function Dashboard() {
         </ScrollArea>
       </div>
 
-      {/* Footer */}
       <div className="p-4 border-t border-sidebar-border">
         <Button
           variant="ghost"
@@ -530,7 +516,6 @@ export default function Dashboard() {
 
   return (
     <div className="h-screen flex flex-col md:flex-row bg-background">
-      {/* Mobile Header */}
       {isMobile && (
         <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
           <div className="flex items-center gap-3">
@@ -569,10 +554,8 @@ export default function Dashboard() {
         </header>
       )}
 
-      {/* Desktop Sidebar */}
       {!isMobile && (
         <aside className="w-80 border-r border-border flex flex-col bg-sidebar shrink-0">
-          {/* Header */}
           <div className="p-4 border-b border-sidebar-border">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -597,9 +580,7 @@ export default function Dashboard() {
         </aside>
       )}
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
-        {/* View Mode Tabs */}
         <div className="h-14 md:h-12 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
           <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
             <TabsList className="bg-sidebar-accent h-10 md:h-9">
@@ -627,7 +608,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-hidden">
           {viewMode === "dashboard" ? (
             <SessionDashboard
@@ -640,14 +620,20 @@ export default function Dashboard() {
               onSelectSession={handleSelectSession}
               onStopSession={handleStopSession}
             />
-          ) : (
-            activePanes.length > 0 ? (
+          ) : (() => {
+            const filteredSessions = new Map(
+              Array.from(sessions.entries()).filter(([sessionId, session]) =>
+                repoPath && isSessionBelongsToRepo(session, repoPath) && activePanes.includes(sessionId)
+              )
+            );
+            const validActivePanes = activePanes.filter((id) => filteredSessions.has(id));
+            return validActivePanes.length > 0 ? (
               <MultiPaneLayout
-                activePanes={activePanes}
-                sessions={sessions}
+                activePanes={validActivePanes}
+                sessions={filteredSessions}
                 worktrees={worktrees}
-                onSendMessage={handleSendMessage}
-                onSendKey={handleSendKey}
+                onSendMessage={sendMessage}
+                onSendKey={sendKey}
                 onStopSession={handleStopSession}
                 onClosePane={handleClosePane}
                 onMaximizePane={handleMaximizePane}
@@ -676,8 +662,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-            )
-          )}
+            );
+          })()}
         </div>
       </main>
     </div>
