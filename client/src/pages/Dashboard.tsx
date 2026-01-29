@@ -225,7 +225,7 @@ export default function Dashboard() {
   }, [sessions, repoPath, activePanes]);
 
   const SidebarContent = () => (
-    <>
+    <div className="flex-1 flex flex-col overflow-hidden">
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-2">
           <Label className="text-xs text-muted-foreground uppercase tracking-wider">Repositories</Label>
@@ -254,65 +254,67 @@ export default function Dashboard() {
           )}
         </div>
 
-        {repoList.length > 0 ? (
-          <div className="space-y-1">
-            {repoList.map((repo) => {
-              const isSelected = repo === repoPath;
-              const repoName = repo.split("/").pop() || repo;
-              return (
-                <div
-                  key={repo}
-                  className={`group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${
-                    isSelected
-                      ? "bg-primary/20 border border-primary/30"
-                      : "hover:bg-sidebar-accent"
-                  }`}
-                  onClick={() => selectRepo(repo)}
-                >
-                  <FolderOpen className={`w-4 h-4 shrink-0 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className={`text-sm font-medium truncate ${isSelected ? "text-primary" : "text-sidebar-foreground"}`}>
-                      {repoName}
+        <div className="max-h-[200px] overflow-y-auto">
+          {repoList.length > 0 ? (
+            <div className="space-y-1">
+              {repoList.map((repo) => {
+                const isSelected = repo === repoPath;
+                const repoName = repo.split("/").pop() || repo;
+                return (
+                  <div
+                    key={repo}
+                    className={`group flex items-center gap-2 p-2 rounded-md cursor-pointer transition-colors ${
+                      isSelected
+                        ? "bg-primary/20 border border-primary/30"
+                        : "hover:bg-sidebar-accent"
+                    }`}
+                    onClick={() => selectRepo(repo)}
+                  >
+                    <FolderOpen className={`w-4 h-4 shrink-0 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-medium truncate ${isSelected ? "text-primary" : "text-sidebar-foreground"}`}>
+                        {repoName}
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono truncate">
+                        {repo}
+                      </div>
                     </div>
-                    <div className="text-xs text-muted-foreground font-mono truncate">
-                      {repo}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {isSelected && (
+                    <div className="flex items-center gap-1">
+                      {isSelected && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            refreshWorktrees();
+                          }}
+                        >
+                          <RefreshCw className="w-3 h-3" />
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
                         onClick={(e) => {
                           e.stopPropagation();
-                          refreshWorktrees();
+                          removeRepo(repo);
                         }}
                       >
-                        <RefreshCw className="w-3 h-3" />
+                        <Trash2 className="w-3 h-3" />
                       </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeRepo(repo);
-                      }}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </Button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="text-sm text-muted-foreground text-center py-4">
-            リポジトリを追加してください
-          </div>
-        )}
+                );
+              })}
+            </div>
+          ) : (
+            <div className="text-sm text-muted-foreground text-center py-4">
+              リポジトリを追加してください
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -475,7 +477,7 @@ export default function Dashboard() {
           Settings
         </Button>
       </div>
-    </>
+    </div>
   );
 
   return (
@@ -489,8 +491,8 @@ export default function Dashboard() {
                   <Menu className="w-6 h-6" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[85%] max-w-[320px] p-0 flex flex-col bg-sidebar">
-                <SheetHeader className="p-4 border-b border-sidebar-border">
+              <SheetContent side="left" className="w-[85%] max-w-[320px] p-0 flex flex-col bg-sidebar h-full">
+                <SheetHeader className="p-4 border-b border-sidebar-border shrink-0">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
                       <Terminal className="w-5 h-5 text-primary" />
@@ -498,9 +500,7 @@ export default function Dashboard() {
                     <SheetTitle className="text-sidebar-foreground">Claude Code Manager</SheetTitle>
                   </div>
                 </SheetHeader>
-                <div className="flex-1 flex flex-col overflow-hidden">
-                  <SidebarContent />
-                </div>
+                <SidebarContent />
               </SheetContent>
             </Sheet>
             <div className="flex items-center gap-2">
@@ -519,7 +519,7 @@ export default function Dashboard() {
       )}
 
       {!isMobile && (
-        <aside className="w-80 border-r border-border flex flex-col bg-sidebar shrink-0">
+        <aside className="w-80 h-screen border-r border-border flex flex-col bg-sidebar shrink-0">
           <div className="p-4 border-b border-sidebar-border">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
