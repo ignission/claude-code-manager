@@ -111,7 +111,7 @@ export function RepoSelectDialog({
           {scannedRepos.length > 0 && (
             <div className="space-y-2 flex-1 overflow-hidden flex flex-col">
               <Label>検出されたリポジトリ ({scannedRepos.length})</Label>
-              <ScrollArea className="flex-1 border rounded-md">
+              <div className="flex-1 border rounded-md overflow-y-auto max-h-[300px]">
                 <div className="p-2 space-y-1">
                   {scannedRepos.map((repo) => (
                     <div
@@ -133,7 +133,7 @@ export function RepoSelectDialog({
                     </div>
                   ))}
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           )}
 
