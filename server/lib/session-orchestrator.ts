@@ -45,7 +45,7 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
-   * 前回の実行から残っているセッションを復元
+   * 前回の実行から残っているセッションを復元（ttydも起動）
    */
   private restoreExistingSessions(): void {
     const tmuxSessions = tmuxManager.getAllSessions();
@@ -58,6 +58,15 @@ export class SessionOrchestrator extends EventEmitter {
           `[Orchestrator] Restored session: ${tmuxSession.tmuxSessionName} -> ${dbSession.id}`
         );
       }
+
+      // ttydも自動起動
+      ttydManager.startInstance(tmuxSession.id, tmuxSession.tmuxSessionName)
+        .then(() => {
+          console.log(`[Orchestrator] Started ttyd for restored session: ${tmuxSession.id}`);
+        })
+        .catch((err) => {
+          console.error(`[Orchestrator] Failed to start ttyd for ${tmuxSession.id}:`, err.message);
+        });
     }
   }
 
