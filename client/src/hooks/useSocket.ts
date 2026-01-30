@@ -73,6 +73,18 @@ interface UseSocketReturn {
   sendMessage: (sessionId: string, message: string) => void;
   sendKey: (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n") => void;
   restoreSession: (worktreePath: string) => void;
+
+  // Tunnel
+  tunnelActive: boolean;
+  tunnelUrl: string | null;
+  tunnelToken: string | null;
+  tunnelLoading: boolean;
+  startTunnel: (port?: number) => void;
+  stopTunnel: () => void;
+
+  // Ports
+  listeningPorts: Array<{ port: number; process: string; pid: number }>;
+  scanPorts: () => void;
 }
 
 export function useSocket(): UseSocketReturn {
@@ -92,6 +104,15 @@ export function useSocket(): UseSocketReturn {
   });
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [sessions, setSessions] = useState<Map<string, TtydSession>>(new Map());
+
+  // Tunnel state
+  const [tunnelActive, setTunnelActive] = useState(false);
+  const [tunnelUrl, setTunnelUrl] = useState<string | null>(null);
+  const [tunnelToken, setTunnelToken] = useState<string | null>(null);
+  const [tunnelLoading, setTunnelLoading] = useState(false);
+
+  // Ports state
+  const [listeningPorts, setListeningPorts] = useState<Array<{ port: number; process: string; pid: number }>>([]);
 
   // Initialize socket connection
   useEffect(() => {
@@ -235,8 +256,44 @@ export function useSocket(): UseSocketReturn {
       }
     });
 
+    // Tunnel events
+    socket.on("tunnel:started", ({ url, token }) => {
+      console.log("[Socket] Tunnel started:", url);
+      setTunnelActive(true);
+      setTunnelUrl(url);
+      setTunnelToken(token);
+      setTunnelLoading(false);
+    });
+
+    socket.on("tunnel:stopped", () => {
+      console.log("[Socket] Tunnel stopped");
+      setTunnelActive(false);
+      setTunnelUrl(null);
+      setTunnelToken(null);
+      setTunnelLoading(false);
+    });
+
+    socket.on("tunnel:error", ({ message }) => {
+      console.error("[Socket] Tunnel error:", message);
+      setError(message);
+      setTunnelLoading(false);
+    });
+
+    socket.on("tunnel:status", ({ active, url, token }) => {
+      console.log("[Socket] Tunnel status:", { active, url });
+      setTunnelActive(active);
+      setTunnelUrl(url ?? null);
+      setTunnelToken(token ?? null);
+    });
+
+    // Ports events
+    socket.on("ports:list", ({ ports }) => {
+      setListeningPorts(ports);
+    });
+
     // Cleanup on unmount
     return () => {
+      socket.off("ports:list");
       socket.disconnect();
     };
   }, []);
@@ -311,6 +368,22 @@ export function useSocket(): UseSocketReturn {
     socketRef.current?.emit("session:restore", worktreePath);
   }, []);
 
+  // Tunnel actions
+  const startTunnel = useCallback((port?: number) => {
+    setTunnelLoading(true);
+    socketRef.current?.emit("tunnel:start", port ? { port } : undefined);
+  }, []);
+
+  const stopTunnel = useCallback(() => {
+    setTunnelLoading(true);
+    socketRef.current?.emit("tunnel:stop");
+  }, []);
+
+  // Ports actions
+  const scanPorts = useCallback(() => {
+    socketRef.current?.emit("ports:scan");
+  }, []);
+
   return {
     isConnected,
     error,
@@ -332,5 +405,14 @@ export function useSocket(): UseSocketReturn {
     sendMessage,
     sendKey,
     restoreSession,
+    tunnelActive,
+    tunnelUrl,
+    tunnelToken,
+    tunnelLoading,
+    startTunnel,
+    stopTunnel,
+    // Ports
+    listeningPorts,
+    scanPorts,
   };
 }

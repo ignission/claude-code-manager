@@ -72,6 +72,16 @@ export class AuthManager {
   }
 
   /**
+   * Quick Tunnel（*.trycloudflare.com）経由のリクエストかどうかを判定
+   */
+  private isQuickTunnelRequest(host: string | undefined): boolean {
+    if (!host) return false;
+    // ポート番号を除去してホスト名を取得
+    const hostname = host.split(":")[0];
+    return hostname.endsWith(".trycloudflare.com");
+  }
+
+  /**
    * ホスト名がlocalhostかどうかを判定（プライベートヘルパー）
    */
   private isLocalhostHostname(host: string | undefined): boolean {
@@ -192,6 +202,7 @@ export class AuthManager {
 
   /**
    * HTTP認証用のExpressミドルウェア
+   * Quick Tunnel（*.trycloudflare.com）経由のアクセスのみ認証を要求
    */
   httpMiddleware() {
     return (req: Request, res: Response, next: NextFunction) => {
@@ -199,9 +210,12 @@ export class AuthManager {
         return next();
       }
 
-      // ローカルアクセスは認証スキップ
-      if (this.isLocalRequest(req)) {
-        return next();
+      // Quick Tunnel経由のアクセスのみ認証を要求
+      // X-Forwarded-Host があればプロキシ経由なのでそちらを優先
+      const host =
+        (req.headers["x-forwarded-host"] as string) || req.headers.host;
+      if (!this.isQuickTunnelRequest(host)) {
+        return next(); // Quick Tunnel以外は認証スキップ
       }
 
       // 静的アセットは認証スキップ
@@ -223,6 +237,7 @@ export class AuthManager {
 
   /**
    * WebSocket認証用のSocket.IOミドルウェア
+   * Quick Tunnel（*.trycloudflare.com）経由のアクセスのみ認証を要求
    */
   socketMiddleware() {
     return (socket: Socket, next: (err?: Error) => void) => {
@@ -230,9 +245,11 @@ export class AuthManager {
         return next();
       }
 
-      // ローカルアクセスは認証スキップ
-      if (this.isLocalSocketRequest(socket)) {
-        return next();
+      // Quick Tunnel経由のアクセスのみ認証を要求
+      const headers = socket.handshake.headers;
+      const host = (headers["x-forwarded-host"] as string) || headers.host;
+      if (!this.isQuickTunnelRequest(host)) {
+        return next(); // Quick Tunnel以外は認証スキップ
       }
 
       // handshakeのauthまたはqueryからトークンを取得

@@ -83,6 +83,15 @@ export interface ServerToClientEvents {
   // Repository events
   "repo:set": (path: string) => void;
   "repo:error": (error: string) => void;
+
+  // Tunnel events
+  "tunnel:started": (data: { url: string; token: string }) => void;
+  "tunnel:stopped": () => void;
+  "tunnel:error": (data: { message: string }) => void;
+  "tunnel:status": (data: { active: boolean; url?: string; token?: string }) => void;
+
+  // Port events
+  "ports:list": (data: { ports: Array<{ port: number; process: string; pid: number }> }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -101,4 +110,11 @@ export interface ClientToServerEvents {
   "repo:scan": (basePath: string) => void;
   "repo:select": (path: string) => void;
   "repo:browse": () => void;
+
+  // Tunnel commands
+  "tunnel:start": (data?: { port?: number }) => void;
+  "tunnel:stop": () => void;
+
+  // Port commands
+  "ports:scan": () => void;
 }

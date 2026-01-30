@@ -30,6 +30,16 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { QRCodeSVG } from "qrcode.react";
+import {
   GitBranch,
   Plus,
   FolderOpen,
@@ -46,6 +56,9 @@ import {
   LayoutGrid,
   Columns2,
   Menu,
+  Globe,
+  Copy,
+  Loader2,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/useMobile";
 import { toast } from "sonner";
@@ -86,6 +99,14 @@ export default function Dashboard() {
     stopSession,
     sendMessage,
     sendKey,
+    tunnelActive,
+    tunnelUrl,
+    tunnelToken,
+    tunnelLoading,
+    startTunnel,
+    stopTunnel,
+    listeningPorts,
+    scanPorts,
   } = useSocket();
 
   const isMobile = useIsMobile();
@@ -159,10 +180,29 @@ export default function Dashboard() {
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
+  const [showTunnelDialog, setShowTunnelDialog] = useState(false);
+  const [selectedPort, setSelectedPort] = useState<number | null>(null);
+  const [showPortSelector, setShowPortSelector] = useState(false);
+  const prevTunnelActive = useRef(false);
+
+  const copyToClipboard = (text: string | null) => {
+    if (text) {
+      navigator.clipboard.writeText(text);
+      toast.success("Copied to clipboard");
+    }
+  };
 
   useEffect(() => {
     if (error) toast.error(error);
   }, [error]);
+
+  // トンネル接続成功時に自動でダイアログを表示
+  useEffect(() => {
+    if (tunnelActive && tunnelUrl && !prevTunnelActive.current) {
+      setShowTunnelDialog(true);
+    }
+    prevTunnelActive.current = tunnelActive;
+  }, [tunnelActive, tunnelUrl]);
 
   useEffect(() => {
     setMaximizedPane(null);
@@ -515,7 +555,27 @@ export default function Dashboard() {
         </ScrollArea>
       </div>
 
-      <div className="p-4 border-t border-sidebar-border">
+      <div className="p-4 border-t border-sidebar-border space-y-2">
+        <Button
+          variant={tunnelActive ? "default" : "outline"}
+          className="w-full justify-start gap-2 h-12 md:h-10 text-base md:text-sm"
+          onClick={() => {
+            if (tunnelActive) {
+              setShowTunnelDialog(true);
+            } else {
+              scanPorts();
+              setShowPortSelector(true);
+            }
+          }}
+          disabled={tunnelLoading}
+        >
+          {tunnelLoading ? (
+            <Loader2 className="w-5 h-5 md:w-4 md:h-4 animate-spin" />
+          ) : (
+            <Globe className="w-5 h-5 md:w-4 md:h-4" />
+          )}
+          {tunnelActive ? "Tunnel Active" : "Quick Tunnel"}
+        </Button>
         <Button
           variant="ghost"
           className="w-full justify-start gap-2 text-muted-foreground h-12 md:h-10 text-base md:text-sm"
@@ -676,6 +736,140 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {/* ポート選択ダイアログ */}
+      <Dialog open={showPortSelector} onOpenChange={setShowPortSelector}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Quick Tunnel</DialogTitle>
+            <DialogDescription>
+              公開するポートを選択してください
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* ポート選択 */}
+            <div className="space-y-2">
+              <Label>Port</Label>
+              <Select
+                value={selectedPort?.toString() ?? ""}
+                onValueChange={(v) => setSelectedPort(Number(v))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="ポートを選択..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {listeningPorts.map((p) => (
+                    <SelectItem key={p.port} value={p.port.toString()}>
+                      {p.port} ({p.process})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* カスタムポート入力 */}
+            <div className="space-y-2">
+              <Label>またはポート番号を入力</Label>
+              <Input
+                type="number"
+                placeholder="3000"
+                value={selectedPort ?? ""}
+                onChange={(e) => setSelectedPort(e.target.value ? Number(e.target.value) : null)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPortSelector(false)}>
+              キャンセル
+            </Button>
+            <Button
+              onClick={() => {
+                if (selectedPort) {
+                  startTunnel(selectedPort);
+                  setShowPortSelector(false);
+                }
+              }}
+              disabled={!selectedPort || tunnelLoading}
+            >
+              {tunnelLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Start Tunnel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Tunnel Dialog */}
+      <Dialog open={showTunnelDialog} onOpenChange={setShowTunnelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Quick Tunnel</DialogTitle>
+            <DialogDescription>
+              外部からアクセスするためのURLです
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {/* URL表示 */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">URL</Label>
+              <div className="flex items-center gap-2">
+                <a
+                  href={tunnelUrl ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-sm font-mono text-primary hover:underline truncate"
+                  title={tunnelUrl ?? ""}
+                >
+                  {tunnelUrl ? new URL(tunnelUrl).hostname : ""}
+                </a>
+                <Button size="icon" variant="outline" onClick={() => copyToClipboard(tunnelUrl)}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* QRコード */}
+            {tunnelUrl && (
+              <div className="flex justify-center py-4">
+                <div className="p-4 bg-white rounded-lg">
+                  <QRCodeSVG value={tunnelUrl} size={200} />
+                </div>
+              </div>
+            )}
+
+            {/* トークン表示 */}
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Auth Token</Label>
+              <div className="flex gap-2">
+                <Input value={tunnelToken ?? ""} readOnly type="password" className="font-mono text-sm" />
+                <Button size="icon" variant="outline" onClick={() => copyToClipboard(tunnelToken)}>
+                  <Copy className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                stopTunnel();
+                setShowTunnelDialog(false);
+              }}
+              disabled={tunnelLoading}
+            >
+              {tunnelLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Stop Tunnel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
