@@ -23,6 +23,7 @@ import { sessionOrchestrator, type ManagedSession } from "./lib/session-orchestr
 import { TunnelManager } from "./lib/tunnel.js";
 import { authManager } from "./lib/auth.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
+import { getListeningPorts } from "./lib/port-scanner.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -42,6 +43,7 @@ interface ExtendedClientToServerEvents extends ClientToServerEvents {
 // Parse command line arguments
 const args = process.argv.slice(2);
 const enableRemote = args.includes("--remote") || args.includes("-r");
+const enableQuick = args.includes("--quick") || args.includes("-q");
 
 // Parse --repos option: --repos /path1,/path2
 let allowedRepos: string[] = [];
@@ -56,6 +58,11 @@ if (reposIndex !== -1 && args[reposIndex + 1]) {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// トンネル状態管理
+let activeTunnel: TunnelManager | null = null;
+let tunnelUrl: string | null = null;
+let tunnelToken: string | null = null;
 
 async function startServer() {
   const app = express();
@@ -79,6 +86,10 @@ async function startServer() {
 
   if (enableRemote) {
     console.log("Remote access mode enabled - using Cloudflare Access for authentication");
+  }
+
+  if (enableQuick) {
+    console.log("Quick Tunnel mode enabled - using temporary *.trycloudflare.com URL with token authentication");
   }
 
   // Apply HTTP authentication middleware
@@ -327,6 +338,82 @@ async function startServer() {
     sessionOrchestrator.on("session:restored", onSessionRestored);
     sessionOrchestrator.on("session:stopped", onSessionStopped);
 
+    // ===== Port Scan Commands =====
+
+    // ポートスキャン
+    socket.on("ports:scan", () => {
+      const ports = getListeningPorts();
+      socket.emit("ports:list", { ports });
+    });
+
+    // ===== Tunnel Commands =====
+
+    // トンネル起動
+    socket.on("tunnel:start", async (data?: { port?: number }) => {
+      const targetPort = data?.port ?? port; // デフォルトはサーバーポート
+
+      if (activeTunnel) {
+        // 既にアクティブなら現在の情報を返す
+        socket.emit("tunnel:status", { active: true, url: tunnelUrl ?? undefined, token: tunnelToken ?? undefined });
+        return;
+      }
+
+      try {
+        // トークン生成
+        authManager.enable();
+        tunnelToken = authManager.getToken();
+
+        // Quick Tunnel 起動
+        activeTunnel = new TunnelManager({
+          localPort: targetPort,
+          mode: "quick",
+        });
+
+        const publicUrl = await activeTunnel.start();
+        console.log("[Tunnel] Public URL:", publicUrl);
+        tunnelUrl = authManager.buildAuthUrl(publicUrl);
+        console.log("[Tunnel] Auth URL:", tunnelUrl);
+        console.log("[Tunnel] Token:", tunnelToken);
+
+        // 全クライアントに通知
+        io.emit("tunnel:started", { url: tunnelUrl, token: tunnelToken });
+
+        // エラーハンドリング
+        activeTunnel.on("error", (error) => {
+          io.emit("tunnel:error", { message: error.message });
+        });
+
+        activeTunnel.on("close", () => {
+          activeTunnel = null;
+          tunnelUrl = null;
+          tunnelToken = null;
+          authManager.disable();
+          io.emit("tunnel:stopped");
+        });
+      } catch (error) {
+        socket.emit("tunnel:error", { message: error instanceof Error ? error.message : "Unknown error" });
+      }
+    });
+
+    // トンネル停止
+    socket.on("tunnel:stop", () => {
+      if (activeTunnel) {
+        activeTunnel.stop();
+        activeTunnel = null;
+        tunnelUrl = null;
+        tunnelToken = null;
+        authManager.disable();
+        io.emit("tunnel:stopped");
+      }
+    });
+
+    // 新しい接続時に現在のトンネル状態を送信
+    socket.emit("tunnel:status", {
+      active: !!activeTunnel,
+      url: tunnelUrl ?? undefined,
+      token: tunnelToken ?? undefined,
+    });
+
     // Cleanup on disconnect
     socket.on("disconnect", () => {
       console.log(`Client disconnected: ${socket.id}`);
@@ -340,7 +427,45 @@ async function startServer() {
   server.listen(port, async () => {
     console.log(`Claude Code Manager server running on http://localhost:${port}/`);
 
-    // Start tunnel if remote access is enabled
+    // Start Quick Tunnel if enabled
+    if (enableQuick) {
+      console.log("Starting Quick Tunnel...");
+      authManager.enable(); // トークン認証を有効化
+
+      const tunnel = new TunnelManager({
+        localPort: port,
+        mode: "quick",
+      });
+
+      try {
+        const publicUrl = await tunnel.start();
+        const authUrl = authManager.buildAuthUrl(publicUrl);
+        await printRemoteAccessInfo(authUrl, authManager.getToken());
+
+        tunnel.on("error", (error) => {
+          console.error("Tunnel error:", error.message);
+        });
+
+        tunnel.on("close", (code) => {
+          console.log(`Tunnel closed with code ${code}`);
+        });
+
+        const tunnelCleanup = () => {
+          tunnel.stop();
+        };
+
+        process.on("SIGTERM", tunnelCleanup);
+        process.on("SIGINT", tunnelCleanup);
+      } catch (error) {
+        console.error(
+          "Failed to start tunnel:",
+          error instanceof Error ? error.message : error
+        );
+        console.log("Continuing without remote access...");
+      }
+    }
+
+    // Start Named Tunnel if remote access is enabled
     if (enableRemote) {
       console.log("Starting Cloudflare Tunnel...");
       const tunnel = new TunnelManager({

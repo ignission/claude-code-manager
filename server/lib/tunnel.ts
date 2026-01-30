@@ -96,8 +96,11 @@ export class TunnelManager extends EventEmitter {
       }
 
       // cloudflaredをQuick Tunnelモードで起動
+      // --config /dev/null で既存の設定ファイルを無視（Named Tunnel設定との競合を防ぐ）
       this.process = spawn(cloudflaredPath, [
         "tunnel",
+        "--config",
+        "/dev/null",
         "--url",
         `http://localhost:${this.localPort}`,
       ]);
