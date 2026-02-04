@@ -31,7 +31,7 @@ interface ExtendedServerToClientEvents extends Omit<ServerToClientEvents, "sessi
 }
 
 interface ExtendedClientToServerEvents extends ClientToServerEvents {
-  "session:key": (data: { sessionId: string; key: "Enter" | "C-c" | "C-d" | "y" | "n" }) => void;
+  "session:key": (data: { sessionId: string; key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape" }) => void;
 }
 
 type TypedSocket = Socket<ExtendedServerToClientEvents, ExtendedClientToServerEvents>;
@@ -71,7 +71,7 @@ interface UseSocketReturn {
   startSession: (worktreeId: string, worktreePath: string) => void;
   stopSession: (sessionId: string) => void;
   sendMessage: (sessionId: string, message: string) => void;
-  sendKey: (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n") => void;
+  sendKey: (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape") => void;
   restoreSession: (worktreePath: string) => void;
 
   // Tunnel
@@ -358,7 +358,7 @@ export function useSocket(): UseSocketReturn {
   }, []);
 
   const sendKey = useCallback(
-    (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n") => {
+    (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape") => {
       socketRef.current?.emit("session:key", { sessionId, key });
     },
     []

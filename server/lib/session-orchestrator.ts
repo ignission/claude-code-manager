@@ -186,7 +186,7 @@ export class SessionOrchestrator extends EventEmitter {
   /**
    * 特殊キーを送信
    */
-  sendSpecialKey(sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n"): void {
+  sendSpecialKey(sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape"): void {
     tmuxManager.sendSpecialKey(sessionId, key);
   }
 

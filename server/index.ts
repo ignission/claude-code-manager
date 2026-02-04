@@ -37,7 +37,7 @@ interface ExtendedServerToClientEvents extends Omit<ServerToClientEvents, "sessi
 }
 
 interface ExtendedClientToServerEvents extends ClientToServerEvents {
-  "session:key": (data: { sessionId: string; key: "Enter" | "C-c" | "C-d" | "y" | "n" }) => void;
+  "session:key": (data: { sessionId: string; key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape" }) => void;
 }
 
 // Parse command line arguments

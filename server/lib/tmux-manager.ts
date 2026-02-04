@@ -170,11 +170,13 @@ export class TmuxManager extends EventEmitter {
   /**
    * 特殊キーを送信 (Enter, Ctrl+C, Ctrl+D など)
    */
-  sendSpecialKey(sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n"): void {
+  sendSpecialKey(sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape"): void {
     const session = this.sessions.get(sessionId);
     if (!session) throw new Error("Session not found");
 
-    execSync(`tmux send-keys -t "${session.tmuxSessionName}" ${key}`, {
+    // S-Tab はtmuxでは "BTab" として送信
+    const tmuxKey = key === "S-Tab" ? "BTab" : key;
+    execSync(`tmux send-keys -t "${session.tmuxSessionName}" ${tmuxKey}`, {
       stdio: "pipe",
     });
 

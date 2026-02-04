@@ -23,7 +23,9 @@ import {
   Keyboard,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   RefreshCw,
+  XCircle,
 } from "lucide-react";
 import type { Session, Worktree } from "../../../shared/types";
 
@@ -38,7 +40,7 @@ interface TerminalPaneProps {
   session: TtydSession;
   worktree: Worktree | undefined;
   onSendMessage: (message: string) => void;
-  onSendKey: (key: "Enter" | "C-c" | "C-d" | "y" | "n") => void;
+  onSendKey: (key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape") => void;
   onStopSession: () => void;
   onClose: () => void;
   onMaximize?: () => void;
@@ -230,6 +232,28 @@ export function TerminalPane({
                 title="Send 'n' (no)"
               >
                 n
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onSendKey("S-Tab")}
+                title="Send Shift+Tab (back)"
+              >
+                <ChevronLeft className="w-3 h-3 mr-1" />
+                S-Tab
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onSendKey("Escape")}
+                title="Send Escape (cancel)"
+              >
+                <XCircle className="w-3 h-3 mr-1" />
+                Esc
               </Button>
               <Button
                 type="button"

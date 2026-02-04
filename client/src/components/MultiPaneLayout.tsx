@@ -26,7 +26,7 @@ interface MultiPaneLayoutProps {
   sessions: Map<string, TtydSession>;
   worktrees: Worktree[];
   onSendMessage: (sessionId: string, message: string) => void;
-  onSendKey: (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n") => void;
+  onSendKey: (sessionId: string, key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape") => void;
   onStopSession: (sessionId: string) => void;
   onClosePane: (sessionId: string) => void;
   onMaximizePane: (sessionId: string) => void;
