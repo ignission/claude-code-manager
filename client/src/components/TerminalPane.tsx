@@ -8,7 +8,7 @@
  * - Quick command buttons for common operations
  */
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -26,6 +26,7 @@ import {
   ChevronLeft,
   RefreshCw,
   XCircle,
+  ImageIcon,
 } from "lucide-react";
 import type { Session, Worktree } from "../../../shared/types";
 
@@ -45,6 +46,10 @@ interface TerminalPaneProps {
   onClose: () => void;
   onMaximize?: () => void;
   isMaximized?: boolean;
+  onUploadImage?: (base64Data: string, mimeType: string) => void;
+  imageUploadResult?: { path: string; filename: string } | null;
+  imageUploadError?: string | null;
+  onClearImageUploadState?: () => void;
 }
 
 export function TerminalPane({
@@ -56,6 +61,10 @@ export function TerminalPane({
   onClose,
   onMaximize,
   isMaximized = false,
+  onUploadImage,
+  imageUploadResult,
+  imageUploadError,
+  onClearImageUploadState,
 }: TerminalPaneProps) {
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(true);
@@ -63,6 +72,8 @@ export function TerminalPane({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);
+  const [pastedImage, setPastedImage] = useState<{ base64: string; mimeType: string; preview: string } | null>(null);
+  const [imageMessage, setImageMessage] = useState("");
 
   // Focus textarea when input bar is shown
   useEffect(() => {
@@ -93,6 +104,89 @@ export function TerminalPane({
     setIframeKey((prev) => prev + 1);
   };
 
+  // Handle paste event for image
+  const handlePaste = useCallback((e: React.ClipboardEvent | ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const itemsArray = Array.from(items);
+    for (const item of itemsArray) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) continue;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const dataUrl = event.target?.result as string;
+          // data:image/png;base64,xxx... からbase64部分を抽出
+          const [header, base64] = dataUrl.split(",");
+          const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
+          setPastedImage({
+            base64,
+            mimeType,
+            preview: dataUrl,
+          });
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  }, []);
+
+  // Listen for paste events when textarea is focused
+  useEffect(() => {
+    const handleDocumentPaste = (e: ClipboardEvent) => {
+      if (document.activeElement === textareaRef.current) {
+        handlePaste(e);
+      }
+    };
+    document.addEventListener("paste", handleDocumentPaste);
+    return () => document.removeEventListener("paste", handleDocumentPaste);
+  }, [handlePaste]);
+
+  // クリップボードから画像を読み取るボタン用
+  const handlePasteButtonClick = async () => {
+    try {
+      const clipboardItems = await navigator.clipboard.read();
+      for (const item of clipboardItems) {
+        const imageType = item.types.find(type => type.startsWith("image/"));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const dataUrl = event.target?.result as string;
+            const [header, base64] = dataUrl.split(",");
+            const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
+            setPastedImage({
+              base64,
+              mimeType,
+              preview: dataUrl,
+            });
+          };
+          reader.readAsDataURL(blob);
+          break;
+        }
+      }
+    } catch (err) {
+      console.error("Failed to read clipboard:", err);
+    }
+  };
+
+  // Handle image upload success
+  useEffect(() => {
+    if (imageUploadResult && pastedImage) {
+      // Claude Codeに@パス形式で送信
+      const message = imageMessage.trim()
+        ? `@${imageUploadResult.path} ${imageMessage}`
+        : `@${imageUploadResult.path}`;
+      onSendMessage(message);
+      setPastedImage(null);
+      setImageMessage("");
+      onClearImageUploadState?.();
+    }
+  }, [imageUploadResult, pastedImage, imageMessage, onSendMessage, onClearImageUploadState]);
+
   // Construct ttyd iframe URL
   // ローカル開発時のみ直接接続、リモートアクセス時はプロキシ経由
   const isLocalAccess = typeof window !== 'undefined' &&
@@ -122,6 +216,15 @@ export function TerminalPane({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 md:h-6 md:w-6"
+            onClick={handlePasteButtonClick}
+            title="Paste image from clipboard"
+          >
+            <ImageIcon className="w-5 h-5 md:w-3 md:h-3" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -194,6 +297,55 @@ export function TerminalPane({
           </div>
         )}
       </div>
+
+      {/* Image paste preview dialog */}
+      {pastedImage && (
+        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-lg p-4 max-w-md w-full mx-4">
+            <h3 className="text-sm font-semibold mb-3">画像を送信</h3>
+            <div className="mb-3">
+              <img
+                src={pastedImage.preview}
+                alt="Pasted"
+                className="max-h-48 mx-auto rounded border border-border"
+              />
+            </div>
+            <div className="mb-3">
+              <Textarea
+                value={imageMessage}
+                onChange={(e) => setImageMessage(e.target.value)}
+                placeholder="画像についてのメッセージ（任意）"
+                className="min-h-[60px] resize-none text-sm"
+                rows={2}
+              />
+            </div>
+            {imageUploadError && (
+              <p className="text-destructive text-xs mb-3">{imageUploadError}</p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setPastedImage(null);
+                  setImageMessage("");
+                  onClearImageUploadState?.();
+                }}
+              >
+                キャンセル
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => {
+                  onUploadImage?.(pastedImage.base64, pastedImage.mimeType);
+                }}
+              >
+                送信
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Mobile-friendly Input Bar */}
       {showInput && (

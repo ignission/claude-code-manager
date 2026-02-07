@@ -24,6 +24,7 @@ import { TunnelManager } from "./lib/tunnel.js";
 import { authManager } from "./lib/auth.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { getListeningPorts } from "./lib/port-scanner.js";
+import { imageManager, ImageManagerError } from "./lib/image-manager.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -412,6 +413,19 @@ async function startServer() {
       active: !!activeTunnel,
       url: tunnelUrl ?? undefined,
       token: tunnelToken ?? undefined,
+    });
+
+    // ===== Image Upload Commands =====
+
+    socket.on("image:upload", async ({ sessionId, base64Data, mimeType }) => {
+      try {
+        const result = await imageManager.saveImage(sessionId, base64Data, mimeType);
+        socket.emit("image:uploaded", result);
+      } catch (error) {
+        socket.emit("image:error", {
+          message: error instanceof ImageManagerError ? error.message : "画像のアップロードに失敗しました",
+        });
+      }
     });
 
     // Cleanup on disconnect

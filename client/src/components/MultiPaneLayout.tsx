@@ -31,6 +31,10 @@ interface MultiPaneLayoutProps {
   onClosePane: (sessionId: string) => void;
   onMaximizePane: (sessionId: string) => void;
   maximizedPane: string | null;
+  onUploadImage?: (sessionId: string, base64Data: string, mimeType: string) => void;
+  imageUploadResult?: { path: string; filename: string } | null;
+  imageUploadError?: string | null;
+  onClearImageUploadState?: () => void;
 }
 
 export function MultiPaneLayout({
@@ -43,6 +47,10 @@ export function MultiPaneLayout({
   onClosePane,
   onMaximizePane,
   maximizedPane,
+  onUploadImage,
+  imageUploadResult,
+  imageUploadError,
+  onClearImageUploadState,
 }: MultiPaneLayoutProps) {
   const isMobile = useIsMobile();
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("grid-4");
@@ -70,6 +78,10 @@ export function MultiPaneLayout({
             onClose={() => onClosePane(maximizedPane)}
             onMaximize={() => onMaximizePane(maximizedPane)}
             isMaximized={true}
+            onUploadImage={(base64, mimeType) => onUploadImage?.(maximizedPane, base64, mimeType)}
+            imageUploadResult={imageUploadResult}
+            imageUploadError={imageUploadError}
+            onClearImageUploadState={onClearImageUploadState}
           />
         </div>
       );
@@ -173,6 +185,10 @@ export function MultiPaneLayout({
               onClose={() => onClosePane(sessionId)}
               onMaximize={() => onMaximizePane(sessionId)}
               isMaximized={false}
+              onUploadImage={(base64, mimeType) => onUploadImage?.(sessionId, base64, mimeType)}
+              imageUploadResult={imageUploadResult}
+              imageUploadError={imageUploadError}
+              onClearImageUploadState={onClearImageUploadState}
             />
           );
         })}

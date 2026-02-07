@@ -92,6 +92,10 @@ export interface ServerToClientEvents {
 
   // Port events
   "ports:list": (data: { ports: Array<{ port: number; process: string; pid: number }> }) => void;
+
+  // Image events
+  "image:uploaded": (data: { path: string; filename: string }) => void;
+  "image:error": (data: { message: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -117,4 +121,7 @@ export interface ClientToServerEvents {
 
   // Port commands
   "ports:scan": () => void;
+
+  // Image commands
+  "image:upload": (data: { sessionId: string; base64Data: string; mimeType: string }) => void;
 }

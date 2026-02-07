@@ -107,6 +107,10 @@ export default function Dashboard() {
     stopTunnel,
     listeningPorts,
     scanPorts,
+    uploadImage,
+    imageUploadResult,
+    imageUploadError,
+    clearImageUploadState,
   } = useSocket();
 
   const isMobile = useIsMobile();
@@ -709,6 +713,10 @@ export default function Dashboard() {
               onClosePane={handleClosePane}
               onMaximizePane={handleMaximizePane}
               maximizedPane={maximizedPane}
+              onUploadImage={uploadImage}
+              imageUploadResult={imageUploadResult}
+              imageUploadError={imageUploadError}
+              onClearImageUploadState={clearImageUploadState}
             />
           ) : (
               <div className="h-full flex items-center justify-center p-6">

@@ -28,10 +28,13 @@ export interface TtydSession extends Session {
 interface ExtendedServerToClientEvents extends Omit<ServerToClientEvents, "session:created" | "session:restored"> {
   "session:created": (session: TtydSession) => void;
   "session:restored": (session: TtydSession) => void;
+  "image:uploaded": (data: { path: string; filename: string }) => void;
+  "image:error": (data: { message: string }) => void;
 }
 
 interface ExtendedClientToServerEvents extends ClientToServerEvents {
   "session:key": (data: { sessionId: string; key: "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape" }) => void;
+  "image:upload": (data: { sessionId: string; base64Data: string; mimeType: string }) => void;
 }
 
 type TypedSocket = Socket<ExtendedServerToClientEvents, ExtendedClientToServerEvents>;
@@ -85,6 +88,12 @@ interface UseSocketReturn {
   // Ports
   listeningPorts: Array<{ port: number; process: string; pid: number }>;
   scanPorts: () => void;
+
+  // Image upload
+  uploadImage: (sessionId: string, base64Data: string, mimeType: string) => void;
+  imageUploadResult: { path: string; filename: string } | null;
+  imageUploadError: string | null;
+  clearImageUploadState: () => void;
 }
 
 export function useSocket(): UseSocketReturn {
@@ -113,6 +122,10 @@ export function useSocket(): UseSocketReturn {
 
   // Ports state
   const [listeningPorts, setListeningPorts] = useState<Array<{ port: number; process: string; pid: number }>>([]);
+
+  // Image upload state
+  const [imageUploadResult, setImageUploadResult] = useState<{ path: string; filename: string } | null>(null);
+  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
 
   // Initialize socket connection
   useEffect(() => {
@@ -291,9 +304,24 @@ export function useSocket(): UseSocketReturn {
       setListeningPorts(ports);
     });
 
+    // Image upload events
+    socket.on("image:uploaded", (data) => {
+      console.log("[Socket] Image uploaded:", data.path);
+      setImageUploadResult(data);
+      setImageUploadError(null);
+    });
+
+    socket.on("image:error", ({ message }) => {
+      console.error("[Socket] Image upload error:", message);
+      setImageUploadError(message);
+      setImageUploadResult(null);
+    });
+
     // Cleanup on unmount
     return () => {
       socket.off("ports:list");
+      socket.off("image:uploaded");
+      socket.off("image:error");
       socket.disconnect();
     };
   }, []);
@@ -384,6 +412,21 @@ export function useSocket(): UseSocketReturn {
     socketRef.current?.emit("ports:scan");
   }, []);
 
+  // Image upload actions
+  const uploadImage = useCallback(
+    (sessionId: string, base64Data: string, mimeType: string) => {
+      setImageUploadResult(null);
+      setImageUploadError(null);
+      socketRef.current?.emit("image:upload", { sessionId, base64Data, mimeType });
+    },
+    []
+  );
+
+  const clearImageUploadState = useCallback(() => {
+    setImageUploadResult(null);
+    setImageUploadError(null);
+  }, []);
+
   return {
     isConnected,
     error,
@@ -414,5 +457,10 @@ export function useSocket(): UseSocketReturn {
     // Ports
     listeningPorts,
     scanPorts,
+    // Image upload
+    uploadImage,
+    imageUploadResult,
+    imageUploadError,
+    clearImageUploadState,
   };
 }
