@@ -224,7 +224,7 @@ export function MultiPaneLayout({
         </>
       ) : (
         /* Desktop: グリッド表示 */
-        <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh-10rem),1fr)]`}>
+        <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh_-_10rem),1fr)]`}>
           {visiblePanes.map((sessionId) => {
             const session = sessions.get(sessionId);
             if (!session) return null;
