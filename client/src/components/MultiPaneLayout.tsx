@@ -8,7 +8,7 @@
  * - Uses ttyd iframe for terminal rendering
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Columns2,
@@ -60,6 +60,7 @@ export function MultiPaneLayout({
 }: MultiPaneLayoutProps) {
   const isMobile = useIsMobile();
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("grid-4");
+  const [activeMobilePane, setActiveMobilePane] = useState<string | null>(null);
 
   // Force single pane on mobile
   const effectiveLayoutMode = isMobile ? "single" : layoutMode;
@@ -104,6 +105,15 @@ export function MultiPaneLayout({
 
   // Filter to only show panes that have active sessions
   const visiblePanes = activePanes.filter((id) => sessions.has(id));
+
+  // モバイル時: visiblePanesが変わったらactiveMobilePaneを自動更新
+  useEffect(() => {
+    if (isMobile && visiblePanes.length > 0) {
+      if (!activeMobilePane || !visiblePanes.includes(activeMobilePane)) {
+        setActiveMobilePane(visiblePanes[0]);
+      }
+    }
+  }, [isMobile, visiblePanes, activeMobilePane]);
 
   if (visiblePanes.length === 0) {
     return null;
@@ -162,35 +172,94 @@ export function MultiPaneLayout({
         </div>
       </div>
 
-      {/* Panes Grid */}
-      <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh-10rem),1fr)]`}>
-        {visiblePanes.map((sessionId) => {
-          const session = sessions.get(sessionId);
-          if (!session) return null;
+      {/* Mobile: タブ切り替え式 */}
+      {isMobile ? (
+        <>
+          {/* タブバー */}
+          <div className="flex items-center gap-1 px-2 py-1.5 border-b border-border bg-sidebar overflow-x-auto shrink-0">
+            {visiblePanes.map((sessionId) => {
+              const session = sessions.get(sessionId);
+              if (!session) return null;
+              const wt = getWorktreeForSession(session);
+              const repoName = getRepoNameForSession(session);
+              const isActive = (activeMobilePane || visiblePanes[0]) === sessionId;
+              return (
+                <button
+                  key={sessionId}
+                  type="button"
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium whitespace-nowrap shrink-0 transition-colors ${
+                    isActive
+                      ? "bg-primary/20 text-primary border border-primary/30"
+                      : "text-muted-foreground hover:bg-sidebar-accent"
+                  }`}
+                  onClick={() => setActiveMobilePane(sessionId)}
+                >
+                  <div className={`w-1.5 h-1.5 rounded-full ${session.status === 'active' ? 'bg-green-500' : 'bg-muted-foreground'}`} />
+                  {repoName && <span className="text-[10px] opacity-70">{repoName}</span>}
+                  <span>{wt?.branch || "Unknown"}</span>
+                </button>
+              );
+            })}
+          </div>
+          {/* 選択中のペイン */}
+          <div className="flex-1 min-h-0 p-2">
+            {(() => {
+              const selectedId = activeMobilePane && visiblePanes.includes(activeMobilePane) ? activeMobilePane : visiblePanes[0];
+              const session = selectedId ? sessions.get(selectedId) : undefined;
+              if (!session || !selectedId) return null;
+              const worktree = getWorktreeForSession(session);
+              return (
+                <TerminalPane
+                  key={selectedId}
+                  session={session}
+                  worktree={worktree}
+                  repoName={getRepoNameForSession(session)}
+                  onSendMessage={(msg) => onSendMessage(selectedId, msg)}
+                  onSendKey={(key) => onSendKey(selectedId, key)}
+                  onStopSession={() => onStopSession(selectedId)}
+                  onClose={() => onClosePane(selectedId)}
+                  isMaximized={false}
+                  onUploadImage={(base64, mimeType) => onUploadImage?.(selectedId, base64, mimeType)}
+                  imageUploadResult={imageUploadResult}
+                  imageUploadError={imageUploadError}
+                  onClearImageUploadState={onClearImageUploadState}
+                  onCopyBuffer={onCopyBuffer ? () => onCopyBuffer(selectedId) : undefined}
+                />
+              );
+            })()}
+          </div>
+        </>
+      ) : (
+        /* Desktop: グリッド表示 */
+        <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh-10rem),1fr)]`}>
+          {visiblePanes.map((sessionId) => {
+            const session = sessions.get(sessionId);
+            if (!session) return null;
 
-          const worktree = getWorktreeForSession(session);
+            const worktree = getWorktreeForSession(session);
 
-          return (
-            <TerminalPane
-              key={sessionId}
-              session={session}
-              worktree={worktree}
-              repoName={getRepoNameForSession(session)}
-              onSendMessage={(msg) => onSendMessage(sessionId, msg)}
-              onSendKey={(key) => onSendKey(sessionId, key)}
-              onStopSession={() => onStopSession(sessionId)}
-              onClose={() => onClosePane(sessionId)}
-              onMaximize={() => onMaximizePane(sessionId)}
-              isMaximized={false}
-              onUploadImage={(base64, mimeType) => onUploadImage?.(sessionId, base64, mimeType)}
-              imageUploadResult={imageUploadResult}
-              imageUploadError={imageUploadError}
-              onClearImageUploadState={onClearImageUploadState}
-              onCopyBuffer={onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined}
-            />
-          );
-        })}
-      </div>
+            return (
+              <TerminalPane
+                key={sessionId}
+                session={session}
+                worktree={worktree}
+                repoName={getRepoNameForSession(session)}
+                onSendMessage={(msg) => onSendMessage(sessionId, msg)}
+                onSendKey={(key) => onSendKey(sessionId, key)}
+                onStopSession={() => onStopSession(sessionId)}
+                onClose={() => onClosePane(sessionId)}
+                onMaximize={() => onMaximizePane(sessionId)}
+                isMaximized={false}
+                onUploadImage={(base64, mimeType) => onUploadImage?.(sessionId, base64, mimeType)}
+                imageUploadResult={imageUploadResult}
+                imageUploadError={imageUploadError}
+                onClearImageUploadState={onClearImageUploadState}
+                onCopyBuffer={onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined}
+              />
+            );
+          })}
+        </div>
+      )}
 
     </div>
   );
