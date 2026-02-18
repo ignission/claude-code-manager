@@ -247,6 +247,7 @@ export default function Dashboard() {
       // Add to active panes if not already there
       if (!activePanes.includes(existingSession.id)) {
         setActivePanes((prev) => [...prev, existingSession.id]);
+        toast.warning("このWorktreeには既にセッションが存在するため、既存セッションを開きます");
       }
       setViewMode("panes");
       return;

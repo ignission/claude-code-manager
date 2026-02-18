@@ -128,8 +128,9 @@ export class TmuxManager extends EventEmitter {
         { stdio: "pipe" }
       );
       // claudeコマンドを送信（終了後もシェルが残るのでvimなども使える）
+      // CLAUDECODE環境変数をunsetしてからclaudeを起動（ネストされたセッション検出を回避）
       execSync(
-        `tmux send-keys -t "${tmuxSessionName}" "claude --dangerously-skip-permissions" Enter`,
+        `tmux send-keys -t "${tmuxSessionName}" "unset CLAUDECODE && claude --dangerously-skip-permissions" Enter`,
         { stdio: "pipe" }
       );
     } catch (error) {
