@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { TerminalPane } from "./TerminalPane";
 import { useIsMobile } from "@/hooks/useMobile";
+import { findRepoForSession } from "@/utils/sessionUtils";
+import { getBaseName } from "@/utils/pathUtils";
 import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
 
 type LayoutMode = "single" | "split-2" | "grid-4";
@@ -25,6 +27,7 @@ interface MultiPaneLayoutProps {
   activePanes: string[]; // Session IDs
   sessions: Map<string, ManagedSession>;
   worktrees: Worktree[];
+  repoList?: string[];
   onSendMessage: (sessionId: string, message: string) => void;
   onSendKey: (sessionId: string, key: SpecialKey) => void;
   onStopSession: (sessionId: string) => void;
@@ -42,6 +45,7 @@ export function MultiPaneLayout({
   activePanes,
   sessions,
   worktrees,
+  repoList,
   onSendMessage,
   onSendKey,
   onStopSession,
@@ -64,6 +68,12 @@ export function MultiPaneLayout({
     return worktrees.find((w) => w.id === session.worktreeId);
   };
 
+  const getRepoNameForSession = (session: ManagedSession): string | undefined => {
+    if (!repoList) return undefined;
+    const repo = findRepoForSession(session, repoList);
+    return repo ? getBaseName(repo) : undefined;
+  };
+
   // If a pane is maximized, only show that pane
   if (maximizedPane) {
     const session = sessions.get(maximizedPane);
@@ -74,6 +84,7 @@ export function MultiPaneLayout({
           <TerminalPane
             session={session}
             worktree={worktree}
+            repoName={getRepoNameForSession(session)}
             onSendMessage={(msg) => onSendMessage(maximizedPane, msg)}
             onSendKey={(key) => onSendKey(maximizedPane, key)}
             onStopSession={() => onStopSession(maximizedPane)}
@@ -106,18 +117,7 @@ export function MultiPaneLayout({
       return "grid-cols-1";
     }
 
-    if (effectiveLayoutMode === "split-2") {
-      return "grid-cols-1 md:grid-cols-2";
-    }
-
-    // grid-4モード: ペイン数に応じてグリッドを調整
-    if (effectiveLayoutMode === "grid-4") {
-      if (paneCount <= 2) return "grid-cols-1 md:grid-cols-2";
-      if (paneCount <= 4) return "grid-cols-1 md:grid-cols-2";
-      if (paneCount <= 6) return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
-      return "grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4";
-    }
-
+    // split-2、grid-4ともに最大2列
     return "grid-cols-1 md:grid-cols-2";
   };
 
@@ -170,7 +170,7 @@ export function MultiPaneLayout({
       </div>
 
       {/* Panes Grid */}
-      <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-auto auto-rows-fr`}>
+      <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh-10rem),1fr)]`}>
         {visiblePanes.slice(0, getMaxPanes()).map((sessionId) => {
           const session = sessions.get(sessionId);
           if (!session) return null;
@@ -182,6 +182,7 @@ export function MultiPaneLayout({
               key={sessionId}
               session={session}
               worktree={worktree}
+              repoName={getRepoNameForSession(session)}
               onSendMessage={(msg) => onSendMessage(sessionId, msg)}
               onSendKey={(key) => onSendKey(sessionId, key)}
               onStopSession={() => onStopSession(sessionId)}
