@@ -121,13 +121,6 @@ export function MultiPaneLayout({
     return "grid-cols-1 md:grid-cols-2";
   };
 
-  // 表示するペイン数を決定
-  const getMaxPanes = () => {
-    if (effectiveLayoutMode === "single") return 1;
-    if (effectiveLayoutMode === "split-2") return 2;
-    return visiblePanes.length; // grid-4モードでは全て表示
-  };
-
   return (
     <div className="h-full flex flex-col">
       {/* Layout Controls */}
@@ -171,7 +164,7 @@ export function MultiPaneLayout({
 
       {/* Panes Grid */}
       <div className={`flex-1 grid ${getGridClass()} gap-3 md:gap-2 p-3 md:p-2 overflow-y-auto auto-rows-[minmax(calc(100vh-10rem),1fr)]`}>
-        {visiblePanes.slice(0, getMaxPanes()).map((sessionId) => {
+        {visiblePanes.map((sessionId) => {
           const session = sessions.get(sessionId);
           if (!session) return null;
 
@@ -199,12 +192,6 @@ export function MultiPaneLayout({
         })}
       </div>
 
-      {/* Hidden Panes Indicator */}
-      {visiblePanes.length > getMaxPanes() && (
-        <div className="h-10 md:h-8 border-t border-border flex items-center justify-center text-sm md:text-xs text-muted-foreground shrink-0">
-          +{visiblePanes.length - getMaxPanes()} more session(s) hidden
-        </div>
-      )}
     </div>
   );
 }
