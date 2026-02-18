@@ -269,21 +269,31 @@ export default function Dashboard() {
     toast.success("Session started");
   };
 
+  // セッションIDをペインリストから削除するヘルパー
+  // targetRepoが指定されていればそのリポのみ、nullならフォールバックで全リポから削除
+  const removeSessionFromPanes = (sessionId: string, targetRepo?: string | null) => {
+    setActivePanesPerRepo((prev) => {
+      const newMap = new Map(prev);
+      if (targetRepo) {
+        const currentPanes = newMap.get(targetRepo) || [];
+        newMap.set(targetRepo, currentPanes.filter((id) => id !== sessionId));
+        return newMap;
+      }
+      // フォールバック: 全リポから削除
+      Array.from(newMap.entries()).forEach(([repo, panes]) => {
+        if (panes.includes(sessionId)) {
+          newMap.set(repo, panes.filter((id: string) => id !== sessionId));
+        }
+      });
+      return newMap;
+    });
+  };
+
   const handleStopSession = (sessionId: string) => {
     stopSession(sessionId);
-    // セッションの所属リポを特定して該当リポのペインリストから削除
     const session = sessions.get(sessionId);
-    if (session) {
-      const targetRepo = findRepoForSession(session, repoList);
-      if (targetRepo) {
-        setActivePanesPerRepo((prev) => {
-          const newMap = new Map(prev);
-          const currentPanes = newMap.get(targetRepo) || [];
-          newMap.set(targetRepo, currentPanes.filter((id) => id !== sessionId));
-          return newMap;
-        });
-      }
-    }
+    const targetRepo = session ? findRepoForSession(session, repoList) : null;
+    removeSessionFromPanes(sessionId, targetRepo);
     if (maximizedPane === sessionId) {
       setMaximizedPane(null);
     }
@@ -323,19 +333,9 @@ export default function Dashboard() {
   const handleClosePane = (sessionId: string) => {
     // ユーザーが意図的に閉じたペインとして記録
     closedPanesRef.current.add(sessionId);
-    // セッションの所属リポを特定して該当リポのペインリストから削除
     const session = sessions.get(sessionId);
-    if (session) {
-      const targetRepo = findRepoForSession(session, repoList);
-      if (targetRepo) {
-        setActivePanesPerRepo((prev) => {
-          const newMap = new Map(prev);
-          const currentPanes = newMap.get(targetRepo) || [];
-          newMap.set(targetRepo, currentPanes.filter((id) => id !== sessionId));
-          return newMap;
-        });
-      }
-    }
+    const targetRepo = session ? findRepoForSession(session, repoList) : null;
+    removeSessionFromPanes(sessionId, targetRepo);
     if (maximizedPane === sessionId) {
       setMaximizedPane(null);
     }

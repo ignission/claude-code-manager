@@ -8,10 +8,9 @@
  * - Uses ttyd iframe for terminal rendering
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
-  Columns2,
   Square,
   Grid2x2,
 } from "lucide-react";
@@ -104,7 +103,10 @@ export function MultiPaneLayout({
   }
 
   // Filter to only show panes that have active sessions
-  const visiblePanes = activePanes.filter((id) => sessions.has(id));
+  const visiblePanes = useMemo(
+    () => activePanes.filter((id) => sessions.has(id)),
+    [activePanes, sessions]
+  );
 
   // モバイル時: visiblePanesが変わったらactiveMobilePaneを自動更新
   useEffect(() => {
@@ -150,15 +152,6 @@ export function MultiPaneLayout({
             title="Single pane"
           >
             <Square className="w-4 h-4" />
-          </Button>
-          <Button
-            variant={layoutMode === "split-2" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setLayoutMode("split-2")}
-            title="Split view"
-          >
-            <Columns2 className="w-4 h-4" />
           </Button>
           <Button
             variant={layoutMode === "grid-4" ? "secondary" : "ghost"}
