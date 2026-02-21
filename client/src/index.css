@@ -230,3 +230,17 @@
     box-shadow: 0 0 20px oklch(0.8 0.2 200 / 0.3);
   }
 }
+
+@layer utilities {
+  /* Safe Area utilities */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}

@@ -31,6 +31,7 @@ import {
   Check,
 } from "lucide-react";
 import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
+import { useIsMobile } from "../hooks/useMobile";
 
 interface TerminalPaneProps {
   session: ManagedSession;
@@ -65,9 +66,17 @@ export function TerminalPane({
   onClearImageUploadState,
   onCopyBuffer,
 }: TerminalPaneProps) {
+  const isMobile = useIsMobile();
   const [inputValue, setInputValue] = useState("");
   const [showInput, setShowInput] = useState(true);
   const [showQuickCommands, setShowQuickCommands] = useState(false);
+
+  // PCでは入力バーをデフォルト非表示にする
+  useEffect(() => {
+    if (!isMobile) {
+      setShowInput(false);
+    }
+  }, [isMobile]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);
@@ -274,7 +283,7 @@ export function TerminalPane({
             onClick={() => setShowInput(!showInput)}
             title={showInput ? "Hide input" : "Show input"}
           >
-            <Keyboard className="w-5 h-5 md:w-3 md:h-3" />
+            <Keyboard className={`w-5 h-5 md:w-3 md:h-3 ${showInput ? "text-primary" : ""}`} />
           </Button>
           {onMaximize && (
             <Button
