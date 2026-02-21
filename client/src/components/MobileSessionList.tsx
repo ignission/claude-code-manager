@@ -95,27 +95,27 @@ export function MobileSessionList({
                 <div className="shrink-0">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-10 w-10">
+                      <Button variant="ghost" size="icon" className="h-10 w-10" aria-label="Worktree actions">
                         <MoreVertical className="w-5 h-5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                       {session ? (
                         <>
-                          <DropdownMenuItem onClick={() => onOpenSession(session.id)}>
+                          <DropdownMenuItem onSelect={() => onOpenSession(session.id)}>
                             <MessageSquare className="w-4 h-4 mr-2" />
                             セッションを開く
                           </DropdownMenuItem>
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onClick={() => onStopSession(session.id)}
+                            onSelect={() => onStopSession(session.id)}
                           >
                             <Square className="w-4 h-4 mr-2" />
                             セッションを停止
                           </DropdownMenuItem>
                         </>
                       ) : (
-                        <DropdownMenuItem onClick={() => onStartSession(worktree)}>
+                        <DropdownMenuItem onSelect={() => onStartSession(worktree)}>
                           <Play className="w-4 h-4 mr-2" />
                           セッションを開始
                         </DropdownMenuItem>
@@ -125,7 +125,7 @@ export function MobileSessionList({
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
                             className="text-destructive focus:text-destructive"
-                            onClick={() => setDeleteTarget(worktree)}
+                            onSelect={() => setDeleteTarget(worktree)}
                           >
                             <Trash2 className="w-4 h-4 mr-2" />
                             Worktreeを削除

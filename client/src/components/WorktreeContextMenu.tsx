@@ -88,6 +88,7 @@ export function WorktreeContextMenu({
                 variant="ghost"
                 size="icon"
                 className="h-10 w-10"
+                aria-label="Worktree actions"
                 onClick={(e) => e.stopPropagation()}
               >
                 <MoreVertical className="w-5 h-5" />
@@ -96,20 +97,20 @@ export function WorktreeContextMenu({
             <DropdownMenuContent align="end" className="w-48">
               {session ? (
                 <>
-                  <DropdownMenuItem onClick={() => onSelectSession(session.id)}>
+                  <DropdownMenuItem onSelect={() => onSelectSession(session.id)}>
                     <MessageSquare className="w-4 h-4 mr-2" />
                     セッションを開く
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
-                    onClick={() => onStopSession(session.id)}
+                    onSelect={() => onStopSession(session.id)}
                   >
                     <Square className="w-4 h-4 mr-2" />
                     セッションを停止
                   </DropdownMenuItem>
                 </>
               ) : (
-                <DropdownMenuItem onClick={() => onStartSession(worktree)}>
+                <DropdownMenuItem onSelect={() => onStartSession(worktree)}>
                   <Play className="w-4 h-4 mr-2" />
                   セッションを開始
                 </DropdownMenuItem>
@@ -119,7 +120,7 @@ export function WorktreeContextMenu({
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
-                    onClick={() => setShowDeleteDialog(true)}
+                    onSelect={() => setShowDeleteDialog(true)}
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     Worktreeを削除
@@ -143,20 +144,20 @@ export function WorktreeContextMenu({
         <ContextMenuContent className="w-48">
           {session ? (
             <>
-              <ContextMenuItem onClick={() => onSelectSession(session.id)}>
+              <ContextMenuItem onSelect={() => onSelectSession(session.id)}>
                 <MessageSquare className="w-4 h-4 mr-2" />
                 セッションを開く
               </ContextMenuItem>
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
-                onClick={() => onStopSession(session.id)}
+                onSelect={() => onStopSession(session.id)}
               >
                 <Square className="w-4 h-4 mr-2" />
                 セッションを停止
               </ContextMenuItem>
             </>
           ) : (
-            <ContextMenuItem onClick={() => onStartSession(worktree)}>
+            <ContextMenuItem onSelect={() => onStartSession(worktree)}>
               <Play className="w-4 h-4 mr-2" />
               セッションを開始
             </ContextMenuItem>
@@ -166,7 +167,7 @@ export function WorktreeContextMenu({
               <ContextMenuSeparator />
               <ContextMenuItem
                 className="text-destructive focus:text-destructive"
-                onClick={() => setShowDeleteDialog(true)}
+                onSelect={() => setShowDeleteDialog(true)}
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Worktreeを削除
