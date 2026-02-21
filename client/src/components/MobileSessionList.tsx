@@ -5,6 +5,7 @@
  * タップターゲットは最低48pxを確保。
  */
 
+import { useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { GitBranch, Play, Square } from "lucide-react";
 import type { ManagedSession, Worktree } from "../../../shared/types";
@@ -26,8 +27,16 @@ export function MobileSessionList({
   onStartSession,
   onStopSession,
 }: MobileSessionListProps) {
+  const sessionByWorktreeId = useMemo(() => {
+    const map = new Map<string, ManagedSession>();
+    sessions.forEach((session) => {
+      map.set(session.worktreeId, session);
+    });
+    return map;
+  }, [sessions]);
+
   const getSessionForWorktree = (worktreeId: string) => {
-    return Array.from(sessions.values()).find((s) => s.worktreeId === worktreeId);
+    return sessionByWorktreeId.get(worktreeId);
   };
 
   return (

@@ -101,6 +101,7 @@ export function MobileSessionView({
   // クリップボードから画像を読み取り
   const handlePaste = useCallback(
     (e: React.ClipboardEvent | ClipboardEvent) => {
+      if (!onUploadImage) return;
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -124,7 +125,7 @@ export function MobileSessionView({
         }
       }
     },
-    []
+    [onUploadImage]
   );
 
   // ペーストイベントのリスナー
@@ -140,6 +141,7 @@ export function MobileSessionView({
 
   // クリップボードからの画像ペーストボタン
   const handlePasteButtonClick = async () => {
+    if (!onUploadImage) return;
     try {
       const clipboardItems = await navigator.clipboard.read();
       for (const item of clipboardItems) {
@@ -234,14 +236,18 @@ export function MobileSessionView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuItem onClick={handleCopyBuffer}>
-                <Copy className="w-4 h-4 mr-2" />
-                Copy Buffer
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={handlePasteButtonClick}>
-                <ImageIcon className="w-4 h-4 mr-2" />
-                Paste Image
-              </DropdownMenuItem>
+              {onCopyBuffer && (
+                <DropdownMenuItem onClick={handleCopyBuffer}>
+                  <Copy className="w-4 h-4 mr-2" />
+                  Copy Buffer
+                </DropdownMenuItem>
+              )}
+              {onUploadImage && (
+                <DropdownMenuItem onClick={handlePasteButtonClick}>
+                  <ImageIcon className="w-4 h-4 mr-2" />
+                  Paste Image
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={handleReloadIframe}>
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reload Terminal

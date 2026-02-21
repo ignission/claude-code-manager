@@ -19,7 +19,7 @@ import { findRepoForSession } from "@/utils/sessionUtils";
 import { getBaseName } from "@/utils/pathUtils";
 import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
 
-type LayoutMode = "single" | "split-2" | "grid-4";
+type LayoutMode = "single" | "grid-4";
 
 interface MultiPaneLayoutProps {
   activePanes: string[]; // Session IDs
@@ -114,7 +114,7 @@ export function MultiPaneLayout({
       return "grid-cols-1";
     }
 
-    // split-2、grid-4ともに最大2列
+    // grid-4は最大2列
     return "grid-cols-2";
   };
 

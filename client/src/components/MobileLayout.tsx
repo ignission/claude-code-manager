@@ -5,7 +5,7 @@
  * iframe再マウント防止のため、display:none/blockで表示を切り替える。
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { MobileSessionList } from "@/components/MobileSessionList";
 import { MobileSessionView } from "@/components/MobileSessionView";
 import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
@@ -58,6 +58,13 @@ export function MobileLayout({
   const handleBack = useCallback(() => {
     setActiveView("list");
   }, []);
+
+  // 選択中のセッションが削除された場合、一覧画面にフォールバック
+  useEffect(() => {
+    if (activeView === "detail" && selectedSessionId && !sessions.has(selectedSessionId)) {
+      setActiveView("list");
+    }
+  }, [activeView, selectedSessionId, sessions]);
 
   // ワークツリーのIDからWorktreeを取得するヘルパー
   const getWorktreeForSession = (session: ManagedSession): Worktree | undefined => {

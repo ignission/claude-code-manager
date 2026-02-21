@@ -71,12 +71,12 @@ export function TerminalPane({
   const [showInput, setShowInput] = useState(true);
   const [showQuickCommands, setShowQuickCommands] = useState(false);
 
-  // PCでは初回マウント時に入力バーを非表示にする
+  // PCでは入力バーをデフォルト非表示にする
   useEffect(() => {
     if (!isMobile) {
       setShowInput(false);
     }
-  }, []);
+  }, [isMobile]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);

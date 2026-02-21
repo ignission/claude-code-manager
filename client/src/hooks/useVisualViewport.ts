@@ -32,6 +32,7 @@ export function useVisualViewport(): VisualViewportState {
 
     viewport.addEventListener("resize", handleResize);
     viewport.addEventListener("scroll", handleResize);
+    handleResize();
 
     return () => {
       viewport.removeEventListener("resize", handleResize);
