@@ -65,6 +65,7 @@ import { toast } from "sonner";
 import { useSocket } from "@/hooks/useSocket";
 import { MultiPaneLayout } from "@/components/MultiPaneLayout";
 import { SessionDashboard } from "@/components/SessionDashboard";
+import { MobileLayout } from "@/components/MobileLayout";
 import { RepoSelectDialog } from "@/components/RepoSelectDialog";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { isSessionBelongsToRepo, findRepoForSession } from "@/utils/sessionUtils";
@@ -668,7 +669,7 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="h-screen flex flex-col md:flex-row bg-background">
+    <div className="h-[100dvh] flex flex-col md:flex-row bg-background">
       {isMobile && (
         <header className="h-14 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
           <div className="flex items-center gap-3">
@@ -743,83 +744,103 @@ export default function Dashboard() {
       )}
 
       <main className="flex-1 flex flex-col min-w-0">
-        <div className="h-14 md:h-12 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-            <TabsList className="bg-sidebar-accent h-10 md:h-9">
-              <TabsTrigger value="dashboard" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
-                <LayoutGrid className="w-4 h-4 md:w-4 md:h-4" />
-                <span className="hidden sm:inline">Dashboard</span>
-              </TabsTrigger>
-              <TabsTrigger value="panes" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
-                <Columns2 className="w-4 h-4 md:w-4 md:h-4" />
-                <span className="hidden sm:inline">Panes</span>
-                {validActivePanes.length > 0 && (
-                  <span className="ml-1 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                    {validActivePanes.length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+        {isMobile ? (
+          <MobileLayout
+            sessions={sessions}
+            worktrees={worktrees}
+            repoName={repoPath ? getBaseName(repoPath) : null}
+            onStartSession={handleStartSession}
+            onStopSession={handleStopSession}
+            onSendMessage={sendMessage}
+            onSendKey={sendKey}
+            onSelectSession={handleSelectSession}
+            onUploadImage={uploadImage}
+            imageUploadResult={imageUploadResult}
+            imageUploadError={imageUploadError}
+            onClearImageUploadState={clearImageUploadState}
+            onCopyBuffer={copyBuffer}
+          />
+        ) : (
+          <>
+            <div className="h-14 md:h-12 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+                <TabsList className="bg-sidebar-accent h-10 md:h-9">
+                  <TabsTrigger value="dashboard" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
+                    <LayoutGrid className="w-4 h-4 md:w-4 md:h-4" />
+                    <span className="hidden sm:inline">Dashboard</span>
+                  </TabsTrigger>
+                  <TabsTrigger value="panes" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
+                    <Columns2 className="w-4 h-4 md:w-4 md:h-4" />
+                    <span className="hidden sm:inline">Panes</span>
+                    {validActivePanes.length > 0 && (
+                      <span className="ml-1 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                        {validActivePanes.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-          {!isConnected && (
-            <div className="flex items-center gap-2 text-destructive text-sm">
-              <AlertCircle className="w-5 h-5 md:w-4 md:h-4" />
-              <span className="hidden sm:inline">Not connected to server</span>
-            </div>
-          )}
-        </div>
-
-        <div className="flex-1 overflow-hidden">
-          {viewMode === "dashboard" ? (
-            <SessionDashboard
-              sessions={sessions}
-              onSelectSession={handleSelectSession}
-              onStopSession={handleStopSession}
-            />
-          ) : validActivePanes.length > 0 ? (
-            <MultiPaneLayout
-              activePanes={validActivePanes}
-              sessions={filteredSessions}
-              worktrees={worktrees}
-              repoList={repoList}
-              onSendMessage={sendMessage}
-              onSendKey={sendKey}
-              onStopSession={handleStopSession}
-              onClosePane={handleClosePane}
-              onMaximizePane={handleMaximizePane}
-              maximizedPane={maximizedPane}
-              onUploadImage={uploadImage}
-              imageUploadResult={imageUploadResult}
-              imageUploadError={imageUploadError}
-              onClearImageUploadState={clearImageUploadState}
-              onCopyBuffer={copyBuffer}
-            />
-          ) : (
-              <div className="h-full flex items-center justify-center p-6">
-                <div className="text-center max-w-md">
-                  <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                    <Terminal className="w-10 h-10 md:w-8 md:h-8 text-primary" />
-                  </div>
-                  <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">No Active Panes</h2>
-                  <p className="text-base md:text-sm text-muted-foreground mb-6">
-                    {isMobile ? "Tap the menu to select a worktree and start a session." : "Start a session from the sidebar to open a chat pane."}
-                  </p>
-                  <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-base md:text-sm text-muted-foreground">
-                    <div className="flex items-center gap-2">
-                      <Play className="w-5 h-5 md:w-4 md:h-4 text-primary" />
-                      <span>Start session</span>
-                    </div>
-                    <Separator orientation="vertical" className="h-4 hidden sm:block" />
-                    <div className="flex items-center gap-2">
-                      <Plus className="w-5 h-5 md:w-4 md:h-4 text-accent" />
-                      <span>Create worktree</span>
-                    </div>
-                  </div>
+              {!isConnected && (
+                <div className="flex items-center gap-2 text-destructive text-sm">
+                  <AlertCircle className="w-5 h-5 md:w-4 md:h-4" />
+                  <span className="hidden sm:inline">Not connected to server</span>
                 </div>
-              </div>
-          )}
-        </div>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-hidden">
+              {viewMode === "dashboard" ? (
+                <SessionDashboard
+                  sessions={sessions}
+                  onSelectSession={handleSelectSession}
+                  onStopSession={handleStopSession}
+                />
+              ) : validActivePanes.length > 0 ? (
+                <MultiPaneLayout
+                  activePanes={validActivePanes}
+                  sessions={filteredSessions}
+                  worktrees={worktrees}
+                  repoList={repoList}
+                  onSendMessage={sendMessage}
+                  onSendKey={sendKey}
+                  onStopSession={handleStopSession}
+                  onClosePane={handleClosePane}
+                  onMaximizePane={handleMaximizePane}
+                  maximizedPane={maximizedPane}
+                  onUploadImage={uploadImage}
+                  imageUploadResult={imageUploadResult}
+                  imageUploadError={imageUploadError}
+                  onClearImageUploadState={clearImageUploadState}
+                  onCopyBuffer={copyBuffer}
+                />
+              ) : (
+                  <div className="h-full flex items-center justify-center p-6">
+                    <div className="text-center max-w-md">
+                      <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                        <Terminal className="w-10 h-10 md:w-8 md:h-8 text-primary" />
+                      </div>
+                      <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">No Active Panes</h2>
+                      <p className="text-base md:text-sm text-muted-foreground mb-6">
+                        Start a session from the sidebar to open a chat pane.
+                      </p>
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-base md:text-sm text-muted-foreground">
+                        <div className="flex items-center gap-2">
+                          <Play className="w-5 h-5 md:w-4 md:h-4 text-primary" />
+                          <span>Start session</span>
+                        </div>
+                        <Separator orientation="vertical" className="h-4 hidden sm:block" />
+                        <div className="flex items-center gap-2">
+                          <Plus className="w-5 h-5 md:w-4 md:h-4 text-accent" />
+                          <span>Create worktree</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+              )}
+            </div>
+          </>
+        )}
       </main>
 
       {/* ポート選択ダイアログ */}

@@ -3,6 +3,7 @@ module.exports = {
     {
       name: 'claude-code-manager',
       script: 'dist/index.js',
+      cwd: '/Users/shoma/dev/github.com/ignission/claude-code-manager',
       args: '--remote',
       instances: 1,
       autorestart: true,
