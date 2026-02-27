@@ -68,11 +68,16 @@ export class AuthManager {
     if (!this.enabled) {
       return true;
     }
-    // timingSafeEqualはバッファ長が異なるとエラーになるため、先に長さチェック
-    if (!token || token.length !== this.token.length) {
+    if (!token) {
       return false;
     }
-    return timingSafeEqual(Buffer.from(token), Buffer.from(this.token));
+    // timingSafeEqualはバッファ長が異なるとエラーになるため、バイト長で比較
+    const received = Buffer.from(token, "utf8");
+    const expected = Buffer.from(this.token, "utf8");
+    if (received.length !== expected.length) {
+      return false;
+    }
+    return timingSafeEqual(received, expected);
   }
 
   /**

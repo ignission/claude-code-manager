@@ -120,12 +120,15 @@ async function startServer() {
             callback(null, true);
             return;
           }
-          // トンネル時の許可ドメイン
-          if (authManager.isEnabled()) {
-            if (hostname.endsWith(".trycloudflare.com") || hostname === "ccm.ignission.tech") {
-              callback(null, true);
-              return;
-            }
+          // Quick Tunnel時の許可ドメイン（トークン認証が有効な場合のみ）
+          if (hostname.endsWith(".trycloudflare.com") && authManager.isEnabled()) {
+            callback(null, true);
+            return;
+          }
+          // Named Tunnel時の許可ドメイン（--remote モードの場合のみ）
+          if (hostname === "ccm.ignission.tech" && enableRemote) {
+            callback(null, true);
+            return;
           }
           callback(new Error("CORS not allowed"), false);
         } catch {

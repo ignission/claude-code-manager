@@ -130,11 +130,14 @@ export class TmuxManager extends EventEmitter {
     const id = nanoid(8);
     const tmuxSessionName = `${this.SESSION_PREFIX}${id}`;
 
+    let tmuxCreated = false;
+
     try {
       // tmuxセッションを作成（detached mode）- シェルだけを起動
       const newSessionResult = spawnSync("tmux", ["new-session", "-d", "-s", tmuxSessionName, "-c", worktreePath], { stdio: "pipe" });
       if (newSessionResult.error) throw newSessionResult.error;
       if (newSessionResult.status !== 0) throw new Error(`tmux new-session exited with status ${newSessionResult.status}`);
+      tmuxCreated = true;
 
       // マウスモードを有効化
       const setOptionResult = spawnSync("tmux", ["set-option", "-t", tmuxSessionName, "mouse", "on"], { stdio: "pipe" });
@@ -150,6 +153,10 @@ export class TmuxManager extends EventEmitter {
       if (sendKeysResult.error) throw sendKeysResult.error;
       if (sendKeysResult.status !== 0) throw new Error(`tmux send-keys exited with status ${sendKeysResult.status}`);
     } catch (error) {
+      // 作成済みのtmuxセッションをクリーンアップ
+      if (tmuxCreated) {
+        spawnSync("tmux", ["kill-session", "-t", tmuxSessionName], { stdio: "pipe" });
+      }
       throw new Error(`Failed to create tmux session: ${error}`);
     }
 
