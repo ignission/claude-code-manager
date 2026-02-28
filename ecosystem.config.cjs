@@ -4,6 +4,7 @@ module.exports = {
       name: 'claude-code-manager',
       script: 'dist/index.js',
       cwd: __dirname,
+      node_args: '--env-file=.env.production',
       args: '--remote',
       instances: 1,
       autorestart: true,
@@ -11,7 +12,6 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
       },
-      env_file: '.env.production',
       out_file: 'logs/out.log',
       error_file: 'logs/error.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
