@@ -70,7 +70,7 @@ export interface ClaudeStreamEvent {
 }
 
 /** 特殊キー入力の種別 */
-export type SpecialKey = "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape";
+export type SpecialKey = "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape" | "scroll-up" | "scroll-down" | "copy-mode" | "q";
 
 // WebSocket event types
 export interface ServerToClientEvents {

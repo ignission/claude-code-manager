@@ -74,7 +74,7 @@ export function MobileLayout({
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 overflow-clip">
+    <div className="h-full flex flex-col min-h-0 overflow-hidden">
       {/* 一覧画面 */}
       <div
         className={

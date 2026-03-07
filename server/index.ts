@@ -402,7 +402,7 @@ async function startServer() {
 
     // ===== Session Orchestrator Event Handlers =====
     // sessionOrchestrator のイベントをそのまま Socket.IO クライアントへ転送する
-    const forwardedEvents = ["session:created", "session:restored", "session:stopped"] as const;
+    const forwardedEvents = ["session:created", "session:restored", "session:stopped", "session:updated"] as const;
     type ForwardedEvent = (typeof forwardedEvents)[number];
 
     const forwardHandlers = new Map<ForwardedEvent, (...args: unknown[]) => void>();
