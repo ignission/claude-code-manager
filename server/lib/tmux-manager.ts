@@ -11,7 +11,7 @@ import { nanoid } from "nanoid";
 import type { SpecialKey } from "../../shared/types.js";
 
 /** 送信を許可する特殊キーのホワイトリスト */
-const ALLOWED_SPECIAL_KEYS = new Set<SpecialKey>(["Enter", "C-c", "C-d", "y", "n", "S-Tab", "Escape"]);
+const ALLOWED_SPECIAL_KEYS = new Set<SpecialKey>(["Enter", "C-c", "C-d", "y", "n", "S-Tab", "Escape", "scroll-up", "scroll-down", "copy-mode", "q"]);
 
 export interface TmuxSession {
   id: string;
@@ -209,8 +209,23 @@ export class TmuxManager extends EventEmitter {
       throw new Error(`許可されていない特殊キーです: ${key}`);
     }
 
+    // copy-mode はtmuxのcopy-modeコマンドを使用
+    if (key === "copy-mode") {
+      const result = spawnSync("tmux", ["copy-mode", "-t", session.tmuxSessionName], { stdio: "pipe" });
+      if (result.error) throw result.error;
+      if (result.status !== 0) throw new Error(`tmux copy-mode exited with status ${result.status}`);
+      session.lastActivity = new Date();
+      return;
+    }
+
     // S-Tab はtmuxでは "BTab" として送信
-    const tmuxKey = key === "S-Tab" ? "BTab" : key;
+    // scroll-up/scroll-down はcopy-mode内でUp/Downキーとして送信
+    const keyMap: Partial<Record<SpecialKey, string>> = {
+      "S-Tab": "BTab",
+      "scroll-up": "Up",
+      "scroll-down": "Down",
+    };
+    const tmuxKey = keyMap[key] ?? key;
     const result = spawnSync("tmux", ["send-keys", "-t", session.tmuxSessionName, tmuxKey], { stdio: "pipe" });
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(`tmux send-keys exited with status ${result.status}`);

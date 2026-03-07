@@ -131,12 +131,12 @@
     @apply bg-background text-foreground;
     font-family: "Inter", system-ui, -apple-system, sans-serif;
     height: 100dvh;
-    overflow: clip;
+    overflow: hidden;
     overscroll-behavior: none;
   }
   #root {
     height: 100%;
-    overflow: clip;
+    overflow: hidden;
   }
   button:not(:disabled),
   [role="button"]:not([aria-disabled="true"]),

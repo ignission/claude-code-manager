@@ -17,7 +17,6 @@ import {
   Maximize2,
   Minimize2,
   Send,
-  CornerDownLeft,
   StopCircle,
   GitBranch,
   Keyboard,
@@ -320,7 +319,7 @@ export function TerminalPane({
       </header>
 
       {/* ttyd iframe */}
-      <div className="flex-1 min-h-0 bg-[#1a1b26]">
+      <div className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden">
         {session.ttydUrl || session.ttydPort ? (
           <iframe
             key={iframeKey}
