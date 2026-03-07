@@ -37,7 +37,7 @@ import type {
 const args = process.argv.slice(2);
 const enableRemote = args.includes("--remote") || args.includes("-r");
 const enableQuick = args.includes("--quick") || args.includes("-q");
-const skipPermissions = args.includes("--skip-permissions");
+const skipPermissions = args.includes("--skip-permissions") || process.env.SKIP_PERMISSIONS === "true";
 
 // 公開ドメイン（Named Tunnel / CORS許可用）
 const publicDomain = process.env.CCM_PUBLIC_DOMAIN;
