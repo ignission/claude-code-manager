@@ -7,6 +7,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   DropdownMenu,
@@ -64,7 +65,7 @@ export function MobileSessionView({
     preview: string;
   } | null>(null);
   const [imageMessage, setImageMessage] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // ttyd iframe URL構築
   const isLocalAccess =
@@ -76,18 +77,16 @@ export function MobileSessionView({
       ? `http://127.0.0.1:${session.ttydPort}/ttyd/${session.id}/`
       : `/ttyd/${session.id}/`;
 
-  // メッセージ送信
+  // メッセージ送信（空文字でもEnterとして送信 = ターミナルへの空行送信）
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputValue.trim()) {
-      onSendMessage(inputValue);
-      setInputValue("");
-    }
+    onSendMessage(inputValue);
+    setInputValue("");
   };
 
-  // Enter送信、Shift+Enter改行
+  // Enter送信（inputなのでShift+Enterチェック不要）
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter") {
       e.preventDefault();
       handleSubmit(e);
     }
@@ -131,7 +130,7 @@ export function MobileSessionView({
   // ペーストイベントのリスナー
   useEffect(() => {
     const handleDocumentPaste = (e: ClipboardEvent) => {
-      if (document.activeElement === textareaRef.current) {
+      if (document.activeElement === inputRef.current) {
         handlePaste(e);
       }
     };
@@ -471,21 +470,20 @@ export function MobileSessionView({
       >
         <div className="flex gap-2 items-end">
           <div className="flex-1">
-            <Textarea
-              ref={textareaRef}
+            <Input
+              ref={inputRef}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
+              enterKeyHint="send"
               placeholder="メッセージを入力... (Enter送信)"
-              className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
-              rows={1}
+              className="h-11 font-mono text-sm bg-input"
             />
           </div>
           <Button
             type="submit"
             size="icon"
             className="h-11 w-11 glow-green shrink-0"
-            disabled={!inputValue.trim()}
           >
             <Send className="w-5 h-5" />
           </Button>
