@@ -6,6 +6,7 @@ import * as React from "react";
 function Input({
   className,
   type,
+  ref,
   onKeyDown,
   onCompositionStart,
   onCompositionEnd,
@@ -51,6 +52,7 @@ function Input({
 
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
