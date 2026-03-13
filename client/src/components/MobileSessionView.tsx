@@ -476,6 +476,7 @@ export function MobileSessionView({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
+              enterKeyHint="send"
               placeholder="メッセージを入力... (Enter送信)"
               className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
               rows={1}
