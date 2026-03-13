@@ -1,123 +1,73 @@
 # Claude Code Manager
 
-ローカルで稼働する複数のClaude Codeインスタンスを管理するWebUIアプリケーションです。
+**複数のClaude Codeセッションを、ひとつのWebUIから。**
 
-## 機能
+<!-- スクリーンショットやGIFをここに追加 -->
 
-- **Git Worktree管理**: WebUI上でgit worktreeの作成・一覧表示・削除が可能
-- **複数セッション管理**: 各worktreeに対してClaude Codeセッションを起動・管理
-- **チャットUI**: ターミナルインスパイアのダークモードデザインでClaude Codeと対話
-- **リアルタイム通信**: Socket.IOによるリアルタイムなメッセージストリーミング
+> [!WARNING]
+> このプロジェクトは実験的なものです。Cloudflare Tunnelなどを利用してリモートからアクセスする場合は、セキュリティに十分注意してください。信頼できないネットワーク上での公開は推奨しません。
 
-## 前提条件
+## なぜ必要か
 
-- Node.js 18以上
-- pnpm
-- Git
-- Claude Code CLI（`claude`コマンドがPATHに通っていること）
-- Anthropic APIキー（環境変数 `ANTHROPIC_API_KEY`）
+Claude Codeで本格的に開発を始めると、すぐにターミナルのタブが爆発する。
 
-## インストール
+worktreeごとにClaude Codeを起動して、featureブランチ用、bugfix用、実験用...と増えていく。どのタブでどのセッションが動いているか見失い、外出先からは進捗すら確認できない。サーバーを再起動すればセッションは消え、コンテキストも失われる。
+
+Claude Code Managerは、そういった問題をまとめて解決する。ブラウザを開けば、すべてのセッションが一覧でき、どこからでも操作できる。
+
+## Features
+
+- **セッション管理** -- worktreeごとにClaude Codeセッションを起動・停止。サーバー再起動後も自動復元
+- **ブラウザ操作** -- Webターミナルから直接Claude Codeを操作。ローカルにターミナルを開く必要なし
+- **マルチペイン** -- 最大4つのセッションを同時に表示・監視（PC）
+- **モバイル対応** -- スマホからフル操作可能。IME / 日本語入力にも対応
+- **リモートアクセス** -- Cloudflare Tunnelで外出先からセッションにアクセス。QRコードですぐ接続
+- **Git Worktree統合** -- WebUIからworktreeの作成・削除・一覧表示
+
+## Quick Start
+
+### 前提条件
+
+- Node.js >= 20.6.0
+- [pnpm](https://pnpm.io/)
+- [tmux](https://github.com/tmux/tmux)
+- [ttyd](https://github.com/tsl0922/ttyd)
+
+### インストールと起動
 
 ```bash
-# リポジトリをクローン
-git clone https://github.com/shomatan/claude-code-manager.git
+git clone https://github.com/ignission/claude-code-manager.git
 cd claude-code-manager
-
-# 依存関係をインストール
 pnpm install
-```
-
-## 開発
-
-### フロントエンドのみ（UIプレビュー）
-
-```bash
-pnpm dev
-```
-
-### フルスタック開発（フロントエンド + バックエンド）
-
-```bash
-pnpm dev:full
-```
-
-これにより、以下が同時に起動します：
-- Vite開発サーバー（フロントエンド）: http://localhost:5173
-- Express + Socket.IOサーバー（バックエンド）: http://localhost:3001
-
-## ビルド
-
-```bash
-pnpm build
-```
-
-## 本番環境での実行
-
-```bash
 pnpm build
 pnpm start
 ```
 
-## 使い方
+ブラウザで http://localhost:3001 を開く。
 
-1. アプリケーションを起動
-2. 左サイドバーの「Select Repository」をクリックしてGitリポジトリのパスを入力
-3. Worktree一覧が表示される
-4. 「+」ボタンで新しいworktreeを作成、または既存のworktreeを選択
-5. Playボタン（▶）をクリックしてClaude Codeセッションを開始
-6. チャットエリアでClaude Codeと対話
+## リモートアクセス
 
-## 技術スタック
+[cloudflared](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/) をインストールした上で、Quick Tunnelを使う場合:
 
-- **フロントエンド**: React 19, TypeScript, Tailwind CSS 4, shadcn/ui
-- **バックエンド**: Express, Socket.IO
-- **Claude統合**: Claude Agent SDK (@anthropic-ai/claude-agent-sdk)
-- **ビルドツール**: Vite, esbuild
-- **デザイン**: Terminal-Inspired Dark Mode
-
-## アーキテクチャ
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                         Browser                              │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │                    React Frontend                        ││
-│  │  ┌─────────────────┐  ┌─────────────────────────────┐  ││
-│  │  │    Sidebar      │  │         Chat Panel           │  ││
-│  │  │  - Repository   │  │  - Messages                  │  ││
-│  │  │  - Worktrees    │  │  - Streaming                 │  ││
-│  │  │  - Sessions     │  │  - Input                     │  ││
-│  │  └─────────────────┘  └─────────────────────────────┘  ││
-│  └─────────────────────────────────────────────────────────┘│
-│                              │                               │
-│                     Socket.IO (WebSocket)                    │
-└──────────────────────────────┼───────────────────────────────┘
-                               │
-┌──────────────────────────────┼───────────────────────────────┐
-│                         Server                               │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │                   Express + Socket.IO                    ││
-│  │  ┌─────────────────┐  ┌─────────────────────────────┐  ││
-│  │  │   Git Module    │  │   Claude Process Manager    │  ││
-│  │  │  - list         │  │  - Claude Agent SDK         │  ││
-│  │  │  - add          │  │  - Session management       │  ││
-│  │  │  - remove       │  │  - Message streaming        │  ││
-│  │  └─────────────────┘  └─────────────────────────────┘  ││
-│  └─────────────────────────────────────────────────────────┘│
-│                              │                               │
-│                    Claude Agent SDK                          │
-└──────────────────────────────┼───────────────────────────────┘
-                               │
-                    ┌──────────┴──────────┐
-                    │    Claude Code CLI   │
-                    │  (managed by SDK)    │
-                    └─────────────────────┘
+```bash
+pnpm start:quick
 ```
 
-## 開発者向け情報
+起動後、ターミナルにQRコードと一時URL（`*.trycloudflare.com`）が表示される。トークン認証付き。
 
-開発を引き継ぐ場合は、[CLAUDE.md](./CLAUDE.md)を参照してください。
+固定ドメインを使いたい場合は、環境変数 `CCM_PUBLIC_DOMAIN` を設定して `pnpm start:remote` で起動する。
+
+## 開発
+
+| コマンド | 説明 |
+|---------|------|
+| `pnpm dev` | フロントエンド開発サーバー |
+| `pnpm dev:server` | バックエンド開発サーバー |
+| `pnpm dev:full` | フルスタック開発 |
+| `pnpm dev:quick` | Quick Tunnel付き開発 |
+| `pnpm build` | 本番ビルド |
+| `pnpm start` | 本番起動 |
+| `pnpm check` | 型チェック |
 
 ## ライセンス
 
