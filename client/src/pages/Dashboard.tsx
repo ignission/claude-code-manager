@@ -206,6 +206,8 @@ export default function Dashboard() {
 
   // ユーザーが意図的に閉じたペインを追跡（useEffectによる再追加を防ぐ）
   const closedPanesRef = useRef<Set<string>>(loadClosedPanes());
+  // 処理済みセッションIDを追跡（useEffectの無限ループ防止）
+  const processedSessionsRef = useRef<Set<string>>(new Set());
   const viewModeHydratedRef = useRef(true);
 
   const saveClosedPanes = useCallback(() => {
@@ -376,6 +378,7 @@ export default function Dashboard() {
 
   const handleStopSession = (sessionId: string) => {
     stopSession(sessionId);
+    processedSessionsRef.current.delete(sessionId);
     const session = sessions.get(sessionId);
     const targetRepo = session ? findRepoForSession(session, repoList) : null;
     removeSessionFromPanes(sessionId, targetRepo);
@@ -420,6 +423,7 @@ export default function Dashboard() {
     // ユーザーが意図的に閉じたペインとして記録
     closedPanesRef.current.add(sessionId);
     saveClosedPanes();
+    processedSessionsRef.current.delete(sessionId);
     const session = sessions.get(sessionId);
     const targetRepo = session ? findRepoForSession(session, repoList) : null;
     removeSessionFromPanes(sessionId, targetRepo);
@@ -435,21 +439,39 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (repoList.length === 0) return;
+
+    // 新しいセッションのみを処理
+    const newEntries: Array<{ targetRepo: string; sessionId: string }> = [];
     sessions.forEach((session, sessionId) => {
-      // ユーザーが意図的に閉じたペインは再追加しない
       if (closedPanesRef.current.has(sessionId)) return;
+      if (processedSessionsRef.current.has(sessionId)) return;
       const targetRepo = findRepoForSession(session, repoList);
       if (targetRepo) {
-        setActivePanesPerRepo((prev) => {
-          const currentPanes = prev.get(targetRepo) || [];
-          if (currentPanes.includes(sessionId)) return prev;
-          const newMap = new Map(prev);
-          newMap.set(targetRepo, [...currentPanes, sessionId]);
-          return newMap;
-        });
-        setViewMode("panes");
+        newEntries.push({ targetRepo, sessionId });
       }
     });
+
+    if (newEntries.length === 0) return;
+
+    // 処理済みとしてマーク
+    for (const entry of newEntries) {
+      processedSessionsRef.current.add(entry.sessionId);
+    }
+
+    // 一度だけ状態更新
+    setActivePanesPerRepo((prev) => {
+      const newMap = new Map(prev);
+      let changed = false;
+      for (const { targetRepo, sessionId } of newEntries) {
+        const currentPanes = newMap.get(targetRepo) || [];
+        if (!currentPanes.includes(sessionId)) {
+          newMap.set(targetRepo, [...currentPanes, sessionId]);
+          changed = true;
+        }
+      }
+      return changed ? newMap : prev;
+    });
+    setViewMode("panes");
   }, [sessions, repoList]);
 
   useEffect(() => {

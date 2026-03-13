@@ -319,6 +319,30 @@ export function useSocket(): UseSocketReturn {
 
     // Cleanup on unmount
     return () => {
+      // 全イベントハンドラを解除
+      socket.off("connect");
+      socket.off("disconnect");
+      socket.off("connect_error");
+      socket.off("repos:list");
+      socket.off("repo:set");
+      socket.off("repo:error");
+      socket.off("repos:scanned");
+      socket.off("repos:scanning");
+      socket.off("worktree:list");
+      socket.off("worktree:created");
+      socket.off("worktree:deleted");
+      socket.off("worktree:error");
+      socket.off("session:list");
+      socket.off("session:created");
+      socket.off("session:updated");
+      socket.off("session:stopped");
+      socket.off("session:restored");
+      socket.off("session:restore_failed");
+      socket.off("session:error");
+      socket.off("tunnel:started");
+      socket.off("tunnel:stopped");
+      socket.off("tunnel:error");
+      socket.off("tunnel:status");
       socket.off("ports:list");
       socket.off("image:uploaded");
       socket.off("image:error");
