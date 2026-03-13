@@ -21,12 +21,16 @@ function Input({
     onKeyDown: handleKeyDown,
   } = useComposition<HTMLInputElement>({
     onKeyDown: (e) => {
-      // useCompositionが既にcomposition中のEnterをブロックしているため、
-      // ここではDialog内のcomposition終了直後のみチェック
-      if (e.key === "Enter" && dialogComposition.justEndedComposing()) {
+      // Check if this is an Enter key that should be blocked
+      const isComposing = (e.nativeEvent as any).isComposing || dialogComposition.justEndedComposing();
+
+      // If Enter key is pressed while composing or just after composition ended,
+      // don't call the user's onKeyDown (this blocks the business logic)
+      if (e.key === "Enter" && isComposing) {
         return;
       }
 
+      // Otherwise, call the user's onKeyDown
       onKeyDown?.(e);
     },
     onCompositionStart: e => {
