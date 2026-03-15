@@ -18,6 +18,8 @@ export interface TtydInstance {
 
 export class TtydManager extends EventEmitter {
   private instances: Map<string, TtydInstance> = new Map();
+  /** 起動中のPromiseを保持し、同じセッションに対する重複起動を防ぐ */
+  private pendingStarts: Map<string, Promise<TtydInstance>> = new Map();
   private nextPort: number;
   private readonly MAX_PORT: number;
 
@@ -66,17 +68,42 @@ export class TtydManager extends EventEmitter {
 
   /**
    * tmuxセッション用のttydインスタンスを起動
+   * 重複起動ガード付き: 同じセッションIDに対する並行起動を防ぐ
    */
   async startInstance(
     sessionId: string,
     tmuxSessionName: string
   ): Promise<TtydInstance> {
-    // 既存インスタンスがあれば返す
+    // 既に起動済み
     const existing = this.instances.get(sessionId);
     if (existing) {
       return existing;
     }
 
+    // 既に起動中（別の呼び出しが進行中）
+    const pending = this.pendingStarts.get(sessionId);
+    if (pending) {
+      return pending;
+    }
+
+    // 新規起動
+    const promise = this._startInstanceInternal(sessionId, tmuxSessionName);
+    this.pendingStarts.set(sessionId, promise);
+
+    try {
+      return await promise;
+    } finally {
+      this.pendingStarts.delete(sessionId);
+    }
+  }
+
+  /**
+   * ttydインスタンスの実際の起動処理（内部用）
+   */
+  private async _startInstanceInternal(
+    sessionId: string,
+    tmuxSessionName: string
+  ): Promise<TtydInstance> {
     const port = this.findAvailablePort();
     const basePath = `/ttyd/${sessionId}`;
 
