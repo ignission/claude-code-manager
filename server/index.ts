@@ -306,6 +306,9 @@ async function startServer() {
 
   // ===== Socket.IO Connection Handler =====
 
+  // 複数クライアント同時接続時の重複復元を防ぐ（セッションID → 復元中のPromise）
+  const pendingAutoRestores = new Map<string, Promise<void>>();
+
   io.on("connection", (socket) => {
     console.log(`Client connected: ${socket.id}`);
 
@@ -335,18 +338,28 @@ async function startServer() {
     }
 
     // ttydが未起動のセッションを自動復元（非同期）
-    // restoreSessionがsession:restoredイベントを発行し、上記の転送ハンドラー経由でクライアントに通知される
+    // 複数クライアント同時接続でも同一セッションの復元は1回だけ実行される
     for (const session of existingSessions) {
-      if (!session.ttydPort && session.worktreePath) {
-        sessionOrchestrator.restoreSession(session.worktreePath)
-          .catch((err) => {
-            console.error(`[Socket] ttyd自動復元失敗 (${session.id}):`, getErrorMessage(err));
-            socket.emit("session:error", {
-              sessionId: session.id,
-              error: `ターミナルの起動に失敗しました: ${getErrorMessage(err)}`,
-            });
+      if (session.ttydPort || !session.worktreePath) continue;
+
+      let recovery = pendingAutoRestores.get(session.id);
+      if (!recovery) {
+        recovery = sessionOrchestrator
+          .restoreSession(session.worktreePath)
+          .then(() => undefined)
+          .finally(() => {
+            pendingAutoRestores.delete(session.id);
           });
+        pendingAutoRestores.set(session.id, recovery);
       }
+
+      recovery.catch((err) => {
+        console.error(`[Socket] ttyd自動復元失敗 (${session.id}):`, getErrorMessage(err));
+        socket.emit("session:error", {
+          sessionId: session.id,
+          error: `ターミナルの起動に失敗しました: ${getErrorMessage(err)}`,
+        });
+      });
     }
 
     // ===== Repository Commands =====
