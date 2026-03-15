@@ -312,10 +312,41 @@ async function startServer() {
     // Send allowed repos list to client on connection
     socket.emit("repos:list", allowedRepos);
 
+    // ===== Session Orchestrator Event Handlers =====
+    // sessionOrchestrator のイベントをそのまま Socket.IO クライアントへ転送する
+    // 注意: session:list送信やttyd自動復元より前に登録する必要がある
+    // （自動復元で発行されるsession:restoredイベントを転送するため）
+    const forwardedEvents = ["session:created", "session:restored", "session:stopped", "session:updated"] as const;
+    type ForwardedEvent = (typeof forwardedEvents)[number];
+
+    const forwardHandlers = new Map<ForwardedEvent, (...args: unknown[]) => void>();
+    for (const event of forwardedEvents) {
+      const handler = (...args: unknown[]) => {
+        (socket.emit as (event: string, ...args: unknown[]) => void)(event, ...args);
+      };
+      forwardHandlers.set(event, handler);
+      sessionOrchestrator.on(event, handler);
+    }
+
     // 既存セッション一覧を送信（リロード時のペイン復元用）
     const existingSessions = sessionOrchestrator.getAllSessions();
     if (existingSessions.length > 0) {
       socket.emit("session:list", existingSessions);
+    }
+
+    // ttydが未起動のセッションを自動復元（非同期）
+    // restoreSessionがsession:restoredイベントを発行し、上記の転送ハンドラー経由でクライアントに通知される
+    for (const session of existingSessions) {
+      if (!session.ttydPort && session.worktreePath) {
+        sessionOrchestrator.restoreSession(session.worktreePath)
+          .catch((err) => {
+            console.error(`[Socket] ttyd自動復元失敗 (${session.id}):`, getErrorMessage(err));
+            socket.emit("session:error", {
+              sessionId: session.id,
+              error: `ターミナルの起動に失敗しました: ${getErrorMessage(err)}`,
+            });
+          });
+      }
     }
 
     // ===== Repository Commands =====
@@ -478,20 +509,6 @@ async function startServer() {
         callback({ error: String(error) });
       }
     });
-
-    // ===== Session Orchestrator Event Handlers =====
-    // sessionOrchestrator のイベントをそのまま Socket.IO クライアントへ転送する
-    const forwardedEvents = ["session:created", "session:restored", "session:stopped", "session:updated"] as const;
-    type ForwardedEvent = (typeof forwardedEvents)[number];
-
-    const forwardHandlers = new Map<ForwardedEvent, (...args: unknown[]) => void>();
-    for (const event of forwardedEvents) {
-      const handler = (...args: unknown[]) => {
-        (socket.emit as (event: string, ...args: unknown[]) => void)(event, ...args);
-      };
-      forwardHandlers.set(event, handler);
-      sessionOrchestrator.on(event, handler);
-    }
 
     // ===== Port Scan Commands =====
 
