@@ -7,6 +7,7 @@
 
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { TTYD_PORT_START, TTYD_PORT_END } from "./constants.js";
 
 export interface TtydInstance {
   sessionId: string;
@@ -23,7 +24,7 @@ export class TtydManager extends EventEmitter {
   private nextPort: number;
   private readonly MAX_PORT: number;
 
-  constructor(startPort = 7680, maxPort = 7780) {
+  constructor(startPort = TTYD_PORT_START, maxPort = TTYD_PORT_END) {
     super();
     this.nextPort = startPort;
     this.MAX_PORT = maxPort;
@@ -58,7 +59,7 @@ export class TtydManager extends EventEmitter {
       if (!usedPorts.has(port)) {
         this.nextPort = port + 1;
         if (this.nextPort > this.MAX_PORT) {
-          this.nextPort = 7680; // ラップアラウンド
+          this.nextPort = TTYD_PORT_START; // ラップアラウンド
         }
         return port;
       }
