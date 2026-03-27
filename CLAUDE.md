@@ -4,27 +4,54 @@
 
 ## プロジェクト概要
 
-**Claude Code Manager**は、ローカルで稼働する複数のClaude Codeインスタンスを管理するWebUIアプリケーションです。ユーザーがgit worktreeを選択し、各worktreeに対してClaude Codeセッションを起動・管理できます。
+**Claude Code Manager (CCM)** は、ローカルで稼働する複数のClaude Codeインスタンスを管理するWebUIアプリケーションです。ユーザーがgitリポジトリとworktreeを選択し、各worktreeに対してClaude Codeセッション（tmux + ttyd）を起動・管理できます。
 
-## 現在の実装状況
+## アーキテクチャ
 
-### 完了している機能
+### tmux + ttyd によるターミナル転送方式
 
-| 機能 | 状態 | 説明 |
-|------|------|------|
-| Git Worktree管理 | ✅ 完了 | 一覧表示、作成、削除 |
-| セッション管理 | ✅ 完了 | 起動、停止、状態管理 |
-| チャットUI | ✅ 完了 | メッセージ表示、入力フォーム |
-| Socket.IO通信 | ✅ 完了 | リアルタイムストリーミング |
-| リモートアクセス | ✅ 完了 | Cloudflare Tunnel + QRコード |
-| Claude Agent SDK統合 | ⚠️ 部分的 | 基本動作するが会話継続に課題 |
+Claude Codeとの対話は **Agent SDK経由ではなく、tmux + ttyd によるターミナル転送** で実現している。
 
-### 未完了・改善が必要な機能
+```
+ブラウザ(iframe) ←→ ttyd(WebSocket) ←→ tmux(セッション) ←→ claude CLI
+```
 
-1. **会話の継続性**: 現在は各メッセージごとに新しい`query()`を作成しているため、会話コンテキストが維持されない
-2. **ユーザーメッセージの表示**: ChatPaneでユーザーメッセージが表示されない問題がある
-3. **マルチペインビュー**: 複数セッションを同時に表示する機能
-4. **セッション履歴の永続化**: localStorage または ファイルベースでの保存
+1. **tmux**: Claude CLIプロセスをdetachedセッションで管理。サーバー再起動後もセッションが永続化される
+2. **ttyd**: tmuxセッションにWebターミナルアクセスを提供。各セッションに独立したttydプロセスが起動する
+3. **SessionOrchestrator**: tmuxとttydを統合管理し、セッションのライフサイクルを制御する
+4. **クライアント**: ttydが提供するWebターミナルをiframeで表示。メッセージ送信はSocket.IO経由でtmux send-keysを使用
+
+### メッセージ送信の流れ
+
+1. クライアントが `session:send` イベントでメッセージを送信
+2. サーバーの `SessionOrchestrator.sendMessage()` が `tmuxManager.sendKeys()` を呼び出す
+3. tmuxの `send-keys -l` でリテラル入力 + `Enter` キーを送信
+4. Claude CLIが入力を受け取り、ttyd経由でブラウザのiframeにリアルタイム表示
+
+### セッション永続化
+
+- **tmuxセッション**: サーバー再起動後も維持される（`cleanup()`でttydのみ停止、tmuxは残す）
+- **SQLite (data/sessions.db)**: セッションのメタデータ（worktreeId、status等）を永続化
+- **サーバー起動時の自動復元**: 既存のtmuxセッション（`ccm-` プレフィックス）を検出し、ttydを再起動
+
+## 実装済み機能
+
+| 機能 | 説明 |
+|------|------|
+| リポジトリスキャン | 指定パス配下のGitリポジトリを探索（fd/findコマンド使用） |
+| Git Worktree管理 | 一覧表示、作成、削除 |
+| セッション管理 | tmux + ttydベースの起動、停止、復元、状態管理 |
+| Webターミナル | ttyd iframeによるフルターミナル体験 |
+| マルチペインビュー | 複数セッションの同時表示（1列 / 2x2グリッド切り替え） |
+| モバイル対応 | セッション一覧/詳細の画面遷移、Quick Keys、スクロールモード、キーボード対応 |
+| 特殊キー送信 | Enter, Ctrl+C, Ctrl+D, y, n, S-Tab, Escape, スクロール等 |
+| 画像アップロード | クリップボードから画像を貼り付けてClaude Codeに送信（`@パス` 形式） |
+| tmuxバッファコピー | tmuxのペーストバッファをクリップボードにコピー |
+| ポートスキャン | リッスン中のポートを一覧表示（ttydポートは除外） |
+| リモートアクセス | Cloudflare Tunnel（Quick / Named）+ QRコード + トークン認証 |
+| セッション永続化 | SQLite + tmux永続化によるサーバー再起動後の自動復元 |
+| IME対応 | 日本語入力時のcompositionイベント処理 |
+| パーミッションスキップ | `--skip-permissions` フラグでClaude CLIの権限確認をスキップ |
 
 ## デプロイ手順
 
@@ -57,464 +84,6 @@ pm2 restart claude-code-manager
 
 ---
 
-# 🚨 Agent SDK V2 フルコミット実装計画
-
-## 公式サンプルの分析
-
-### 1. hello-world-v2/v2-examples.ts
-
-V2 APIの基本パターン：
-
-```typescript
-import {
-  unstable_v2_createSession,
-  unstable_v2_resumeSession,
-  unstable_v2_prompt,
-} from '@anthropic-ai/claude-agent-sdk';
-
-// 基本パターン: セッション作成 → send → stream
-await using session = unstable_v2_createSession({ model: 'sonnet' });
-await session.send('Hello!');
-for await (const msg of session.stream()) {
-  if (msg.type === 'assistant') {
-    const text = msg.message.content.find(c => c.type === 'text');
-    console.log(text?.text);
-  }
-}
-
-// マルチターン: 同じセッションで複数回send/stream
-await session.send('Follow-up question');
-for await (const msg of session.stream()) { /* ... */ }
-
-// セッション再開: sessionIdを保存して後で再開
-await using session = unstable_v2_resumeSession(sessionId, { model: 'sonnet' });
-```
-
-### 2. simple-chatapp/server/ai-client.ts
-
-**重要な発見:** 公式チャットアプリは**V1 API (`query()`)** を使用し、`AsyncIterable`をpromptに渡すことで会話継続を実現している。
-
-```typescript
-import { query } from "@anthropic-ai/claude-agent-sdk";
-
-class MessageQueue {
-  private messages: UserMessage[] = [];
-  private waiting: ((msg: UserMessage) => void) | null = null;
-
-  push(content: string) {
-    const msg: UserMessage = {
-      type: "user",
-      message: { role: "user", content },
-    };
-    if (this.waiting) {
-      this.waiting(msg);
-      this.waiting = null;
-    } else {
-      this.messages.push(msg);
-    }
-  }
-
-  async *[Symbol.asyncIterator](): AsyncIterableIterator<UserMessage> {
-    while (!this.closed) {
-      if (this.messages.length > 0) {
-        yield this.messages.shift()!;
-      } else {
-        yield await new Promise<UserMessage>(resolve => {
-          this.waiting = resolve;
-        });
-      }
-    }
-  }
-}
-
-export class AgentSession {
-  private queue = new MessageQueue();
-  private outputIterator: AsyncIterator<any>;
-
-  constructor() {
-    // query()にAsyncIterableを渡すと、会話が継続する
-    this.outputIterator = query({
-      prompt: this.queue as any,
-      options: {
-        maxTurns: 100,
-        model: "opus",
-        allowedTools: ["Bash", "Read", "Write", ...],
-      },
-    })[Symbol.asyncIterator]();
-  }
-
-  sendMessage(content: string) {
-    this.queue.push(content);
-  }
-
-  async *getOutputStream() {
-    while (true) {
-      const { value, done } = await this.outputIterator.next();
-      if (done) break;
-      yield value;
-    }
-  }
-}
-```
-
----
-
-## 実装方針: V2 Session API にフルコミット
-
-### 理由
-
-1. 公式が将来的にV2を推奨する方向
-2. `send()` / `stream()` の分離が直感的
-3. `resumeSession()` でセッション再開が容易
-4. `await using` による自動クリーンアップ
-
----
-
-## Phase 1: バックエンド再設計
-
-### 1.1 セッションマネージャーの作成
-
-```typescript
-// server/lib/session-manager.ts
-import {
-  unstable_v2_createSession,
-  unstable_v2_resumeSession,
-  type Session,
-} from '@anthropic-ai/claude-agent-sdk';
-
-interface ManagedSession {
-  session: Session;
-  sessionId: string;
-  worktreePath: string;
-  createdAt: Date;
-  lastActivity: Date;
-}
-
-class SessionManager {
-  private sessions = new Map<string, ManagedSession>();
-
-  async createSession(worktreePath: string): Promise<ManagedSession> {
-    const session = unstable_v2_createSession({
-      model: 'sonnet',
-      cwd: worktreePath,
-      allowedTools: ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep'],
-    });
-    
-    // 初期化メッセージからsessionIdを取得
-    let sessionId: string | undefined;
-    for await (const msg of session.stream()) {
-      if (msg.type === 'system' && msg.subtype === 'init') {
-        sessionId = msg.session_id;
-        break;
-      }
-    }
-    
-    const managed: ManagedSession = {
-      session,
-      sessionId: sessionId!,
-      worktreePath,
-      createdAt: new Date(),
-      lastActivity: new Date(),
-    };
-    
-    this.sessions.set(sessionId!, managed);
-    return managed;
-  }
-
-  async resumeSession(sessionId: string): Promise<ManagedSession | null> {
-    const existing = this.sessions.get(sessionId);
-    if (existing) return existing;
-    
-    try {
-      const session = unstable_v2_resumeSession(sessionId, { model: 'sonnet' });
-      const managed: ManagedSession = {
-        session,
-        sessionId,
-        worktreePath: '', // 再開時は不明
-        createdAt: new Date(),
-        lastActivity: new Date(),
-      };
-      this.sessions.set(sessionId, managed);
-      return managed;
-    } catch {
-      return null;
-    }
-  }
-
-  getSession(sessionId: string): ManagedSession | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  async closeSession(sessionId: string): Promise<void> {
-    const managed = this.sessions.get(sessionId);
-    if (managed) {
-      this.sessions.delete(sessionId);
-    }
-  }
-}
-
-export const sessionManager = new SessionManager();
-```
-
-### 1.2 Socket.IOハンドラーの更新
-
-```typescript
-// server/lib/socket-handlers.ts
-import { sessionManager } from './session-manager';
-
-export function setupSocketHandlers(io: Server) {
-  io.on('connection', (socket) => {
-    let currentSessionId: string | null = null;
-
-    // 新規セッション開始
-    socket.on('start_session', async (data: { worktreePath: string }) => {
-      try {
-        const managed = await sessionManager.createSession(data.worktreePath);
-        currentSessionId = managed.sessionId;
-        socket.emit('session_started', { sessionId: managed.sessionId });
-      } catch (error) {
-        socket.emit('error', { message: error.message });
-      }
-    });
-
-    // セッション再開
-    socket.on('resume_session', async (data: { sessionId: string }) => {
-      try {
-        const managed = await sessionManager.resumeSession(data.sessionId);
-        if (managed) {
-          currentSessionId = managed.sessionId;
-          socket.emit('session_resumed', { sessionId: managed.sessionId });
-        } else {
-          socket.emit('error', { message: 'Session not found' });
-        }
-      } catch (error) {
-        socket.emit('error', { message: error.message });
-      }
-    });
-
-    // メッセージ送信
-    socket.on('send_message', async (data: { message: string }) => {
-      if (!currentSessionId) {
-        socket.emit('error', { message: 'No active session' });
-        return;
-      }
-
-      const managed = sessionManager.getSession(currentSessionId);
-      if (!managed) {
-        socket.emit('error', { message: 'Session not found' });
-        return;
-      }
-
-      try {
-        // メッセージを送信
-        await managed.session.send(data.message);
-        
-        // ストリーミングレスポンスを処理
-        for await (const msg of managed.session.stream()) {
-          socket.emit('claude_message', msg);
-          
-          // 完了メッセージ
-          if (msg.type === 'result') {
-            socket.emit('message_complete', {
-              success: msg.subtype === 'success',
-              cost: msg.total_cost_usd,
-              duration: msg.duration_ms,
-            });
-          }
-        }
-      } catch (error) {
-        socket.emit('error', { message: error.message });
-      }
-    });
-
-    socket.on('disconnect', () => {
-      currentSessionId = null;
-    });
-  });
-}
-```
-
----
-
-## Phase 2: フロントエンド更新
-
-### 2.1 セッション状態管理
-
-```typescript
-// client/src/hooks/useClaudeSession.ts
-import { useSocket } from './useSocket';
-import { useState, useCallback, useEffect } from 'react';
-
-interface SessionState {
-  sessionId: string | null;
-  status: 'idle' | 'connecting' | 'active' | 'error';
-  messages: ClaudeMessage[];
-}
-
-export function useClaudeSession(worktreePath: string) {
-  const socket = useSocket();
-  const [state, setState] = useState<SessionState>({
-    sessionId: null,
-    status: 'idle',
-    messages: [],
-  });
-
-  const startSession = useCallback(async () => {
-    setState(s => ({ ...s, status: 'connecting' }));
-    socket.emit('start_session', { worktreePath });
-  }, [socket, worktreePath]);
-
-  const resumeSession = useCallback(async (sessionId: string) => {
-    setState(s => ({ ...s, status: 'connecting' }));
-    socket.emit('resume_session', { sessionId });
-  }, [socket]);
-
-  const sendMessage = useCallback((message: string) => {
-    socket.emit('send_message', { message });
-    setState(s => ({
-      ...s,
-      messages: [...s.messages, { type: 'user', content: message }],
-    }));
-  }, [socket]);
-
-  useEffect(() => {
-    socket.on('session_started', ({ sessionId }) => {
-      setState(s => ({ ...s, sessionId, status: 'active' }));
-      localStorage.setItem(`session:${worktreePath}`, sessionId);
-    });
-
-    socket.on('claude_message', (msg) => {
-      setState(s => ({
-        ...s,
-        messages: [...s.messages, msg],
-      }));
-    });
-
-    socket.on('error', ({ message }) => {
-      setState(s => ({ ...s, status: 'error' }));
-      console.error('Session error:', message);
-    });
-
-    return () => {
-      socket.off('session_started');
-      socket.off('claude_message');
-      socket.off('error');
-    };
-  }, [socket, worktreePath]);
-
-  return {
-    ...state,
-    startSession,
-    resumeSession,
-    sendMessage,
-  };
-}
-```
-
-### 2.2 メッセージ表示コンポーネント
-
-```typescript
-// client/src/components/ClaudeMessage.tsx
-interface ClaudeMessageProps {
-  message: SDKMessage;
-}
-
-export function ClaudeMessage({ message }: ClaudeMessageProps) {
-  switch (message.type) {
-    case 'assistant':
-      return <AssistantMessage content={message.message.content} />;
-    
-    case 'user':
-      return <UserMessage content={message.message.content} />;
-    
-    case 'result':
-      return (
-        <ResultMessage
-          success={message.subtype === 'success'}
-          cost={message.total_cost_usd}
-          duration={message.duration_ms}
-        />
-      );
-    
-    default:
-      return null;
-  }
-}
-
-function AssistantMessage({ content }: { content: ContentBlock[] }) {
-  return (
-    <div className="flex gap-3">
-      <Avatar>Claude</Avatar>
-      <div className="flex-1">
-        {content.map((block, i) => {
-          if (block.type === 'text') {
-            return <Markdown key={i}>{block.text}</Markdown>;
-          }
-          if (block.type === 'tool_use') {
-            return <ToolUseBlock key={i} tool={block} />;
-          }
-          return null;
-        })}
-      </div>
-    </div>
-  );
-}
-```
-
----
-
-## Phase 3: 追加機能
-
-### 3.1 セッション永続化
-
-```typescript
-// セッションIDをworktreeごとに保存
-const savedSessionId = localStorage.getItem(`session:${worktreePath}`);
-if (savedSessionId) {
-  resumeSession(savedSessionId);
-} else {
-  startSession();
-}
-```
-
-### 3.2 ツール承認UI
-
-```typescript
-socket.on('claude_message', (msg) => {
-  if (msg.type === 'tool_use' && msg.requires_approval) {
-    showApprovalDialog(msg);
-  }
-});
-```
-
----
-
-## 実装チェックリスト
-
-### バックエンド
-
-- [ ] `@anthropic-ai/claude-agent-sdk` パッケージのインストール確認
-- [ ] `server/lib/session-manager.ts` の作成
-- [ ] `server/lib/socket-handlers.ts` の更新
-- [ ] `server/lib/claude.ts` の削除（spawn不要）
-- [ ] セッションIDの永続化（オプション）
-
-### フロントエンド
-
-- [ ] `useClaudeSession` フックの作成
-- [ ] `ClaudeMessage` コンポーネントの作成
-- [ ] セッション状態のUI表示
-- [ ] ツール承認ダイアログ
-
-### テスト
-
-- [ ] セッション作成のテスト
-- [ ] マルチターン会話のテスト
-- [ ] セッション再開のテスト
-- [ ] エラーハンドリングのテスト
-
----
-
 ## リモートアクセス機能
 
 ### 概要
@@ -527,10 +96,14 @@ Cloudflare Tunnelを使用したリモートアクセス機能。スマートフ
 # ローカルのみ（デフォルト）
 pnpm dev:server
 
-# リモートアクセス有効
+# Quick Tunnel（一時URL + トークン認証）
+pnpm dev:quick
+
+# Named Tunnel（Cloudflare Access認証、固定URL）
 pnpm dev:remote
 
 # 本番環境
+pnpm start:quick
 pnpm start:remote
 ```
 
@@ -548,23 +121,28 @@ brew install cloudflared
 
 ### 仕組み
 
-1. `--remote` フラグで起動するとトークン認証が有効化
-2. Cloudflare Tunnelが自動起動し、公開URLを生成
+1. `--quick` フラグで起動するとトークン認証が有効化され、Quick Tunnelが自動起動
+2. `--remote` + `CCM_PUBLIC_DOMAIN` 環境変数で Named Tunnel を起動（Cloudflare Access認証）
 3. ターミナルにQRコードとURLが表示される
 4. スマホでQRコードをスキャン、または URLをブラウザで開く
 
 ### セキュリティ
 
-- **トークン認証**: ランダム生成されたトークンがURLに含まれる
+- **Quick Tunnel**: ランダム生成されたトークンがURLに含まれる。`*.trycloudflare.com` ドメイン（一時的）
+- **Named Tunnel**: Cloudflare Accessによる認証。固定ドメイン使用
 - **HTTPS**: Cloudflare Tunnelが自動的にHTTPSを提供
-- **一時URL**: `*.trycloudflare.com` ドメインを使用（サーバー再起動でURL変更）
+- **ローカルアクセス**: localhost/プライベートIPからのアクセスは認証スキップ
+
+### トンネル自動復旧
+
+サーバー再起動時、前回トンネルが有効だった場合は自動的に再起動する（`/tmp/ccm-tunnel-state.json` で状態管理）
 
 ### 関連ファイル
 
 ```
 server/lib/
-├── tunnel.ts   # Cloudflare Tunnel管理
-├── auth.ts     # トークン認証
+├── tunnel.ts   # Cloudflare Tunnel管理（Quick / Named）
+├── auth.ts     # トークン認証（Quick Tunnel用）
 └── qrcode.ts   # QRコード生成
 ```
 
@@ -578,10 +156,13 @@ server/lib/
 
 | レイヤー | 技術 |
 |---------|------|
-| Frontend | React 19, TailwindCSS 4, shadcn/ui |
-| Backend | Express, Socket.IO |
-| Claude通信 | `@anthropic-ai/claude-agent-sdk` (V2 API) |
-| 状態管理 | React hooks + Context |
+| フロントエンド | React 19, TailwindCSS 4, shadcn/ui, wouter（ルーティング） |
+| バックエンド | Express, Socket.IO, http-proxy（ttydプロキシ） |
+| ターミナル管理 | tmux（セッション永続化）, ttyd（Webターミナル） |
+| 永続化 | better-sqlite3 (`data/sessions.db`) |
+| リモートアクセス | cloudflared（Cloudflare Tunnel）, qrcode |
+| ビルド | Vite（フロントエンド）, esbuild（サーバー） |
+| パッケージ管理 | pnpm |
 
 ## ディレクトリ構造
 
@@ -590,21 +171,46 @@ claude-code-manager/
 ├── client/
 │   └── src/
 │       ├── components/
-│       │   ├── ClaudeMessage.tsx    # メッセージ表示
-│       │   ├── ChatInput.tsx        # 入力フォーム
-│       │   └── SessionStatus.tsx    # セッション状態
+│       │   ├── TerminalPane.tsx        # ttyd iframe + 入力バー（PC用）
+│       │   ├── MultiPaneLayout.tsx     # PC向けグリッドレイアウト
+│       │   ├── MobileLayout.tsx        # モバイル用ルートコンポーネント
+│       │   ├── MobileSessionList.tsx   # モバイル用セッション一覧
+│       │   ├── MobileSessionView.tsx   # モバイル用セッション詳細
+│       │   ├── SessionDashboard.tsx    # セッション管理ダッシュボード
+│       │   ├── RepoSelectDialog.tsx    # リポジトリ選択ダイアログ
+│       │   ├── CreateWorktreeDialog.tsx # Worktree作成ダイアログ
+│       │   ├── WorktreeContextMenu.tsx # Worktreeコンテキストメニュー
+│       │   ├── ErrorBoundary.tsx       # エラーバウンダリ
+│       │   └── ui/                     # shadcn/ui コンポーネント群
 │       ├── hooks/
-│       │   ├── useClaudeSession.ts  # セッション管理
-│       │   └── useSocket.ts         # Socket.IO
+│       │   ├── useSocket.ts            # Socket.IO通信（全イベント管理）
+│       │   ├── useVisualViewport.ts    # モバイルキーボード対応
+│       │   ├── useComposition.ts       # IME入力対応
+│       │   ├── useMobile.tsx           # モバイル判定
+│       │   └── usePersistFn.ts         # コールバック安定化
 │       └── pages/
-│           └── Chat.tsx             # チャット画面
+│           ├── Dashboard.tsx           # メインページ
+│           └── NotFound.tsx            # 404ページ
 ├── server/
-│   ├── lib/
-│   │   ├── session-manager.ts       # セッション管理（新規）
-│   │   └── socket-handlers.ts       # Socket.IOハンドラー（更新）
-│   └── index.ts
-└── shared/
-    └── types.ts                     # 共通型定義
+│   ├── index.ts                        # Expressサーバー + Socket.IOハンドラー
+│   └── lib/
+│       ├── session-orchestrator.ts     # tmux + ttyd 統合管理
+│       ├── tmux-manager.ts             # tmuxセッション管理
+│       ├── ttyd-manager.ts             # ttyd Webターミナル管理
+│       ├── database.ts                 # SQLite永続化
+│       ├── git.ts                      # Git worktree操作
+│       ├── tunnel.ts                   # Cloudflare Tunnel管理
+│       ├── auth.ts                     # トークン認証
+│       ├── qrcode.ts                   # QRコード生成
+│       ├── port-scanner.ts             # ポートスキャン
+│       ├── image-manager.ts            # 画像アップロード管理
+│       ├── constants.ts                # 定数定義
+│       └── errors.ts                   # エラーユーティリティ
+├── shared/
+│   └── types.ts                        # クライアント/サーバー共通型定義
+├── data/
+│   └── sessions.db                     # SQLiteデータベース（自動生成）
+└── package.json
 ```
 
 ---
@@ -615,25 +221,71 @@ claude-code-manager/
 
 | イベント | データ | 説明 |
 |----------|--------|------|
-| `start_session` | `{ worktreePath }` | 新規セッション開始 |
-| `resume_session` | `{ sessionId }` | セッション再開 |
-| `send_message` | `{ message }` | メッセージ送信 |
+| `repo:scan` | `basePath: string` | リポジトリスキャン |
+| `repo:select` | `path: string` | リポジトリ選択 |
+| `worktree:list` | `repoPath: string` | Worktree一覧取得 |
+| `worktree:create` | `{ repoPath, branchName, baseBranch? }` | Worktree作成 |
+| `worktree:delete` | `{ repoPath, worktreePath }` | Worktree削除 |
+| `session:start` | `{ worktreeId, worktreePath }` | セッション開始 |
+| `session:stop` | `sessionId: string` | セッション停止 |
+| `session:send` | `{ sessionId, message }` | メッセージ送信（tmux send-keys） |
+| `session:key` | `{ sessionId, key: SpecialKey }` | 特殊キー送信 |
+| `session:copy` | `sessionId, callback` | tmuxバッファ取得（コールバック） |
+| `session:restore` | `worktreePath: string` | セッション復元 |
+| `tunnel:start` | `{ port? }` | Quick Tunnel起動 |
+| `tunnel:stop` | - | トンネル停止 |
+| `ports:scan` | - | ポートスキャン |
+| `image:upload` | `{ sessionId, base64Data, mimeType }` | 画像アップロード |
 
 ### サーバー → クライアント
 
 | イベント | データ | 説明 |
 |----------|--------|------|
-| `session_started` | `{ sessionId }` | セッション開始完了 |
-| `session_resumed` | `{ sessionId }` | セッション再開完了 |
-| `claude_message` | SDKMessage | Claudeからのメッセージ |
-| `message_complete` | `{ success, cost, duration }` | メッセージ完了 |
-| `error` | `{ message }` | エラー |
+| `repos:list` | `string[]` | 許可リポジトリ一覧 |
+| `repos:scanned` | `RepoInfo[]` | スキャン結果 |
+| `repos:scanning` | `{ basePath, status, error? }` | スキャン状態 |
+| `repo:set` | `path: string` | リポジトリ選択完了 |
+| `repo:error` | `string` | リポジトリエラー |
+| `worktree:list` | `Worktree[]` | Worktree一覧 |
+| `worktree:created` | `Worktree` | Worktree作成完了 |
+| `worktree:deleted` | `worktreeId: string` | Worktree削除完了 |
+| `worktree:error` | `string` | Worktreeエラー |
+| `session:list` | `ManagedSession[]` | 既存セッション一覧 |
+| `session:created` | `ManagedSession` | セッション作成完了 |
+| `session:updated` | `ManagedSession` | セッション更新（ttyd起動完了等） |
+| `session:stopped` | `sessionId: string` | セッション停止 |
+| `session:restored` | `ManagedSession` | セッション復元完了 |
+| `session:restore_failed` | `{ worktreePath, error }` | セッション復元失敗 |
+| `session:error` | `{ sessionId, error }` | セッションエラー |
+| `tunnel:started` | `{ url, token }` | トンネル開始 |
+| `tunnel:stopped` | - | トンネル停止 |
+| `tunnel:status` | `{ active, url?, token? }` | トンネル状態 |
+| `tunnel:error` | `{ message }` | トンネルエラー |
+| `ports:list` | `{ ports }` | ポート一覧 |
+| `image:uploaded` | `{ path, filename }` | 画像アップロード完了 |
+| `image:error` | `{ message }` | 画像アップロードエラー |
 
 ---
 
-## 参考リンク
+## サーバー起動オプション
 
-- [Claude Agent SDK TypeScript](https://github.com/anthropics/claude-agent-sdk-typescript)
-- [公式V2サンプル](https://github.com/anthropics/claude-agent-sdk-demos/tree/main/hello-world-v2)
-- [公式チャットアプリ](https://github.com/anthropics/claude-agent-sdk-demos/tree/main/simple-chatapp)
-- [類似プロジェクト解説](./docs/similar-projects-analysis.md)
+| オプション | 環境変数 | 説明 |
+|-----------|---------|------|
+| `--quick` / `-q` | - | Quick Tunnel（一時URL + トークン認証）を起動 |
+| `--remote` / `-r` | `CCM_PUBLIC_DOMAIN` | Named Tunnel（固定URL + Cloudflare Access）を起動 |
+| `--skip-permissions` | `SKIP_PERMISSIONS=true` | Claude CLIを `--dangerously-skip-permissions` 付きで起動 |
+| `--repos /path1,/path2` | - | 許可するリポジトリパスを制限 |
+| - | `PORT` | サーバーポート（デフォルト: 3001） |
+| - | `CCM_TUNNEL_NAME` | Named Tunnel名（デフォルト: `claude-code-manager`） |
+
+---
+
+## 前提条件
+
+以下がインストールされている必要がある：
+
+- **Node.js** >= 20.6.0
+- **pnpm**
+- **tmux**
+- **ttyd**
+- **cloudflared**（リモートアクセス使用時のみ）
