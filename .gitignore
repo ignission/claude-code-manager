@@ -108,3 +108,8 @@ temp/
 
 # Application data
 data/
+
+# Claude Code runtime files
+.claude/push-completed.marker
+.claude/scheduled_tasks.lock
+.claude/stop_hook_active
