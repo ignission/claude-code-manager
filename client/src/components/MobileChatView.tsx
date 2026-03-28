@@ -83,6 +83,7 @@ type MarkdownSegment =
 
 const QUICK_COMMANDS: QuickCommand[] = [
   { label: "進捗確認", message: "進捗確認" },
+  { label: "判断", message: "判断" },
   { label: "タスク着手", message: "タスク着手" },
   { label: "PR URL", message: "PR URL" },
 ];
