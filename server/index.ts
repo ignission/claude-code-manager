@@ -835,6 +835,7 @@ async function startServer() {
   const shutdown = () => {
     console.log("Shutting down...");
     sessionOrchestrator.cleanup();
+    beaconManager.cleanup();
     server.close(() => {
       process.exit(0);
     });
