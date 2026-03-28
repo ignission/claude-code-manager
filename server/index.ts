@@ -29,6 +29,7 @@ import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { getListeningPorts } from "./lib/port-scanner.js";
 import { imageManager, ImageManagerError } from "./lib/image-manager.js";
 import { getErrorMessage } from "./lib/errors.js";
+import { beaconManager } from "./lib/beacon-manager.js";
 import type {
   ServerToClientEvents,
   ClientToServerEvents,
@@ -54,6 +55,9 @@ if (reposIndex !== -1 && args[reposIndex + 1]) {
     .filter((p) => p.length > 0);
   console.log(`Allowed repositories: ${allowedRepos.join(", ")}`);
 }
+
+// クライアントが選択・スキャンしたリポジトリを追跡（Beaconが参照する）
+const knownRepos = new Set<string>(allowedRepos);
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,6 +189,46 @@ async function startServer() {
 
   // Apply Socket.IO authentication middleware
   io.use(authManager.socketMiddleware());
+
+  // BeaconにCCM操作の依存を注入（MCPツールで利用）
+  beaconManager.configure({
+    getAllSessions: () => sessionOrchestrator.getAllSessions(),
+    startSession: (worktreeId, worktreePath) =>
+      sessionOrchestrator.startSession(worktreeId, worktreePath),
+    stopSession: (sessionId) => sessionOrchestrator.stopSession(sessionId),
+    sendMessage: (sessionId, message) => sessionOrchestrator.sendMessage(sessionId, message),
+    sendKey: (sessionId, key) => sessionOrchestrator.sendSpecialKey(sessionId, key),
+    capturePane: (sessionId, lines) => tmuxManager.capturePane(sessionId, lines),
+    listWorktrees: (repoPath) => listWorktrees(repoPath),
+    createWorktree: (repoPath, branchName, baseBranch) =>
+      createWorktree(repoPath, branchName, baseBranch),
+    deleteWorktree: (repoPath, worktreePath) =>
+      deleteWorktree(repoPath, worktreePath),
+    listAllWorktrees: async (repos) => {
+      const all: unknown[] = [];
+      for (const repo of repos) {
+        try {
+          const wts = await listWorktrees(repo);
+          all.push(...wts.map((w) => ({ ...w, repoPath: repo })));
+        } catch {
+          // 個別リポジトリのエラーはスキップ
+        }
+      }
+      return all;
+    },
+    getRepos: () => Array.from(knownRepos),
+  });
+
+  // BeaconイベントをSocket.IOクライアントに転送
+  beaconManager.on("beacon:message", (message) => {
+    io.emit("beacon:message", message);
+  });
+  beaconManager.on("beacon:stream", (data) => {
+    io.emit("beacon:stream", data);
+  });
+  beaconManager.on("beacon:error", (data) => {
+    io.emit("beacon:error", data);
+  });
 
   /**
    * Quick Tunnelを起動する共通関数
@@ -368,6 +412,10 @@ async function startServer() {
       try {
         socket.emit("repos:scanning", { basePath, status: "start" });
         const repos = await scanRepositories(basePath);
+        // スキャンで見つかったリポジトリをknownReposに追加
+        for (const repo of repos) {
+          knownRepos.add(repo.path);
+        }
         socket.emit("repos:scanned", repos);
         socket.emit("repos:scanning", { basePath, status: "complete" });
       } catch (error) {
@@ -392,6 +440,7 @@ async function startServer() {
           return;
         }
         socket.emit("repo:set", repoPath);
+        knownRepos.add(repoPath);
 
         const worktrees = await listWorktrees(repoPath);
         socket.emit("worktree:list", worktrees);
@@ -583,6 +632,28 @@ async function startServer() {
           message: error instanceof ImageManagerError ? error.message : "画像のアップロードに失敗しました",
         });
       }
+    });
+
+    // ===== Beacon Commands =====
+
+    // Beaconメッセージ送信
+    socket.on("beacon:send", async (data: { message: string }) => {
+      try {
+        await beaconManager.sendMessage(data.message);
+      } catch (error) {
+        socket.emit("beacon:error", { error: getErrorMessage(error) });
+      }
+    });
+
+    // Beacon履歴取得
+    socket.on("beacon:history", () => {
+      const messages = beaconManager.getHistory();
+      socket.emit("beacon:history", { messages });
+    });
+
+    // Beaconセッション終了
+    socket.on("beacon:close", () => {
+      beaconManager.closeSession();
     });
 
     // Cleanup on disconnect
