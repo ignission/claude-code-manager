@@ -7,11 +7,19 @@
  */
 
 import { query, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { Query, SDKUserMessage, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  Query,
+  SDKUserMessage,
+  SDKMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import type { ChatMessage, BeaconStreamChunk, SpecialKey } from "../../shared/types.js";
+import type {
+  ChatMessage,
+  BeaconStreamChunk,
+  SpecialKey,
+} from "../../shared/types.js";
 import { getErrorMessage } from "./errors.js";
 
 /** Beaconのシステムプロンプト */
@@ -31,6 +39,7 @@ CCM内部の操作にはMCPツールを使用してください:
 - get_session_output: セッションのターミナル表示内容を取得（進捗確認に使用）
 - create_worktree: worktree作成（リポジトリパス、ブランチ名、ベースブランチ）
 - delete_worktree: worktree削除
+- get_pr_url: worktreeのブランチに紐づくPR URLを取得
 
 git/gh操作はMCPツールを通じて実行してください。
 worktreeの作成・削除はMCPツールを使ってください。
@@ -67,6 +76,16 @@ worktreeの作成・削除はMCPツールを使ってください。
    - start_sessionでセッションを起動（create_worktreeの返り値のidとpathを使う）
    - send_to_sessionでタスク内容をClaude Codeに入力
 6. 「セッションを起動してタスクを指示しました。進捗確認で状況を確認できます。」と報告
+
+### 「PR URL」
+
+稼働中セッションのブランチに紐づくPR URLを取得するフロー。
+
+1. list_sessionsで稼働中のセッション一覧を取得
+2. **セッションが1つ**: そのセッションのworktreeパスで gh pr view --json url -q .url をBashで実行
+3. **セッションが複数**: 番号付きリストで選択肢を提示。ユーザーが選択したらそのworktreeパスで実行
+4. **セッションがない場合**: 「稼働中のセッションはありません」と報告
+5. PR URLが取得できたらそのまま表示。PRがない場合は「このブランチにPRはありません」と報告
 
 ### 進捗報告のフォーマット
 
@@ -146,7 +165,7 @@ class MessageQueue {
       if (this.messages.length > 0) {
         yield this.messages.shift()!;
       } else {
-        const msg = await new Promise<SDKUserMessage>((resolve) => {
+        const msg = await new Promise<SDKUserMessage>(resolve => {
           this.waiting = resolve;
         });
         // close()で解決された場合はyieldせずにループを抜ける
@@ -190,9 +209,14 @@ export interface BeaconDeps {
   sendMessage: (sessionId: string, message: string) => void;
   sendKey: (sessionId: string, key: SpecialKey) => void;
   capturePane: (sessionId: string, lines?: number) => string | null;
+  getPrUrl: (worktreePath: string) => Promise<string | null>;
   listWorktrees: (repoPath: string) => Promise<unknown[]>;
   listAllWorktrees: (repos: string[]) => Promise<unknown[]>;
-  createWorktree: (repoPath: string, branchName: string, baseBranch?: string) => Promise<unknown>;
+  createWorktree: (
+    repoPath: string,
+    branchName: string,
+    baseBranch?: string
+  ) => Promise<unknown>;
   deleteWorktree: (repoPath: string, worktreePath: string) => Promise<void>;
   getRepos: () => string[];
 }
@@ -235,45 +259,82 @@ export class BeaconManager extends EventEmitter {
           description: "CCMに登録されている全リポジトリを一覧する",
           inputSchema: {},
           handler: async () => ({
-            content: [{ type: "text" as const, text: JSON.stringify(deps.getRepos(), null, 2) }],
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(deps.getRepos(), null, 2),
+              },
+            ],
           }),
         },
         {
           name: "list_worktrees",
-          description: "指定リポジトリ（または全リポジトリ）のworktreeを一覧する",
+          description:
+            "指定リポジトリ（または全リポジトリ）のworktreeを一覧する",
           inputSchema: {
-            repoPath: z.string().optional().describe("リポジトリパス（省略時は全リポジトリ）"),
+            repoPath: z
+              .string()
+              .optional()
+              .describe("リポジトリパス（省略時は全リポジトリ）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const repoPath = args.repoPath as string | undefined;
             if (repoPath) {
               const worktrees = await deps.listWorktrees(repoPath);
-              return { content: [{ type: "text" as const, text: JSON.stringify(worktrees, null, 2) }] };
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(worktrees, null, 2),
+                  },
+                ],
+              };
             }
             const worktrees = await deps.listAllWorktrees(deps.getRepos());
-            return { content: [{ type: "text" as const, text: JSON.stringify(worktrees, null, 2) }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(worktrees, null, 2),
+                },
+              ],
+            };
           },
         },
         {
           name: "list_sessions",
-          description: "現在アクティブなClaude Codeターミナルセッション一覧を取得する",
+          description:
+            "現在アクティブなClaude Codeターミナルセッション一覧を取得する",
           inputSchema: {},
           handler: async () => ({
-            content: [{ type: "text" as const, text: JSON.stringify(deps.getAllSessions(), null, 2) }],
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify(deps.getAllSessions(), null, 2),
+              },
+            ],
           }),
         },
         {
           name: "start_session",
-          description: "指定worktreeでClaude Codeターミナルセッションを起動する",
+          description:
+            "指定worktreeでClaude Codeターミナルセッションを起動する",
           inputSchema: {
             worktreeId: z.string().describe("worktreeのID"),
             worktreePath: z.string().describe("worktreeのパス"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const worktreeId = args.worktreeId as string;
             const worktreePath = args.worktreePath as string;
             const session = await deps.startSession(worktreeId, worktreePath);
-            return { content: [{ type: "text" as const, text: JSON.stringify(session, null, 2) }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: JSON.stringify(session, null, 2),
+                },
+              ],
+            };
           },
         },
         {
@@ -282,52 +343,110 @@ export class BeaconManager extends EventEmitter {
           inputSchema: {
             sessionId: z.string().describe("セッションID"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const sessionId = args.sessionId as string;
             deps.stopSession(sessionId);
-            return { content: [{ type: "text" as const, text: `セッション ${sessionId} を停止しました` }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `セッション ${sessionId} を停止しました`,
+                },
+              ],
+            };
           },
         },
         {
           name: "send_to_session",
-          description: "稼働中のClaude Codeターミナルセッションにテキストを送信する（Enter付き）",
+          description:
+            "稼働中のClaude Codeターミナルセッションにテキストを送信する（Enter付き）",
           inputSchema: {
             sessionId: z.string().describe("セッションID"),
             message: z.string().describe("送信するテキスト"),
           },
-          handler: async (args) => {
+          handler: async args => {
             deps.sendMessage(args.sessionId as string, args.message as string);
-            return { content: [{ type: "text" as const, text: `セッション ${args.sessionId} にメッセージを送信しました` }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `セッション ${args.sessionId} にメッセージを送信しました`,
+                },
+              ],
+            };
           },
         },
         {
           name: "send_key_to_session",
-          description: "稼働中のClaude Codeターミナルセッションに特殊キーを送信する（y, n, C-c, Escape, Enter など）",
+          description:
+            "稼働中のClaude Codeターミナルセッションに特殊キーを送信する（y, n, C-c, Escape, Enter など）",
           inputSchema: {
             sessionId: z.string().describe("セッションID"),
-            key: z.string().describe("送信するキー（y, n, C-c, Escape, Enter, S-Tab）"),
+            key: z
+              .string()
+              .describe("送信するキー（y, n, C-c, Escape, Enter, S-Tab）"),
           },
-          handler: async (args) => {
-            const validKeys = new Set(["Enter", "C-c", "C-d", "y", "n", "S-Tab", "Escape", "scroll-up", "scroll-down", "copy-mode", "q"]);
+          handler: async args => {
+            const validKeys = new Set([
+              "Enter",
+              "C-c",
+              "C-d",
+              "y",
+              "n",
+              "S-Tab",
+              "Escape",
+              "scroll-up",
+              "scroll-down",
+              "copy-mode",
+              "q",
+            ]);
             const key = args.key as string;
             if (!validKeys.has(key)) {
-              return { content: [{ type: "text" as const, text: `無効なキー: ${key}。使用可能: ${Array.from(validKeys).join(", ")}` }] };
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `無効なキー: ${key}。使用可能: ${Array.from(validKeys).join(", ")}`,
+                  },
+                ],
+              };
             }
             deps.sendKey(args.sessionId as string, key as SpecialKey);
-            return { content: [{ type: "text" as const, text: `セッション ${args.sessionId} にキー「${key}」を送信しました` }] };
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `セッション ${args.sessionId} にキー「${key}」を送信しました`,
+                },
+              ],
+            };
           },
         },
         {
           name: "get_session_output",
-          description: "稼働中のClaude Codeターミナルセッションの現在の表示内容を取得する。進捗確認に使用する。",
+          description:
+            "稼働中のClaude Codeターミナルセッションの現在の表示内容を取得する。進捗確認に使用する。",
           inputSchema: {
             sessionId: z.string().describe("セッションID"),
-            lines: z.number().optional().describe("取得する行数（デフォルト: 100）"),
+            lines: z
+              .number()
+              .optional()
+              .describe("取得する行数（デフォルト: 100）"),
           },
-          handler: async (args) => {
-            const output = deps.capturePane(args.sessionId as string, (args.lines as number | undefined) ?? 100);
+          handler: async args => {
+            const output = deps.capturePane(
+              args.sessionId as string,
+              (args.lines as number | undefined) ?? 100
+            );
             if (output === null) {
-              return { content: [{ type: "text" as const, text: "セッションが見つからないか、出力を取得できませんでした" }] };
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: "セッションが見つからないか、出力を取得できませんでした",
+                  },
+                ],
+              };
             }
             return { content: [{ type: "text" as const, text: output }] };
           },
@@ -337,19 +456,35 @@ export class BeaconManager extends EventEmitter {
           description: "リポジトリに新しいworktreeを作成する",
           inputSchema: {
             repoPath: z.string().describe("リポジトリのパス"),
-            branchName: z.string().describe("ブランチ名（例: feat/add-search, fix/login-bug）"),
-            baseBranch: z.string().optional().describe("ベースブランチ（省略時はHEAD）"),
+            branchName: z
+              .string()
+              .describe("ブランチ名（例: feat/add-search, fix/login-bug）"),
+            baseBranch: z
+              .string()
+              .optional()
+              .describe("ベースブランチ（省略時はHEAD）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             try {
               const worktree = await deps.createWorktree(
                 args.repoPath as string,
                 args.branchName as string,
-                args.baseBranch as string | undefined,
+                args.baseBranch as string | undefined
               );
-              return { content: [{ type: "text" as const, text: JSON.stringify(worktree, null, 2) }] };
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: JSON.stringify(worktree, null, 2),
+                  },
+                ],
+              };
             } catch (e) {
-              return { content: [{ type: "text" as const, text: `worktree作成に失敗: ${e}` }] };
+              return {
+                content: [
+                  { type: "text" as const, text: `worktree作成に失敗: ${e}` },
+                ],
+              };
             }
           },
         },
@@ -360,13 +495,47 @@ export class BeaconManager extends EventEmitter {
             repoPath: z.string().describe("リポジトリのパス"),
             worktreePath: z.string().describe("削除するworktreeのパス"),
           },
-          handler: async (args) => {
+          handler: async args => {
             try {
-              await deps.deleteWorktree(args.repoPath as string, args.worktreePath as string);
-              return { content: [{ type: "text" as const, text: "worktreeを削除しました" }] };
+              await deps.deleteWorktree(
+                args.repoPath as string,
+                args.worktreePath as string
+              );
+              return {
+                content: [
+                  { type: "text" as const, text: "worktreeを削除しました" },
+                ],
+              };
             } catch (e) {
-              return { content: [{ type: "text" as const, text: `worktree削除に失敗: ${e}` }] };
+              return {
+                content: [
+                  { type: "text" as const, text: `worktree削除に失敗: ${e}` },
+                ],
+              };
             }
+          },
+        },
+        {
+          name: "get_pr_url",
+          description: "worktreeのブランチに紐づくPull Request URLを取得する",
+          inputSchema: {
+            worktreePath: z.string().describe("worktreeのパス"),
+          },
+          handler: async args => {
+            const url = await deps.getPrUrl(args.worktreePath as string);
+            if (url) {
+              return {
+                content: [{ type: "text" as const, text: url }],
+              };
+            }
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: "このブランチにPRはありません",
+                },
+              ],
+            };
           },
         },
       ],
@@ -415,7 +584,9 @@ export class BeaconManager extends EventEmitter {
     const abortController = new AbortController();
 
     // MCPサーバーを作成（依存が注入されている場合のみ）
-    const mcpServers = this.deps ? { "ccm-beacon": this.createMcpServer() } : undefined;
+    const mcpServers = this.deps
+      ? { "ccm-beacon": this.createMcpServer() }
+      : undefined;
 
     // V1 query() にAsyncIterableを渡してマルチターン会話を確立する
     const q = query({
@@ -424,7 +595,9 @@ export class BeaconManager extends EventEmitter {
         cwd,
         model: "sonnet",
         allowedTools: [
-          "Read", "Grep", "Glob",
+          "Read",
+          "Grep",
+          "Glob",
           // MCPツールを自動承認
           "mcp__ccm-beacon__list_repositories",
           "mcp__ccm-beacon__list_worktrees",
@@ -436,6 +609,7 @@ export class BeaconManager extends EventEmitter {
           "mcp__ccm-beacon__get_session_output",
           "mcp__ccm-beacon__create_worktree",
           "mcp__ccm-beacon__delete_worktree",
+          "mcp__ccm-beacon__get_pr_url",
         ],
         permissionMode: "default",
         systemPrompt: BEACON_SYSTEM_PROMPT,
@@ -537,9 +711,10 @@ export class BeaconManager extends EventEmitter {
               // ツール使用情報を記録
               lastToolUse = {
                 toolName: block.name,
-                input: typeof block.input === "string"
-                  ? block.input
-                  : JSON.stringify(block.input),
+                input:
+                  typeof block.input === "string"
+                    ? block.input
+                    : JSON.stringify(block.input),
               };
             }
           }

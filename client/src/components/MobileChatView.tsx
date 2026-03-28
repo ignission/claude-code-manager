@@ -6,14 +6,29 @@
  * ストリーミング表示、クイックコマンドを提供する。
  */
 
-import { useRef, useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from "react";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { ChevronLeft, Send, ChevronRight, Terminal, Radar, Loader2, Trash2 } from "lucide-react";
+import {
+  ChevronLeft,
+  Send,
+  ChevronRight,
+  Terminal,
+  Radar,
+  Loader2,
+  Trash2,
+} from "lucide-react";
 import type { ChatMessage } from "../../../shared/types";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 import { useComposition } from "../hooks/useComposition";
@@ -45,12 +60,23 @@ interface QuickCommand {
 type MarkdownSegment =
   | { type: "text"; content: string }
   | { type: "bold"; content: string }
+  | { type: "link"; url: string }
   | { type: "code-inline"; content: string }
   | { type: "code-block"; lang: string; content: string }
   | { type: "list-item"; children: MarkdownSegment[] }
   | { type: "heading"; level: number; children: MarkdownSegment[] }
-  | { type: "numbered-item"; number: number; children: MarkdownSegment[]; plainText: string }
-  | { type: "checkbox-item"; checked: boolean; children: MarkdownSegment[]; plainText: string }
+  | {
+      type: "numbered-item";
+      number: number;
+      children: MarkdownSegment[];
+      plainText: string;
+    }
+  | {
+      type: "checkbox-item";
+      checked: boolean;
+      children: MarkdownSegment[];
+      plainText: string;
+    }
   | { type: "break" };
 
 // --- クイックコマンド定義 ---
@@ -58,6 +84,7 @@ type MarkdownSegment =
 const QUICK_COMMANDS: QuickCommand[] = [
   { label: "進捗確認", message: "進捗確認" },
   { label: "タスク着手", message: "タスク着手" },
+  { label: "PR URL", message: "PR URL" },
 ];
 
 // --- 簡易マークダウンパーサー ---
@@ -90,7 +117,7 @@ function parseMarkdown(text: string): MarkdownSegment[] {
 /** 1行のインライン要素をパース */
 function parseInline(line: string): MarkdownSegment[] {
   const result: MarkdownSegment[] = [];
-  const inlineRegex = /(\*\*(.+?)\*\*|`([^`\n]+)`)/g;
+  const inlineRegex = /(\*\*(.+?)\*\*|`([^`\n]+)`|(https?:\/\/[^\s)]+))/g;
   let lastIndex = 0;
   let m: RegExpExecArray | null;
 
@@ -102,6 +129,8 @@ function parseInline(line: string): MarkdownSegment[] {
       result.push({ type: "bold", content: m[2] });
     } else if (m[3]) {
       result.push({ type: "code-inline", content: m[3] });
+    } else if (m[4]) {
+      result.push({ type: "link", url: m[4] });
     }
     lastIndex = m.index + m[0].length;
   }
@@ -120,29 +149,43 @@ function parseInlineSegments(text: string, segments: MarkdownSegment[]): void {
 
     const headingMatch = line.match(/^(#{1,4})\s+(.+)$/);
     if (headingMatch) {
-      segments.push({ type: "heading", level: headingMatch[1].length, children: parseInline(headingMatch[2]) });
-    }
-    else if (/^[-*]\s+\[([ xX])\]\s+(.+)$/.test(line)) {
+      segments.push({
+        type: "heading",
+        level: headingMatch[1].length,
+        children: parseInline(headingMatch[2]),
+      });
+    } else if (/^[-*]\s+\[([ xX])\]\s+(.+)$/.test(line)) {
       const cbMatch = line.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
       if (cbMatch) {
         const children = parseInline(cbMatch[2]);
-        const plainText = cbMatch[2].replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
-        segments.push({ type: "checkbox-item", checked: cbMatch[1] !== " ", children, plainText });
+        const plainText = cbMatch[2]
+          .replace(/\*\*(.+?)\*\*/g, "$1")
+          .replace(/`([^`]+)`/g, "$1");
+        segments.push({
+          type: "checkbox-item",
+          checked: cbMatch[1] !== " ",
+          children,
+          plainText,
+        });
       }
-    }
-    else if (/^\d+[.)]\s+(.+)$/.test(line)) {
+    } else if (/^\d+[.)]\s+(.+)$/.test(line)) {
       const numMatch = line.match(/^(\d+)[.)]\s+(.+)$/);
       if (numMatch) {
         const children = parseInline(numMatch[2]);
-        const plainText = numMatch[2].replace(/\*\*(.+?)\*\*/g, "$1").replace(/`([^`]+)`/g, "$1");
-        segments.push({ type: "numbered-item", number: parseInt(numMatch[1], 10), children, plainText });
+        const plainText = numMatch[2]
+          .replace(/\*\*(.+?)\*\*/g, "$1")
+          .replace(/`([^`]+)`/g, "$1");
+        segments.push({
+          type: "numbered-item",
+          number: parseInt(numMatch[1], 10),
+          children,
+          plainText,
+        });
       }
-    }
-    else if (/^[-*]\s+(.+)$/.test(line)) {
+    } else if (/^[-*]\s+(.+)$/.test(line)) {
       const content = line.replace(/^[-*]\s+/, "");
       segments.push({ type: "list-item", children: parseInline(content) });
-    }
-    else {
+    } else {
       segments.push(...parseInline(line));
     }
 
@@ -155,7 +198,8 @@ function parseInlineSegments(text: string, segments: MarkdownSegment[]): void {
       const isNumbered = numberedPattern.test(line);
       const nextIsList = listPattern.test(nextLine);
       const nextIsNumbered = numberedPattern.test(nextLine);
-      const skipBreak = (isList && nextIsList) || (isNumbered && nextIsNumbered);
+      const skipBreak =
+        (isList && nextIsList) || (isNumbered && nextIsNumbered);
       if (!skipBreak) {
         segments.push({ type: "break" });
       }
@@ -166,14 +210,30 @@ function parseInlineSegments(text: string, segments: MarkdownSegment[]): void {
 /** セグメント配列をReact要素にレンダリング */
 function renderSegments(
   segments: MarkdownSegment[],
-  onAction?: (text: string) => void,
+  onAction?: (text: string) => void
 ): ReactNode[] {
   return segments.map((seg, i) => {
     switch (seg.type) {
       case "text":
         return <span key={i}>{seg.content}</span>;
       case "bold":
-        return <strong key={i} className="text-foreground font-semibold">{seg.content}</strong>;
+        return (
+          <strong key={i} className="text-foreground font-semibold">
+            {seg.content}
+          </strong>
+        );
+      case "link":
+        return (
+          <a
+            key={i}
+            href={seg.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary underline underline-offset-2 hover:text-primary/80 break-all"
+          >
+            {seg.url}
+          </a>
+        );
       case "code-inline":
         return (
           <code
@@ -190,23 +250,29 @@ function renderSegments(
             className="bg-background/80 rounded-md p-3 my-2 overflow-x-auto text-xs font-mono whitespace-pre-wrap break-words border border-border/40"
           >
             {seg.lang && (
-              <span className="text-primary/60 text-[10px] font-mono uppercase tracking-wider block mb-1.5">{seg.lang}</span>
+              <span className="text-primary/60 text-[10px] font-mono uppercase tracking-wider block mb-1.5">
+                {seg.lang}
+              </span>
             )}
             <code className="text-foreground/90">{seg.content}</code>
           </pre>
         );
       case "heading":
         return (
-          <div key={i} className={`font-semibold mt-3 mb-1 tracking-tight ${seg.level <= 2 ? "text-[15px] text-foreground" : "text-sm text-foreground/90"}`}>
+          <div
+            key={i}
+            className={`font-semibold mt-3 mb-1 tracking-tight ${seg.level <= 2 ? "text-[15px] text-foreground" : "text-sm text-foreground/90"}`}
+          >
             {renderSegments(seg.children, onAction)}
           </div>
         );
       case "list-item": {
         const isSimple = seg.children.every(
-          (c) => c.type === "text" || c.type === "bold" || c.type === "code-inline"
+          c =>
+            c.type === "text" || c.type === "bold" || c.type === "code-inline"
         );
         const plainText = seg.children
-          .map((c) => ("content" in c ? c.content : ""))
+          .map(c => ("content" in c ? c.content : ""))
           .join("");
         if (isSimple && onAction && plainText.length > 0) {
           return (
@@ -217,7 +283,9 @@ function renderSegments(
               onClick={() => onAction(plainText)}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary shrink-0 transition-colors" />
-              <span className="flex-1">{renderSegments(seg.children, onAction)}</span>
+              <span className="flex-1">
+                {renderSegments(seg.children, onAction)}
+              </span>
             </button>
           );
         }
@@ -238,7 +306,9 @@ function renderSegments(
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-primary/15 text-primary text-xs font-mono font-bold shrink-0 group-hover:bg-primary/25 transition-colors">
               {seg.number}
             </span>
-            <span className="flex-1">{renderSegments(seg.children, onAction)}</span>
+            <span className="flex-1">
+              {renderSegments(seg.children, onAction)}
+            </span>
           </button>
         );
       case "checkbox-item":
@@ -249,10 +319,14 @@ function renderSegments(
             className="group flex items-center gap-2.5 w-full text-left my-0.5 px-3 py-2.5 rounded-lg border border-border/40 bg-card/50 hover:bg-primary/5 hover:border-primary/30 active:bg-primary/10 text-sm transition-all min-h-[44px]"
             onClick={() => onAction?.(seg.plainText)}
           >
-            <span className={`inline-flex items-center justify-center w-4 h-4 rounded border transition-colors ${seg.checked ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 group-hover:border-primary/50"}`}>
+            <span
+              className={`inline-flex items-center justify-center w-4 h-4 rounded border transition-colors ${seg.checked ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 group-hover:border-primary/50"}`}
+            >
               {seg.checked && <span className="text-[10px] font-bold">✓</span>}
             </span>
-            <span className="flex-1">{renderSegments(seg.children, onAction)}</span>
+            <span className="flex-1">
+              {renderSegments(seg.children, onAction)}
+            </span>
           </button>
         );
       case "break":
@@ -277,9 +351,18 @@ function UserBubble({ content }: { content: string }) {
 }
 
 /** アシスタントメッセージバブル */
-function AssistantBubble({ content, onAction }: { content: string; onAction?: (text: string) => void }) {
+function AssistantBubble({
+  content,
+  onAction,
+}: {
+  content: string;
+  onAction?: (text: string) => void;
+}) {
   const segments = useMemo(() => parseMarkdown(content), [content]);
-  const rendered = useMemo(() => renderSegments(segments, onAction), [segments, onAction]);
+  const rendered = useMemo(
+    () => renderSegments(segments, onAction),
+    [segments, onAction]
+  );
   return (
     <div className="flex justify-start px-4 py-0.5">
       <div className="max-w-[88%] rounded-2xl rounded-bl-sm bg-card border border-border/30 px-4 py-3 text-sm leading-normal break-words">
@@ -352,9 +435,7 @@ function EmptyState() {
       <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-5">
         <Radar className="w-8 h-8 text-primary/70" />
       </div>
-      <p className="text-foreground/80 text-sm font-medium">
-        Beacon
-      </p>
+      <p className="text-foreground/80 text-sm font-medium">Beacon</p>
       <p className="text-muted-foreground text-xs mt-1.5 max-w-[240px] leading-relaxed">
         セッションの進捗確認やworktree管理をここから行えます
       </p>
@@ -380,7 +461,7 @@ export function MobileChatView({
 
   // IME対応
   const composition = useComposition<HTMLInputElement>({
-    onKeyDown: (e) => {
+    onKeyDown: e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
@@ -416,7 +497,8 @@ export function MobileChatView({
   const handleScroll = useCallback(() => {
     const el = messagesContainerRef.current;
     if (!el) return;
-    isNearBottom.current = el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
+    isNearBottom.current =
+      el.scrollTop + el.clientHeight >= el.scrollHeight - 80;
   }, []);
 
   useEffect(() => {
@@ -477,11 +559,21 @@ export function MobileChatView({
         {hasMessages ? (
           <div className="py-3">
             {messages.map((msg, idx) => (
-              <div key={msg.id} className={idx > 0 && messages[idx - 1].role !== msg.role ? "mt-4" : "mt-1"}>
+              <div
+                key={msg.id}
+                className={
+                  idx > 0 && messages[idx - 1].role !== msg.role
+                    ? "mt-4"
+                    : "mt-1"
+                }
+              >
                 {msg.role === "user" ? (
                   <UserBubble content={msg.content} />
                 ) : (
-                  <AssistantBubble content={msg.content} onAction={onSendMessage} />
+                  <AssistantBubble
+                    content={msg.content}
+                    onAction={onSendMessage}
+                  />
                 )}
                 {msg.toolUse && (
                   <ToolUseBlock
@@ -507,7 +599,7 @@ export function MobileChatView({
       {/* クイックコマンド */}
       {QUICK_COMMANDS.length > 0 && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border/30 bg-sidebar overflow-x-auto select-none scrollbar-none">
-          {QUICK_COMMANDS.map((cmd) => (
+          {QUICK_COMMANDS.map(cmd => (
             <Button
               key={cmd.label}
               type="button"
@@ -526,14 +618,14 @@ export function MobileChatView({
       {/* 入力バー */}
       <form
         onSubmit={handleSubmit}
-        className="px-3 py-2.5 border-t border-border/50 bg-sidebar safe-area-bottom"
+        className="px-3 pt-2.5 pb-4 border-t border-border/50 bg-sidebar safe-area-bottom"
       >
         <div className="flex gap-2 items-center">
           <div className="flex-1 relative">
             <input
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={e => setInputValue(e.target.value)}
               onKeyDown={composition.onKeyDown}
               onCompositionStart={composition.onCompositionStart}
               onCompositionEnd={composition.onCompositionEnd}

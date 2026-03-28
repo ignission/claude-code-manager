@@ -8,7 +8,8 @@ import { test, expect } from "@playwright/test";
  */
 
 // テスト用のリポジトリパス（サーバーで管理されている実際のパス）
-const TEST_REPO_PATH = "/home/admin/dev/github.com/ignission/claude-code-manager";
+const TEST_REPO_PATH =
+  "/home/admin/dev/github.com/ignission/claude-code-manager";
 
 /**
  * localStorageにリポジトリ選択状態を事前設定し、
@@ -29,7 +30,9 @@ test("デスクトップ: サイドバーにBeaconボタンが表示される", 
   await page.goto("/");
 
   // Socket.IO接続とリポジトリ選択の復元を待つ
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconボタンが表示されている
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -91,9 +94,7 @@ test("モバイル: BeaconチャットUIの各要素が表示される", async (
   await expect(header).toBeVisible({ timeout: 5_000 });
 
   // 入力フィールドが表示される（リポジトリ選択済みのプレースホルダー）
-  const chatInput = page.locator(
-    'input[placeholder="メッセージを入力..."]'
-  );
+  const chatInput = page.locator('input[placeholder="メッセージを入力..."]');
   await expect(chatInput).toBeVisible();
 
   // 送信ボタンが表示される
@@ -123,7 +124,9 @@ test("デスクトップ: Beaconモーダルで入力操作できる", async ({ 
   await page.goto("/");
 
   // アプリの初期化を待つ
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconボタンをクリックしてモーダルを開く
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -155,7 +158,9 @@ test("Beacon: メッセージ送信でレスポンスが返る", async ({ page }
   await page.goto("/");
 
   // アプリ初期化を待つ
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconモーダルを開く
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -169,12 +174,12 @@ test("Beacon: メッセージ送信でレスポンスが返る", async ({ page }
   await chatInput.press("Enter");
 
   // ユーザーメッセージが表示される（履歴から複数ある場合はfirst）
-  const userMessage = dialog.locator('text=リポジトリ一覧を教えて').first();
+  const userMessage = dialog.locator("text=リポジトリ一覧を教えて").first();
   await expect(userMessage).toBeVisible({ timeout: 5_000 });
 
   // アシスタントのレスポンスが表示されるのを待つ（Agent SDK通信が必要）
   // ストリーミングインジケーターまたはアシスタントメッセージが出現すればOK
-  const response = dialog.locator('.bg-card').first();
+  const response = dialog.locator(".bg-card").first();
   await expect(response).toBeVisible({ timeout: 60_000 });
 });
 
@@ -182,10 +187,14 @@ test("Beacon: メッセージ送信でレスポンスが返る", async ({ page }
 // テスト6: マークダウンレンダリングの検証
 // 過去のテスト実行でBeaconセッションに蓄積されたレスポンスを利用して検証
 // ---------------------------------------------------------------------------
-test("マークダウン: **text**が生テキストで表示されていない", async ({ page }) => {
+test("マークダウン: **text**が生テキストで表示されていない", async ({
+  page,
+}) => {
   await setupRepoSelection(page);
   await page.goto("/");
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconモーダルを開く
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -194,19 +203,22 @@ test("マークダウン: **text**が生テキストで表示されていない"
   await expect(dialog).toBeVisible({ timeout: 5_000 });
 
   // アシスタントバブルが存在するか確認（前のテスト実行の履歴がある場合）
-  const responseBubbles = dialog.locator('.rounded-bl-sm.bg-card');
+  const responseBubbles = dialog.locator(".rounded-bl-sm.bg-card");
   const count = await responseBubbles.count();
   if (count === 0) {
     // 履歴がない場合はメッセージ送信してレスポンスを取得
-    const chatInput = dialog.locator('input[placeholder="メッセージを入力..."]');
+    const chatInput = dialog.locator(
+      'input[placeholder="メッセージを入力..."]'
+    );
     await chatInput.fill("worktree一覧を表示して");
     await chatInput.press("Enter");
     await expect(responseBubbles.first()).toBeVisible({ timeout: 60_000 });
     // ストリーミング完了を待つ
-    await page.waitForFunction(
-      () => !document.querySelector('.animate-pulse'),
-      { timeout: 60_000 }
-    ).catch(() => {});
+    await page
+      .waitForFunction(() => !document.querySelector(".animate-pulse"), {
+        timeout: 60_000,
+      })
+      .catch(() => {});
   }
 
   // アシスタントのレスポンス内に **text** が生テキストとして残っていないことを確認
@@ -220,10 +232,14 @@ test("マークダウン: **text**が生テキストで表示されていない"
 // テスト7: マークダウンパーサーの単体テスト
 // ブラウザ上でパーサー関数を直接テストし、Agent SDKに依存しない
 // ---------------------------------------------------------------------------
-test("マークダウン: 進捗報告形式のテキストが正しくパースされる", async ({ page }) => {
+test("マークダウン: 進捗報告形式のテキストが正しくパースされる", async ({
+  page,
+}) => {
   await setupRepoSelection(page);
   await page.goto("/");
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconモーダルを開いてAssistantBubbleコンポーネントの動作をテスト
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -234,7 +250,7 @@ test("マークダウン: 進捗報告形式のテキストが正しくパース
   // テスト用マークダウンをメッセージとして挿入（Socket.IOイベント注入）
   // 実際のパーサーの動作は、既存のレスポンスバブルで検証する
   // 前のテストでBeaconの応答が履歴に残っているはず
-  const responseBubbles = dialog.locator('.rounded-bl-sm.bg-card');
+  const responseBubbles = dialog.locator(".rounded-bl-sm.bg-card");
   const count = await responseBubbles.count();
 
   if (count > 0) {
@@ -257,10 +273,14 @@ test("マークダウン: 進捗報告形式のテキストが正しくパース
 // ---------------------------------------------------------------------------
 // テスト8: リスト項目・番号付きリストがタップ可能なボタンとしてレンダリングされる
 // ---------------------------------------------------------------------------
-test("インタラクティブ: リスト項目がボタンとしてレンダリングされる", async ({ page }) => {
+test("インタラクティブ: リスト項目がボタンとしてレンダリングされる", async ({
+  page,
+}) => {
   await setupRepoSelection(page);
   await page.goto("/");
-  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Worktrees", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
 
   // Beaconモーダルを開く
   const beaconButton = page.locator('button:has-text("Beacon")').first();
@@ -269,7 +289,7 @@ test("インタラクティブ: リスト項目がボタンとしてレンダリ
   await expect(dialog).toBeVisible({ timeout: 5_000 });
 
   // 前回のテスト実行で蓄積されたアシスタントバブルを確認
-  const responseBubbles = dialog.locator('.rounded-bl-sm.bg-card');
+  const responseBubbles = dialog.locator(".rounded-bl-sm.bg-card");
   const bubbleCount = await responseBubbles.count();
 
   if (bubbleCount > 0) {

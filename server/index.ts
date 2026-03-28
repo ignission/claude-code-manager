@@ -8,6 +8,9 @@
 
 import express from "express";
 import { createServer } from "node:http";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+const execAsync = promisify(exec);
 import { Server, type Socket } from "socket.io";
 import path from "node:path";
 import fs from "node:fs";
@@ -235,6 +238,16 @@ async function startServer() {
       return all;
     },
     getRepos: () => Array.from(knownRepos),
+    getPrUrl: async worktreePath => {
+      try {
+        const { stdout } = await execAsync("gh pr view --json url -q .url", {
+          cwd: worktreePath,
+        });
+        return stdout.trim() || null;
+      } catch {
+        return null;
+      }
+    },
   });
 
   // Beaconイベントを要求元のSocket.IOクライアントのみに転送
