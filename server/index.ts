@@ -734,7 +734,7 @@ async function startServer() {
 
     // Beacon履歴取得
     socket.on("beacon:history", () => {
-      activeBeaconSocket = socket;
+      // activeBeaconSocketは設定しない（ストリーミング中の横取り防止）
       const messages = beaconManager.getHistory();
       socket.emit("beacon:history", { messages });
     });

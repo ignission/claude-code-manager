@@ -287,13 +287,26 @@ export class SessionOrchestrator extends EventEmitter {
    * 全セッションを取得
    */
   getAllSessions(): ManagedSession[] {
-    return tmuxManager
-      .getAllSessions()
-      .filter(s => !s.worktreePath || fs.existsSync(s.worktreePath))
-      .map(s => {
+    const allSessions = tmuxManager.getAllSessions();
+    // 孤立セッション（worktree削除済み）をクリーンアップ
+    for (const s of allSessions) {
+      if (s.worktreePath && !fs.existsSync(s.worktreePath)) {
+        console.log(
+          `[Orchestrator] Cleaning up orphaned session: ${s.tmuxSessionName} -> ${s.worktreePath}`
+        );
+        ttydManager.stopInstance(s.id);
+        tmuxManager.killSession(s.id);
         const dbSession = db.getSessionByWorktreePath(s.worktreePath);
-        return this.toManagedSession(s, dbSession?.worktreeId || "");
-      });
+        if (dbSession) {
+          db.updateSessionStatus(dbSession.id, "stopped");
+        }
+        this.emit("session:stopped", s.id);
+      }
+    }
+    return tmuxManager.getAllSessions().map(s => {
+      const dbSession = db.getSessionByWorktreePath(s.worktreePath);
+      return this.toManagedSession(s, dbSession?.worktreeId || "");
+    });
   }
 
   /**
