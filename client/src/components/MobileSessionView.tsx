@@ -26,7 +26,11 @@ import {
   ImageIcon,
   RefreshCw,
 } from "lucide-react";
-import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
+import type {
+  ManagedSession,
+  SpecialKey,
+  Worktree,
+} from "../../../shared/types";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 
 interface MobileSessionViewProps {
@@ -73,9 +77,10 @@ export function MobileSessionView({
     (window.location.hostname === "localhost" ||
       window.location.hostname === "127.0.0.1");
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
-  const urlToken = typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search).get("token")
-    : null;
+  const urlToken =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("token")
+      : null;
   const ttydBasePath = `/ttyd/${session.id}/`;
   const ttydIframeSrc =
     isLocalAccess && session.ttydPort
@@ -101,7 +106,7 @@ export function MobileSessionView({
 
   // iframeリロード
   const handleReloadIframe = () => {
-    setIframeKey((prev) => prev + 1);
+    setIframeKey(prev => prev + 1);
   };
 
   // クリップボードから画像を読み取り
@@ -119,11 +124,10 @@ export function MobileSessionView({
           if (!file) continue;
 
           const reader = new FileReader();
-          reader.onload = (event) => {
+          reader.onload = event => {
             const dataUrl = event.target?.result as string;
             const [header, base64] = dataUrl.split(",");
-            const mimeType =
-              header.match(/data:(.*?);/)?.[1] || "image/png";
+            const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
             setPastedImage({ base64, mimeType, preview: dataUrl });
           };
           reader.readAsDataURL(file);
@@ -151,17 +155,14 @@ export function MobileSessionView({
     try {
       const clipboardItems = await navigator.clipboard.read();
       for (const item of clipboardItems) {
-        const imageType = item.types.find((type) =>
-          type.startsWith("image/")
-        );
+        const imageType = item.types.find(type => type.startsWith("image/"));
         if (imageType) {
           const blob = await item.getType(imageType);
           const reader = new FileReader();
-          reader.onload = (event) => {
+          reader.onload = event => {
             const dataUrl = event.target?.result as string;
             const [header, base64] = dataUrl.split(",");
-            const mimeType =
-              header.match(/data:(.*?);/)?.[1] || "image/png";
+            const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
             setPastedImage({ base64, mimeType, preview: dataUrl });
           };
           reader.readAsDataURL(blob);
@@ -184,7 +185,13 @@ export function MobileSessionView({
       setImageMessage("");
       onClearImageUploadState?.();
     }
-  }, [imageUploadResult, pastedImage, imageMessage, onSendMessage, onClearImageUploadState]);
+  }, [
+    imageUploadResult,
+    pastedImage,
+    imageMessage,
+    onSendMessage,
+    onClearImageUploadState,
+  ]);
 
   // tmuxバッファコピー
   const handleCopyBuffer = async () => {
@@ -201,7 +208,9 @@ export function MobileSessionView({
 
   // スワイプスクロールモード
   const [scrollMode, setScrollMode] = useState(false);
-  const swipeStateRef = useRef<{ startY: number; sentLines: number } | null>(null);
+  const swipeStateRef = useRef<{ startY: number; sentLines: number } | null>(
+    null
+  );
   const LINE_HEIGHT = 20; // 1行あたりのpx閾値
 
   // スクロールモードON時にcopy-modeに入り、OFF時にqで抜ける
@@ -220,22 +229,25 @@ export function MobileSessionView({
     swipeStateRef.current = { startY: touch.clientY, sentLines: 0 };
   }, []);
 
-  const handleOverlayTouchMove = useCallback((e: React.TouchEvent) => {
-    const state = swipeStateRef.current;
-    if (!state) return;
-    e.preventDefault();
-    const touch = e.touches[0];
-    const deltaY = state.startY - touch.clientY;
-    const totalLines = Math.floor(Math.abs(deltaY) / LINE_HEIGHT);
-    const newLines = totalLines - state.sentLines;
-    if (newLines > 0) {
-      const key: SpecialKey = deltaY > 0 ? "scroll-up" : "scroll-down";
-      for (let i = 0; i < newLines; i++) {
-        onSendKey(key);
+  const handleOverlayTouchMove = useCallback(
+    (e: React.TouchEvent) => {
+      const state = swipeStateRef.current;
+      if (!state) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      const deltaY = state.startY - touch.clientY;
+      const totalLines = Math.floor(Math.abs(deltaY) / LINE_HEIGHT);
+      const newLines = totalLines - state.sentLines;
+      if (newLines > 0) {
+        const key: SpecialKey = deltaY > 0 ? "scroll-up" : "scroll-down";
+        for (let i = 0; i < newLines; i++) {
+          onSendKey(key);
+        }
+        state.sentLines = totalLines;
       }
-      state.sentLines = totalLines;
-    }
-  }, [onSendKey]);
+    },
+    [onSendKey]
+  );
 
   const handleOverlayTouchEnd = useCallback(() => {
     swipeStateRef.current = null;
@@ -253,7 +265,11 @@ export function MobileSessionView({
   return (
     <div
       className="flex-1 flex flex-col min-h-0 safe-area-x"
-      style={isKeyboardVisible ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` } : undefined}
+      style={
+        isKeyboardVisible
+          ? { height: `${viewportHeight}px`, maxHeight: `${viewportHeight}px` }
+          : undefined
+      }
     >
       {/* ヘッダー: 戻る、ブランチ名、Opsドロップダウン、Stopボタン */}
       <header className="h-12 border-b border-border flex items-center justify-between px-2 bg-sidebar shrink-0 safe-area-top">
@@ -372,7 +388,7 @@ export function MobileSessionView({
             <div className="mb-3">
               <Textarea
                 value={imageMessage}
-                onChange={(e) => setImageMessage(e.target.value)}
+                onChange={e => setImageMessage(e.target.value)}
                 placeholder="画像についてのメッセージ（任意）"
                 className="min-h-[60px] resize-none text-sm"
                 rows={2}
@@ -480,7 +496,7 @@ export function MobileSessionView({
             <Input
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={e => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
               enterKeyHint="send"
               placeholder="メッセージを入力... (Enter送信)"

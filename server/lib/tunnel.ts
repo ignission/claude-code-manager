@@ -135,13 +135,13 @@ export class TunnelManager extends EventEmitter {
         outputBuffer += data.toString();
       });
 
-      this.process.on("error", (error) => {
+      this.process.on("error", error => {
         clearTimeout(timeout);
         this.emit("error", error);
         reject(error);
       });
 
-      this.process.on("close", (code) => {
+      this.process.on("close", code => {
         clearTimeout(timeout);
         this.process = null;
         this.publicUrl = null;
@@ -207,13 +207,13 @@ export class TunnelManager extends EventEmitter {
       this.process.stderr?.on("data", handleOutput);
       this.process.stdout?.on("data", handleOutput);
 
-      this.process.on("error", (error) => {
+      this.process.on("error", error => {
         clearTimeout(timeout);
         this.emit("error", error);
         reject(error);
       });
 
-      this.process.on("close", (code) => {
+      this.process.on("close", code => {
         clearTimeout(timeout);
         this.process = null;
         this.publicUrl = null;

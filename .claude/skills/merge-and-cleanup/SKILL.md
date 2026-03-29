@@ -44,6 +44,7 @@ cloudIdは `ignission.atlassian.net` を使用する。
 ## 完了報告
 
 全ステップ完了後、以下を報告:
+
 - PR #$0 マージ完了
 - $1 → 完了
 - ブランチ: main (最新)

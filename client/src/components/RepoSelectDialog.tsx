@@ -58,7 +58,7 @@ function RepoSelectContent({
     }
     const query = filterQuery.toLowerCase();
     return scannedRepos.filter(
-      (repo) =>
+      repo =>
         repo.name.toLowerCase().includes(query) ||
         repo.path.toLowerCase().includes(query)
     );
@@ -93,9 +93,9 @@ function RepoSelectContent({
             id="scanPath"
             placeholder="/Users/username/dev"
             value={scanBasePath}
-            onChange={(e) => setScanBasePath(e.target.value)}
+            onChange={e => setScanBasePath(e.target.value)}
             autoFocus={!isDrawer}
-            onKeyDown={(e) => {
+            onKeyDown={e => {
               if (e.key === "Enter") handleScanRepos();
             }}
             className="font-mono h-12 md:h-10 text-base md:text-sm flex-1"
@@ -130,7 +130,7 @@ function RepoSelectContent({
           <Input
             placeholder="リポジトリを検索..."
             value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
+            onChange={e => setFilterQuery(e.target.value)}
             className="pl-9 h-10"
             disabled={isScanning || scannedRepos.length === 0}
           />
@@ -141,7 +141,7 @@ function RepoSelectContent({
           } ${isScanning ? "opacity-50" : ""}`}
         >
           <div className="p-2 space-y-1">
-            {filteredRepos.map((repo) => (
+            {filteredRepos.map(repo => (
               <div
                 key={repo.path}
                 className={`rounded-md cursor-pointer transition-colors ${
@@ -183,8 +183,8 @@ function RepoSelectContent({
           id="repoPath"
           placeholder="/path/to/your/repository"
           value={repoInput}
-          onChange={(e) => setRepoInput(e.target.value)}
-          onKeyDown={(e) => {
+          onChange={e => setRepoInput(e.target.value)}
+          onKeyDown={e => {
             if (e.key === "Enter") handleSelectRepo();
           }}
           className="font-mono h-12 md:h-10 text-base md:text-sm"

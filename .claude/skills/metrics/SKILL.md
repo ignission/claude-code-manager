@@ -18,9 +18,9 @@ bash "$CLAUDE_PROJECT_DIR/.claude/scripts/metrics.sh" 30
 
 2. 結果をテーブル形式でユーザーに報告する
 
-| メトリクス | 値 | 傾向 |
-|-----------|---|------|
-| マージ済みPR | N件 | - |
-| CI失敗率 | N% | - |
-| CodeRabbit指摘 | N件/PR | - |
-| revert/fixコミット | N件 | - |
+| メトリクス         | 値     | 傾向 |
+| ------------------ | ------ | ---- |
+| マージ済みPR       | N件    | -    |
+| CI失敗率           | N%     | -    |
+| CodeRabbit指摘     | N件/PR | -    |
+| revert/fixコミット | N件    | -    |

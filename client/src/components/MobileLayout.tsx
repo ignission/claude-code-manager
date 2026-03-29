@@ -10,7 +10,12 @@ import { useState, useCallback, useEffect } from "react";
 import { MobileSessionList } from "@/components/MobileSessionList";
 import { MobileSessionView } from "@/components/MobileSessionView";
 import { MobileChatView } from "@/components/MobileChatView";
-import type { ManagedSession, SpecialKey, Worktree, ChatMessage } from "../../../shared/types";
+import type {
+  ManagedSession,
+  SpecialKey,
+  Worktree,
+  ChatMessage,
+} from "../../../shared/types";
 
 interface MobileLayoutProps {
   sessions: Map<string, ManagedSession>;
@@ -23,7 +28,11 @@ interface MobileLayoutProps {
   onSendMessage: (sessionId: string, message: string) => void;
   onSendKey: (sessionId: string, key: SpecialKey) => void;
   onSelectSession: (sessionId: string) => void;
-  onUploadImage?: (sessionId: string, base64Data: string, mimeType: string) => void;
+  onUploadImage?: (
+    sessionId: string,
+    base64Data: string,
+    mimeType: string
+  ) => void;
   imageUploadResult?: { path: string; filename: string } | null;
   imageUploadError?: string | null;
   onClearImageUploadState?: () => void;
@@ -58,8 +67,12 @@ export function MobileLayout({
   onBeaconSend,
   onBeaconClear,
 }: MobileLayoutProps) {
-  const [activeView, setActiveView] = useState<"list" | "detail" | "beacon">("list");
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"list" | "detail" | "beacon">(
+    "list"
+  );
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null
+  );
   const [openedSessions, setOpenedSessions] = useState<Set<string>>(new Set());
 
   // セッションを選択して詳細画面に遷移
@@ -67,7 +80,7 @@ export function MobileLayout({
     (sessionId: string) => {
       setSelectedSessionId(sessionId);
       setActiveView("detail");
-      setOpenedSessions((prev) => new Set(prev).add(sessionId));
+      setOpenedSessions(prev => new Set(prev).add(sessionId));
       onSelectSession(sessionId);
     },
     [onSelectSession]
@@ -80,14 +93,20 @@ export function MobileLayout({
 
   // 選択中のセッションが削除された場合、一覧画面にフォールバック
   useEffect(() => {
-    if (activeView === "detail" && selectedSessionId && !sessions.has(selectedSessionId)) {
+    if (
+      activeView === "detail" &&
+      selectedSessionId &&
+      !sessions.has(selectedSessionId)
+    ) {
       setActiveView("list");
     }
   }, [activeView, selectedSessionId, sessions]);
 
   // ワークツリーのIDからWorktreeを取得するヘルパー
-  const getWorktreeForSession = (session: ManagedSession): Worktree | undefined => {
-    return worktrees.find((w) => w.id === session.worktreeId);
+  const getWorktreeForSession = (
+    session: ManagedSession
+  ): Worktree | undefined => {
+    return worktrees.find(w => w.id === session.worktreeId);
   };
 
   // ボトムナビゲーションの表示判定（セッション詳細画面以外で表示）
@@ -115,37 +134,39 @@ export function MobileLayout({
       </div>
 
       {/* 詳細画面 - 一度でも開いたセッションのみ描画（iframe再マウント防止） */}
-      {Array.from(sessions.entries()).filter(([sessionId]) => openedSessions.has(sessionId)).map(([sessionId, session]) => (
-        <div
-          key={sessionId}
-          className={
-            activeView === "detail" && selectedSessionId === sessionId
-              ? "flex-1 flex flex-col min-h-0"
-              : "hidden"
-          }
-        >
-          <MobileSessionView
-            session={session}
-            worktree={getWorktreeForSession(session)}
-            onBack={handleBack}
-            onSendMessage={(message) => onSendMessage(sessionId, message)}
-            onSendKey={(key) => onSendKey(sessionId, key)}
-            onStopSession={() => onStopSession(sessionId)}
-            onUploadImage={
-              onUploadImage
-                ? (base64Data, mimeType) =>
-                    onUploadImage(sessionId, base64Data, mimeType)
-                : undefined
+      {Array.from(sessions.entries())
+        .filter(([sessionId]) => openedSessions.has(sessionId))
+        .map(([sessionId, session]) => (
+          <div
+            key={sessionId}
+            className={
+              activeView === "detail" && selectedSessionId === sessionId
+                ? "flex-1 flex flex-col min-h-0"
+                : "hidden"
             }
-            imageUploadResult={imageUploadResult}
-            imageUploadError={imageUploadError}
-            onClearImageUploadState={onClearImageUploadState}
-            onCopyBuffer={
-              onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined
-            }
-          />
-        </div>
-      ))}
+          >
+            <MobileSessionView
+              session={session}
+              worktree={getWorktreeForSession(session)}
+              onBack={handleBack}
+              onSendMessage={message => onSendMessage(sessionId, message)}
+              onSendKey={key => onSendKey(sessionId, key)}
+              onStopSession={() => onStopSession(sessionId)}
+              onUploadImage={
+                onUploadImage
+                  ? (base64Data, mimeType) =>
+                      onUploadImage(sessionId, base64Data, mimeType)
+                  : undefined
+              }
+              imageUploadResult={imageUploadResult}
+              imageUploadError={imageUploadError}
+              onClearImageUploadState={onClearImageUploadState}
+              onCopyBuffer={
+                onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined
+              }
+            />
+          </div>
+        ))}
 
       {/* Beaconチャットビュー */}
       <div

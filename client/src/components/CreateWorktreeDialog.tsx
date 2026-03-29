@@ -30,13 +30,16 @@ export function CreateWorktreeDialog({
   const [baseBranch, setBaseBranch] = useState("");
 
   // ダイアログを閉じるときに状態をリセット
-  const handleOpenChange = useCallback((isOpen: boolean) => {
-    if (!isOpen) {
-      setNewBranchName("");
-      setBaseBranch("");
-    }
-    onOpenChange(isOpen);
-  }, [onOpenChange]);
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen) {
+        setNewBranchName("");
+        setBaseBranch("");
+      }
+      onOpenChange(isOpen);
+    },
+    [onOpenChange]
+  );
 
   const handleCreate = useCallback(() => {
     if (!newBranchName.trim()) {
@@ -54,7 +57,8 @@ export function CreateWorktreeDialog({
         e.preventDefault();
         const input = e.currentTarget;
         const pos = input.selectionStart ?? newBranchName.length;
-        const next = newBranchName.slice(0, pos) + "-" + newBranchName.slice(pos);
+        const next =
+          newBranchName.slice(0, pos) + "-" + newBranchName.slice(pos);
         setNewBranchName(next);
         // カーソル位置を復元するため、次のレンダー後にselectionを設定
         requestAnimationFrame(() => {
@@ -65,7 +69,7 @@ export function CreateWorktreeDialog({
         handleCreate();
       }
     },
-    [newBranchName, handleCreate],
+    [newBranchName, handleCreate]
   );
 
   // Base Branch入力: エンターで作成
@@ -76,7 +80,7 @@ export function CreateWorktreeDialog({
         handleCreate();
       }
     },
-    [handleCreate],
+    [handleCreate]
   );
 
   return (
@@ -105,7 +109,7 @@ export function CreateWorktreeDialog({
               id="branch"
               placeholder="feature/new-feature"
               value={newBranchName}
-              onChange={(e) => setNewBranchName(e.target.value)}
+              onChange={e => setNewBranchName(e.target.value)}
               onKeyDown={handleBranchNameKeyDown}
               className="font-mono h-12 md:h-10 text-base md:text-sm"
             />
@@ -116,20 +120,27 @@ export function CreateWorktreeDialog({
               id="baseBranch"
               placeholder="main"
               value={baseBranch}
-              onChange={(e) => setBaseBranch(e.target.value)}
+              onChange={e => setBaseBranch(e.target.value)}
               onKeyDown={handleBaseBranchKeyDown}
               className="font-mono h-12 md:h-10 text-base md:text-sm"
             />
           </div>
           <div className="space-y-2">
-            <Label className="text-muted-foreground">Worktree Path (auto-generated)</Label>
+            <Label className="text-muted-foreground">
+              Worktree Path (auto-generated)
+            </Label>
             <div className="p-3 md:p-2 rounded-md bg-muted font-mono text-sm text-muted-foreground">
-              {selectedRepoPath}-{newBranchName.replace(/\//g, "-") || "branch-name"}
+              {selectedRepoPath}-
+              {newBranchName.replace(/\//g, "-") || "branch-name"}
             </div>
           </div>
         </div>
         <DialogFooter className="flex-col gap-2 sm:flex-row">
-          <Button variant="outline" onClick={() => handleOpenChange(false)} className="h-12 md:h-10">
+          <Button
+            variant="outline"
+            onClick={() => handleOpenChange(false)}
+            className="h-12 md:h-10"
+          >
             Cancel
           </Button>
           <Button onClick={handleCreate} className="glow-green h-12 md:h-10">

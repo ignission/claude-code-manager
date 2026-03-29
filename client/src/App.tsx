@@ -21,13 +21,13 @@ function App() {
     <ErrorBoundary>
       <ThemeProvider defaultTheme="dark">
         <TooltipProvider>
-          <Toaster 
+          <Toaster
             position="bottom-right"
             toastOptions={{
               style: {
-                background: 'oklch(0.17 0.015 260)',
-                border: '1px solid oklch(0.3 0.02 260)',
-                color: 'oklch(0.9 0.01 260)',
+                background: "oklch(0.17 0.015 260)",
+                border: "1px solid oklch(0.3 0.02 260)",
+                color: "oklch(0.9 0.01 260)",
               },
             }}
           />

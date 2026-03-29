@@ -22,8 +22,7 @@ interface ParsedLine {
 export function getListeningPorts(): ListeningPort[] {
   const command =
     process.platform === "darwin" ? "lsof -i -P -n | grep LISTEN" : "ss -tlnp";
-  const parseLine =
-    process.platform === "darwin" ? parseLsofLine : parseSsLine;
+  const parseLine = process.platform === "darwin" ? parseLsofLine : parseSsLine;
   return collectPorts(command, parseLine);
 }
 
@@ -32,7 +31,7 @@ export function getListeningPorts(): ListeningPort[] {
  */
 function collectPorts(
   command: string,
-  parseLine: (line: string) => ParsedLine | null,
+  parseLine: (line: string) => ParsedLine | null
 ): ListeningPort[] {
   try {
     const output = execSync(command, {

@@ -24,7 +24,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { GitBranch, Play, Square, MessageSquare, Trash2, MoreVertical } from "lucide-react";
+import {
+  GitBranch,
+  Play,
+  Square,
+  MessageSquare,
+  Trash2,
+  MoreVertical,
+} from "lucide-react";
 import type { ManagedSession, Worktree } from "../../../shared/types";
 
 interface MobileSessionListProps {
@@ -49,7 +56,7 @@ export function MobileSessionList({
   const [deleteTarget, setDeleteTarget] = useState<Worktree | null>(null);
   const sessionByWorktreeId = useMemo(() => {
     const map = new Map<string, ManagedSession>();
-    sessions.forEach((session) => {
+    sessions.forEach(session => {
       map.set(session.worktreeId, session);
     });
     return map;
@@ -64,13 +71,15 @@ export function MobileSessionList({
       {/* リポジトリ名表示 */}
       {repoName && (
         <div className="px-4 py-2 border-b border-border/50">
-          <span className="text-xs text-muted-foreground font-mono">{repoName}</span>
+          <span className="text-xs text-muted-foreground font-mono">
+            {repoName}
+          </span>
         </div>
       )}
 
       {/* ワークツリーリスト */}
       <div className="flex-1 overflow-y-auto min-h-0 p-4 space-y-3">
-        {worktrees.map((worktree) => {
+        {worktrees.map(worktree => {
           const session = getSessionForWorktree(worktree.id);
           return (
             <div
@@ -95,14 +104,21 @@ export function MobileSessionList({
                 <div className="shrink-0">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-10 w-10" aria-label="Worktree actions">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-10 w-10"
+                        aria-label="Worktree actions"
+                      >
                         <MoreVertical className="w-5 h-5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                       {session ? (
                         <>
-                          <DropdownMenuItem onSelect={() => onOpenSession(session.id)}>
+                          <DropdownMenuItem
+                            onSelect={() => onOpenSession(session.id)}
+                          >
                             <MessageSquare className="w-4 h-4 mr-2" />
                             セッションを開く
                           </DropdownMenuItem>
@@ -115,7 +131,9 @@ export function MobileSessionList({
                           </DropdownMenuItem>
                         </>
                       ) : (
-                        <DropdownMenuItem onSelect={() => onStartSession(worktree)}>
+                        <DropdownMenuItem
+                          onSelect={() => onStartSession(worktree)}
+                        >
                           <Play className="w-4 h-4 mr-2" />
                           セッションを開始
                         </DropdownMenuItem>
@@ -146,7 +164,12 @@ export function MobileSessionList({
         )}
       </div>
 
-      <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}>
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={open => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
         <AlertDialogContent className="bg-card border-border w-[calc(100%-2rem)] max-w-md mx-auto">
           <AlertDialogHeader>
             <AlertDialogTitle>Worktreeを削除</AlertDialogTitle>

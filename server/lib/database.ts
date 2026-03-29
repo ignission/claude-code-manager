@@ -11,7 +11,12 @@ import Database from "better-sqlite3";
 import { existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Message, MessageType, Session, SessionStatus } from "../../shared/types.js";
+import type {
+  Message,
+  MessageType,
+  Session,
+  SessionStatus,
+} from "../../shared/types.js";
 
 // ESM環境での__dirname相当を取得
 const __filename = fileURLToPath(import.meta.url);
@@ -160,7 +165,14 @@ class SessionDatabase {
       INSERT INTO sessions (id, worktree_id, worktree_path, status, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(session.id, session.worktreeId, session.worktreePath, session.status, now, now);
+    stmt.run(
+      session.id,
+      session.worktreeId,
+      session.worktreePath,
+      session.status,
+      now,
+      now
+    );
   }
 
   /**
@@ -182,7 +194,9 @@ class SessionDatabase {
    * @returns セッションオブジェクト、存在しない場合はnull
    */
   getSessionByWorktreePath(worktreePath: string): Session | null {
-    const stmt = this.db.prepare("SELECT * FROM sessions WHERE worktree_path = ?");
+    const stmt = this.db.prepare(
+      "SELECT * FROM sessions WHERE worktree_path = ?"
+    );
     const row = stmt.get(worktreePath) as SessionRow | undefined;
     return row ? this.rowToSession(row) : null;
   }
@@ -195,7 +209,9 @@ class SessionDatabase {
    */
   updateSessionStatus(id: string, status: SessionStatus): void {
     const now = new Date().toISOString();
-    const stmt = this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?");
+    const stmt = this.db.prepare(
+      "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?"
+    );
     stmt.run(status, now, id);
   }
 
@@ -215,9 +231,11 @@ class SessionDatabase {
    * @returns セッションの配列
    */
   getAllSessions(): Session[] {
-    const stmt = this.db.prepare("SELECT * FROM sessions ORDER BY created_at DESC");
+    const stmt = this.db.prepare(
+      "SELECT * FROM sessions ORDER BY created_at DESC"
+    );
     const rows = stmt.all() as SessionRow[];
-    return rows.map((row) => this.rowToSession(row));
+    return rows.map(row => this.rowToSession(row));
   }
 
   // ============================================================
@@ -256,7 +274,7 @@ class SessionDatabase {
       "SELECT * FROM messages WHERE session_id = ? ORDER BY timestamp ASC"
     );
     const rows = stmt.all(sessionId) as MessageRow[];
-    return rows.map((row) => this.rowToMessage(row));
+    return rows.map(row => this.rowToMessage(row));
   }
 
   /**

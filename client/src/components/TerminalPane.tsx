@@ -29,7 +29,11 @@ import {
   Copy,
   Check,
 } from "lucide-react";
-import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
+import type {
+  ManagedSession,
+  SpecialKey,
+  Worktree,
+} from "../../../shared/types";
 import { useIsMobile } from "../hooks/useMobile";
 
 interface TerminalPaneProps {
@@ -79,7 +83,11 @@ export function TerminalPane({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);
-  const [pastedImage, setPastedImage] = useState<{ base64: string; mimeType: string; preview: string } | null>(null);
+  const [pastedImage, setPastedImage] = useState<{
+    base64: string;
+    mimeType: string;
+    preview: string;
+  } | null>(null);
   const [imageMessage, setImageMessage] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
 
@@ -124,38 +132,41 @@ export function TerminalPane({
 
   // Reload iframe
   const handleReloadIframe = () => {
-    setIframeKey((prev) => prev + 1);
+    setIframeKey(prev => prev + 1);
   };
 
   // Handle paste event for image
-  const handlePaste = useCallback((e: React.ClipboardEvent | ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent | ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
 
-    const itemsArray = Array.from(items);
-    for (const item of itemsArray) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (!file) continue;
+      const itemsArray = Array.from(items);
+      for (const item of itemsArray) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (!file) continue;
 
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          const dataUrl = event.target?.result as string;
-          // data:image/png;base64,xxx... からbase64部分を抽出
-          const [header, base64] = dataUrl.split(",");
-          const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
-          setPastedImage({
-            base64,
-            mimeType,
-            preview: dataUrl,
-          });
-        };
-        reader.readAsDataURL(file);
-        break;
+          const reader = new FileReader();
+          reader.onload = event => {
+            const dataUrl = event.target?.result as string;
+            // data:image/png;base64,xxx... からbase64部分を抽出
+            const [header, base64] = dataUrl.split(",");
+            const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
+            setPastedImage({
+              base64,
+              mimeType,
+              preview: dataUrl,
+            });
+          };
+          reader.readAsDataURL(file);
+          break;
+        }
       }
-    }
-  }, []);
+    },
+    []
+  );
 
   // Listen for paste events when textarea is focused
   useEffect(() => {
@@ -177,7 +188,7 @@ export function TerminalPane({
         if (imageType) {
           const blob = await item.getType(imageType);
           const reader = new FileReader();
-          reader.onload = (event) => {
+          reader.onload = event => {
             const dataUrl = event.target?.result as string;
             const [header, base64] = dataUrl.split(",");
             const mimeType = header.match(/data:(.*?);/)?.[1] || "image/png";
@@ -208,22 +219,32 @@ export function TerminalPane({
       setImageMessage("");
       onClearImageUploadState?.();
     }
-  }, [imageUploadResult, pastedImage, imageMessage, onSendMessage, onClearImageUploadState]);
+  }, [
+    imageUploadResult,
+    pastedImage,
+    imageMessage,
+    onSendMessage,
+    onClearImageUploadState,
+  ]);
 
   // Construct ttyd iframe URL
   // ローカル開発時のみ直接接続、リモートアクセス時はプロキシ経由
-  const isLocalAccess = typeof window !== 'undefined' &&
-    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+  const isLocalAccess =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1");
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
-  const urlToken = typeof window !== 'undefined'
-    ? new URLSearchParams(window.location.search).get("token")
-    : null;
+  const urlToken =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("token")
+      : null;
   const ttydBasePath = `/ttyd/${session.id}/`;
-  const ttydIframeSrc = isLocalAccess && session.ttydPort
-    ? `http://127.0.0.1:${session.ttydPort}${ttydBasePath}`
-    : urlToken
-      ? `${ttydBasePath}?token=${urlToken}`
-      : ttydBasePath;
+  const ttydIframeSrc =
+    isLocalAccess && session.ttydPort
+      ? `http://127.0.0.1:${session.ttydPort}${ttydBasePath}`
+      : urlToken
+        ? `${ttydBasePath}?token=${urlToken}`
+        : ttydBasePath;
 
   // Quick commands for mobile
   const quickCommands = [
@@ -247,7 +268,10 @@ export function TerminalPane({
           )}
           <GitBranch className="w-4 h-4 md:w-3 md:h-3 text-muted-foreground shrink-0" />
           <span className="font-mono text-sm md:text-xs truncate text-sidebar-foreground">
-            {worktree?.branch || session.worktreePath.substring(session.worktreePath.lastIndexOf("/") + 1)}
+            {worktree?.branch ||
+              session.worktreePath.substring(
+                session.worktreePath.lastIndexOf("/") + 1
+              )}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -289,7 +313,9 @@ export function TerminalPane({
             onClick={() => setShowInput(!showInput)}
             title={showInput ? "Hide input" : "Show input"}
           >
-            <Keyboard className={`w-5 h-5 md:w-3 md:h-3 ${showInput ? "text-primary" : ""}`} />
+            <Keyboard
+              className={`w-5 h-5 md:w-3 md:h-3 ${showInput ? "text-primary" : ""}`}
+            />
           </Button>
           {onMaximize && (
             <Button
@@ -361,14 +387,16 @@ export function TerminalPane({
             <div className="mb-3">
               <Textarea
                 value={imageMessage}
-                onChange={(e) => setImageMessage(e.target.value)}
+                onChange={e => setImageMessage(e.target.value)}
                 placeholder="画像についてのメッセージ（任意）"
                 className="min-h-[60px] resize-none text-sm"
                 rows={2}
               />
             </div>
             {imageUploadError && (
-              <p className="text-destructive text-xs mb-3">{imageUploadError}</p>
+              <p className="text-destructive text-xs mb-3">
+                {imageUploadError}
+              </p>
             )}
             <div className="flex gap-2 justify-end">
               <Button
@@ -494,7 +522,7 @@ export function TerminalPane({
                 <Textarea
                   ref={textareaRef}
                   value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
+                  onChange={e => setInputValue(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Type message... (Enter to send)"
                   className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"

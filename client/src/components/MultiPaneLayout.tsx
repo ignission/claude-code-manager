@@ -10,14 +10,15 @@
 
 import { useState, useMemo, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import {
-  Square,
-  Grid2x2,
-} from "lucide-react";
+import { Square, Grid2x2 } from "lucide-react";
 import { TerminalPane } from "./TerminalPane";
 import { findRepoForSession } from "@/utils/sessionUtils";
 import { getBaseName } from "@/utils/pathUtils";
-import type { ManagedSession, SpecialKey, Worktree } from "../../../shared/types";
+import type {
+  ManagedSession,
+  SpecialKey,
+  Worktree,
+} from "../../../shared/types";
 
 type LayoutMode = "single" | "grid-4";
 
@@ -34,7 +35,11 @@ interface MultiPaneLayoutProps {
   onClosePane: (sessionId: string) => void;
   onMaximizePane: (sessionId: string) => void;
   maximizedPane: string | null;
-  onUploadImage?: (sessionId: string, base64Data: string, mimeType: string) => void;
+  onUploadImage?: (
+    sessionId: string,
+    base64Data: string,
+    mimeType: string
+  ) => void;
   imageUploadResult?: { path: string; filename: string } | null;
   imageUploadError?: string | null;
   onClearImageUploadState?: () => void;
@@ -76,11 +81,15 @@ export function MultiPaneLayout({
     } catch {}
   }, [layoutMode]);
 
-  const getWorktreeForSession = (session: ManagedSession): Worktree | undefined => {
-    return worktrees.find((w) => w.id === session.worktreeId);
+  const getWorktreeForSession = (
+    session: ManagedSession
+  ): Worktree | undefined => {
+    return worktrees.find(w => w.id === session.worktreeId);
   };
 
-  const getRepoNameForSession = (session: ManagedSession): string | undefined => {
+  const getRepoNameForSession = (
+    session: ManagedSession
+  ): string | undefined => {
     if (!repoList) return undefined;
     const repo = findRepoForSession(session, repoList);
     return repo ? getBaseName(repo) : undefined;
@@ -97,17 +106,21 @@ export function MultiPaneLayout({
             session={session}
             worktree={worktree}
             repoName={getRepoNameForSession(session)}
-            onSendMessage={(msg) => onSendMessage(maximizedPane, msg)}
-            onSendKey={(key) => onSendKey(maximizedPane, key)}
+            onSendMessage={msg => onSendMessage(maximizedPane, msg)}
+            onSendKey={key => onSendKey(maximizedPane, key)}
             onStopSession={() => onStopSession(maximizedPane)}
             onClose={() => onClosePane(maximizedPane)}
             onMaximize={() => onMaximizePane(maximizedPane)}
             isMaximized={true}
-            onUploadImage={(base64, mimeType) => onUploadImage?.(maximizedPane, base64, mimeType)}
+            onUploadImage={(base64, mimeType) =>
+              onUploadImage?.(maximizedPane, base64, mimeType)
+            }
             imageUploadResult={imageUploadResult}
             imageUploadError={imageUploadError}
             onClearImageUploadState={onClearImageUploadState}
-            onCopyBuffer={onCopyBuffer ? () => onCopyBuffer(maximizedPane) : undefined}
+            onCopyBuffer={
+              onCopyBuffer ? () => onCopyBuffer(maximizedPane) : undefined
+            }
           />
         </div>
       );
@@ -116,7 +129,7 @@ export function MultiPaneLayout({
 
   // Filter to only show panes that have active sessions
   const visiblePanes = useMemo(
-    () => activePanes.filter((id) => sessions.has(id)),
+    () => activePanes.filter(id => sessions.has(id)),
     [activePanes, sessions]
   );
 
@@ -142,7 +155,8 @@ export function MultiPaneLayout({
       <div className="h-10 border-b border-border flex items-center justify-between px-4 shrink-0 bg-sidebar">
         <div className="flex items-center gap-2">
           <span className="text-sm text-muted-foreground">
-            {visiblePanes.length} active pane{visiblePanes.length !== 1 ? "s" : ""}
+            {visiblePanes.length} active pane
+            {visiblePanes.length !== 1 ? "s" : ""}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -168,8 +182,10 @@ export function MultiPaneLayout({
       </div>
 
       {/* グリッド表示 */}
-      <div className={`flex-1 grid ${getGridClass()} gap-2 p-2 overflow-y-auto auto-rows-[minmax(calc(100vh_-_10rem),1fr)]`}>
-        {visiblePanes.map((sessionId) => {
+      <div
+        className={`flex-1 grid ${getGridClass()} gap-2 p-2 overflow-y-auto auto-rows-[minmax(calc(100vh_-_10rem),1fr)]`}
+      >
+        {visiblePanes.map(sessionId => {
           const session = sessions.get(sessionId);
           if (!session) return null;
 
@@ -181,22 +197,25 @@ export function MultiPaneLayout({
               session={session}
               worktree={worktree}
               repoName={getRepoNameForSession(session)}
-              onSendMessage={(msg) => onSendMessage(sessionId, msg)}
-              onSendKey={(key) => onSendKey(sessionId, key)}
+              onSendMessage={msg => onSendMessage(sessionId, msg)}
+              onSendKey={key => onSendKey(sessionId, key)}
               onStopSession={() => onStopSession(sessionId)}
               onClose={() => onClosePane(sessionId)}
               onMaximize={() => onMaximizePane(sessionId)}
               isMaximized={false}
-              onUploadImage={(base64, mimeType) => onUploadImage?.(sessionId, base64, mimeType)}
+              onUploadImage={(base64, mimeType) =>
+                onUploadImage?.(sessionId, base64, mimeType)
+              }
               imageUploadResult={imageUploadResult}
               imageUploadError={imageUploadError}
               onClearImageUploadState={onClearImageUploadState}
-              onCopyBuffer={onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined}
+              onCopyBuffer={
+                onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined
+              }
             />
           );
         })}
       </div>
-
     </div>
   );
 }
