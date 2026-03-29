@@ -106,7 +106,7 @@ if [[ "$COMMAND" =~ ^[[:space:]]*git[[:space:]]+(.+[[:space:]]+)?push([[:space:]
   LOG=""
 
   CHANGED_FILES=$(git diff --name-only origin/main...HEAD 2>/dev/null) || CHANGED_FILES=""
-  HAS_SOURCE_CHANGES=$(echo "$CHANGED_FILES" | grep -qE '\.(ts|tsx|js|jsx)$' && echo "1" || echo "0")
+  HAS_SOURCE_CHANGES=$(echo "$CHANGED_FILES" | grep -qE '(^biome\.json$|^package\.json$|\.(ts|tsx|js|jsx|json|css)$)' && echo "1" || echo "0")
 
   if [ "$HAS_SOURCE_CHANGES" = "1" ]; then
     LOG="${LOG}pre-bash-guard: ソースコードに変更あり。biome・型チェックを実行します...\n"

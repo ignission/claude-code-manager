@@ -20,7 +20,7 @@
 
 ### 1-1. .env.production のtunnel名修正
 tunnel名は `ccm-vm-tunnel` を維持するため、`.env.production` を修正:
-```
+```dotenv
 ARK_TUNNEL_NAME=ccm-vm-tunnel  ← ark-vm-tunnel から変更
 ```
 

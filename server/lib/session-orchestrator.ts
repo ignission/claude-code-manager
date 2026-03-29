@@ -181,9 +181,14 @@ export class SessionOrchestrator extends EventEmitter {
         worktreePath,
         status: "active",
       });
-    } catch (_error) {
-      // 既存エントリがある場合はステータスを更新
-      db.updateSessionStatus(tmuxSession.id, "active");
+    } catch (error) {
+      // 重複作成のケースのみフォールバックし、それ以外は握りつぶさない
+      const existing = db.getSessionByWorktreePath(worktreePath);
+      if (existing?.id === tmuxSession.id) {
+        db.updateSessionStatus(tmuxSession.id, "active");
+      } else {
+        throw error;
+      }
     }
 
     const managed: ManagedSession = {
