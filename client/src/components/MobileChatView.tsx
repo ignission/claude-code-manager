@@ -211,7 +211,7 @@ function parseInlineSegments(text: string, segments: MarkdownSegment[]): void {
 /** セグメント配列をReact要素にレンダリング */
 function renderSegments(
   segments: MarkdownSegment[],
-  onAction?: (text: string) => void,
+  onAction?: (text: string) => void
 ): ReactNode[] {
   return segments.map((seg, i) => {
     switch (seg.type) {
@@ -339,7 +339,7 @@ function AssistantBubble({
   const segments = useMemo(() => parseMarkdown(content), [content]);
   const rendered = useMemo(
     () => renderSegments(segments, onAction),
-    [segments, onAction],
+    [segments, onAction]
   );
   return (
     <div className="flex justify-start px-4 py-0.5">
@@ -439,7 +439,7 @@ export function MobileChatView({
 
   // IME対応
   const composition = useComposition<HTMLInputElement>({
-    onKeyDown: (e) => {
+    onKeyDown: e => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
@@ -460,7 +460,7 @@ export function MobileChatView({
       e.preventDefault();
       handleSend();
     },
-    [handleSend],
+    [handleSend]
   );
 
   const handleQuickCommand = useCallback(
@@ -469,7 +469,7 @@ export function MobileChatView({
       isNearBottom.current = true;
       onSendMessage(message);
     },
-    [isStreaming, onSendMessage],
+    [isStreaming, onSendMessage]
   );
 
   // 選択肢（番号付きリスト）タップ時のハンドラー
@@ -478,7 +478,7 @@ export function MobileChatView({
       isNearBottom.current = true;
       onSendMessage(message);
     },
-    [onSendMessage],
+    [onSendMessage]
   );
 
   // 自動スクロール（ユーザーが上にスクロール中は抑制）
@@ -589,7 +589,7 @@ export function MobileChatView({
       {/* クイックコマンド */}
       {QUICK_COMMANDS.length > 0 && (
         <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border/30 bg-sidebar overflow-x-auto select-none scrollbar-none">
-          {QUICK_COMMANDS.map((cmd) => (
+          {QUICK_COMMANDS.map(cmd => (
             <Button
               key={cmd.label}
               type="button"
@@ -615,7 +615,7 @@ export function MobileChatView({
             <input
               ref={inputRef}
               value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
+              onChange={e => setInputValue(e.target.value)}
               onKeyDown={composition.onKeyDown}
               onCompositionStart={composition.onCompositionStart}
               onCompositionEnd={composition.onCompositionEnd}
