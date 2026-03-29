@@ -2,15 +2,13 @@
  * MultiPaneLayout Component - PC向けグリッドレイアウト
  *
  * Design: Terminal-Inspired Dark Mode
- * - Flexible grid layout (1x1, 2x2)
+ * - Fixed 2-column grid layout
  * - Maximize/minimize individual panes
  * - Uses ttyd iframe for terminal rendering
  * - モバイル表示は MobileLayout が担当
  */
 
-import { useState, useMemo, useEffect } from "react";
-import { Button } from "@/components/ui/button";
-import { Square, Grid2x2 } from "lucide-react";
+import { useMemo } from "react";
 import { TerminalPane } from "./TerminalPane";
 import { findRepoForSession } from "@/utils/sessionUtils";
 import { getBaseName } from "@/utils/pathUtils";
@@ -19,10 +17,6 @@ import type {
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
-
-type LayoutMode = "single" | "grid-4";
-
-const LAYOUT_MODE_STORAGE_KEY = "layoutMode";
 
 interface MultiPaneLayoutProps {
   activePanes: string[]; // Session IDs
@@ -63,24 +57,6 @@ export function MultiPaneLayout({
   onClearImageUploadState,
   onCopyBuffer,
 }: MultiPaneLayoutProps) {
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
-    try {
-      if (typeof window === "undefined") return "grid-4";
-      const saved = localStorage.getItem(LAYOUT_MODE_STORAGE_KEY);
-      if (saved === "single" || saved === "grid-4") {
-        return saved;
-      }
-    } catch {}
-    return "grid-4";
-  });
-
-  useEffect(() => {
-    try {
-      if (typeof window === "undefined") return;
-      localStorage.setItem(LAYOUT_MODE_STORAGE_KEY, layoutMode);
-    } catch {}
-  }, [layoutMode]);
-
   const getWorktreeForSession = (
     session: ManagedSession
   ): Worktree | undefined => {
@@ -137,54 +113,10 @@ export function MultiPaneLayout({
     return null;
   }
 
-  // Determine grid layout based on mode and number of panes
-  const getGridClass = () => {
-    const paneCount = visiblePanes.length;
-
-    if (layoutMode === "single" || paneCount === 1) {
-      return "grid-cols-1";
-    }
-
-    // grid-4は最大2列
-    return "grid-cols-2";
-  };
-
   return (
     <div className="h-full flex flex-col">
-      {/* Layout Controls */}
-      <div className="h-10 border-b border-border flex items-center justify-between px-4 shrink-0 bg-sidebar">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-muted-foreground">
-            {visiblePanes.length} active pane
-            {visiblePanes.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          <Button
-            variant={layoutMode === "single" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setLayoutMode("single")}
-            title="Single pane"
-          >
-            <Square className="w-4 h-4" />
-          </Button>
-          <Button
-            variant={layoutMode === "grid-4" ? "secondary" : "ghost"}
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setLayoutMode("grid-4")}
-            title="Grid view"
-          >
-            <Grid2x2 className="w-4 h-4" />
-          </Button>
-        </div>
-      </div>
-
       {/* グリッド表示 */}
-      <div
-        className={`flex-1 grid ${getGridClass()} gap-2 p-2 overflow-y-auto auto-rows-[minmax(calc(100vh_-_10rem),1fr)]`}
-      >
+      <div className="flex-1 grid grid-cols-2 gap-2 p-2 overflow-y-auto auto-rows-[minmax(calc(100vh_-_10rem),1fr)]">
         {visiblePanes.map(sessionId => {
           const session = sessions.get(sessionId);
           if (!session) return null;
