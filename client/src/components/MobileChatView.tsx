@@ -450,6 +450,7 @@ export function MobileChatView({
   const handleSend = useCallback(() => {
     const trimmed = inputValue.trim();
     if (!trimmed || isStreaming) return;
+    isNearBottom.current = true;
     onSendMessage(trimmed);
     setInputValue("");
   }, [inputValue, isStreaming, onSendMessage]);
@@ -465,6 +466,7 @@ export function MobileChatView({
   const handleQuickCommand = useCallback(
     (message: string) => {
       if (isStreaming) return;
+      isNearBottom.current = true;
       onSendMessage(message);
     },
     [isStreaming, onSendMessage]
