@@ -221,10 +221,38 @@ async function startServer() {
     capturePane: (sessionId, lines) =>
       tmuxManager.capturePane(sessionId, lines),
     listWorktrees: repoPath => listWorktrees(repoPath),
-    createWorktree: (repoPath, branchName, baseBranch) =>
-      createWorktree(repoPath, branchName, baseBranch),
-    deleteWorktree: (repoPath, worktreePath) =>
-      deleteWorktree(repoPath, worktreePath),
+    createWorktree: async (repoPath, branchName, baseBranch) => {
+      const worktree = await createWorktree(repoPath, branchName, baseBranch);
+      // 通知は操作の成否に影響させない
+      try {
+        io.emit("worktree:created", worktree);
+        const worktrees = await listWorktrees(repoPath);
+        io.emit("worktree:list", worktrees);
+      } catch {
+        console.error("[Beacon] worktree通知に失敗しました");
+      }
+      return worktree;
+    },
+    deleteWorktree: async (repoPath, worktreePath) => {
+      // 削除前にworktreeのセッションを停止
+      const session = sessionOrchestrator.getSessionByWorktree(worktreePath);
+      if (session) {
+        sessionOrchestrator.stopSession(session.id);
+      }
+      // worktreeのIDをパスから決定的に導出（listWorktreesと同じロジック）
+      const deletedWorktreeId = Buffer.from(worktreePath)
+        .toString("base64")
+        .replace(/[/+=]/g, "");
+      await deleteWorktree(repoPath, worktreePath);
+      // 通知は操作の成否に影響させない
+      try {
+        io.emit("worktree:deleted", deletedWorktreeId);
+        const worktrees = await listWorktrees(repoPath);
+        io.emit("worktree:list", worktrees);
+      } catch {
+        console.error("[Beacon] worktree通知に失敗しました");
+      }
+    },
     listAllWorktrees: async repos => {
       const all: unknown[] = [];
       for (const repo of repos) {

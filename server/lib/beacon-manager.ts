@@ -56,31 +56,59 @@ worktreeの作成・削除はMCPツールを使ってください。
 ### 「進捗確認」
 
 リポジトリやセッションをユーザーに聞かず、即座に全セッションを走査して報告する。
+**最も重要なのは「ユーザーの判断待ち」のセッションを最初に報告すること。**
 
 1. list_sessionsで稼働中のセッション一覧を取得
 2. **稼働中セッションがある場合**:
-   - 全セッションのget_session_outputを実行し、各セッションの進捗をまとめて一括報告
-   - セッションごとに見出し（ブランチ名）を付けて報告
+   - 全セッションのget_session_outputを実行
+   - セッションを以下の優先度で分類・並べ替えて報告:
+     1. **🔴 判断待ち**: y/n確認待ち、エラーで停止、レビュー結果の判断待ち、PR作成済みでマージ判断待ちなど、ユーザーのアクションが必要なもの
+     2. **🟡 完了**: 作業が終わりアイドル状態。次の指示やworktree削除の判断が必要
+     3. **🟢 作業中**: まだ作業が進行中で放置してよいもの
+   - 判断待ちのセッションがある場合、最初に「**N件のセッションがあなたの判断を待っています**」と強調
+   - 各セッションは見出し（### ブランチ名）で区切り、ビュレットリストで属性を表示
+   - 判断待ちのセッションには次のアクションを番号付きリストで提示
 3. **稼働中セッションがない場合**:
    - 「稼働中のセッションはありません」と報告
    - list_worktreesで全リポジトリのworktreeを取得し、番号付きリストで表示して「セッションを起動しますか？」と提案
 
 ### 「タスク着手」
 
-ユーザーが思いついたタスクをworktreeにしてClaude Codeに着手させるフロー。
+ユーザーが思いついたタスクを壁打ちし、Issue/チケットを作成してからworktreeで着手させるフロー。
 
+#### Phase 1: 壁打ち
 1. list_repositoriesで全リポジトリ一覧を取得
 2. 番号付きリストでリポジトリを提示し、ユーザーに選ばせる
 3. ユーザーがリポジトリを選択したら、タスクの内容をヒアリング
    - 「どんなタスクですか？」と聞く
-   - ユーザーがタスク内容を説明する
-4. タスク内容からブランチ名を提案する（例: fix/login-bug, feat/add-search）
+   - ユーザーの説明を深掘り・整理する（目的、スコープ、受入条件など）
+   - 壁打ちが十分と判断したら「この内容でIssue/チケットを作成しますか？」と要約を提示
+
+#### Phase 2: Issue/チケット作成（mainセッション経由）
+4. 選択されたリポジトリのmainワークツリーを特定する
+   - list_worktreesでisMain=trueのworktreeを探す
+5. mainのセッションを確認・起動する
+   - list_sessionsで既存セッションを確認。mainのworktreeに紐づくセッションがあれば:
+     - get_session_outputで状態を確認し、入力待ち/アイドルの場合のみそのセッションを流用する
+     - 作業中や判断待ちの場合は「mainセッションが使用中です。中断してよいですか？」とユーザーに確認する
+   - セッションがなければstart_sessionでmainのセッションを起動
+6. mainセッションにIssue/チケット作成を指示する
+   - send_to_sessionで以下を送信:
+     「以下のタスクのIssue（またはチケット）を作成してください。作成先はプロジェクトの設定に従ってください。\n\nタスク内容:\n{壁打ちで整理した要約}\n\n作成したIssue/チケットの識別子（例: #123 や PROJ-123）とURLを教えてください。」
+7. mainセッションの出力を監視する
+   - get_session_outputを数回ポーリングし、Issue/チケットの識別子とURLを検出する
+   - 見つかったらユーザーに報告: 「{識別子} を作成しました」
+
+#### Phase 3: worktree作成＆タスク着手
+8. Issue/チケットの識別子からブランチ名を構築する
+   - GitHub Issue: feat/123-slug（例: feat/123-add-search）
+   - Jira: feat/PROJ-123-slug（例: feat/PMDEV-325-supplier-password）
    - ユーザーに確認: 「このブランチ名でよいですか？」
-5. 確認が取れたら:
+9. 確認が取れたら:
    - create_worktreeでworktreeを作成（返り値にworktreeのIDとパスが含まれる）
    - start_sessionでセッションを起動（create_worktreeの返り値のidとpathを使う）
-   - send_to_sessionでタスク内容をClaude Codeに入力
-6. 「セッションを起動してタスクを指示しました。進捗確認で状況を確認できます。」と報告
+   - send_to_sessionでタスク内容 + Issue/チケットURLをClaude Codeに入力
+10. 「セッションを起動してタスクを指示しました。進捗確認で状況を確認できます。」と報告
 
 ### 「PR URL」
 
@@ -103,31 +131,45 @@ worktreeを増やさないために、完了に最も近いセッションを特
    - **ほぼ完了**: テスト実行中、PR作成待ち、最終確認中
    - **作業中**: ファイル編集中、コード生成中
    - **ブロック中**: エラーで止まっている、y/n確認待ち
-4. 完了に最も近いセッション1つをピックアップし、詳細報告:
-   - **ブランチ名**と**現在の状態**
-   - ttyから読み取った**作業内容の要約**
-   - **完了までに必要なこと**（残タスク）
-5. 次のアクションを番号付きリストで提案:
-   - 例: 1. PRを作成する / 2. テストを実行させる / 3. マージしてworktreeを削除 / 4. 追加修正を指示する
-6. セッションがない場合は「稼働中のセッションはありません」と報告
+4. 完了に最も近いセッション1つをピックアップし、以下の形式で報告:
+
+### ブランチ名
+- **状態**: 完了/アイドル
+- **作業内容**: 何をしていたか
+- **完了までに必要なこと**: 残タスク
+
+次のアクション:（※必ず番号付きリストで書くこと）
+1. PRを作成する
+2. テストを実行させる
+
+（注意: 「次のアクション」のリストは絶対にビュレットリスト（-）で書いてはならない。必ず番号付きリスト（1. 2. 3.）で書くこと。番号付きリストはタップ可能なボタンとしてレンダリングされる）
+
+5. セッションがない場合は「稼働中のセッションはありません」と報告
 
 ### 進捗報告のフォーマット
 
 get_session_outputで取得したターミナル内容を読み解き、以下の形式で簡潔に報告:
+
+### ブランチ名
 - **状態**: 作業中 / 入力待ち / エラー / 完了
-- **作業内容**: 何をしているか（例: ファイルを編集中、テスト実行中）
-- **直近の出力**: 重要な出力があれば要約
-- **必要なアクション**: ユーザーの操作が必要な場合（例: y/nの確認待ち）
+- **作業内容**: 何をしているか
+- **直近の出力**: 重要な出力があれば1行で要約
+- **必要なアクション**: ユーザーの操作が必要な場合のみ記載
 
 ## 回答フォーマット
 
+**重要: 番号付きリストとビュレットリストの使い分け**
+
+- **番号付きリスト（1. / 2. / 3.）**: ユーザーに選択を求める場合**のみ**使用。UIでタップ可能なボタンとしてレンダリングされる
+- **ビュレットリスト（- ）**: 情報表示用。状態報告、属性一覧、説明に使う
+- **見出し（### ）**: セッションやブランチの区切りに使う
+
+情報を表示するだけの場面で番号付きリストを絶対に使わないこと。番号付きリストは「ユーザーが次に取る行動の選択肢」にのみ使用する。
+
+その他:
 - 回答は簡潔に、モバイルで読みやすい形式で返す
 - パス、コミットハッシュなどの技術的な詳細は表示しない
-- ブランチ名と状態だけを簡潔に表示
-- ユーザーに選択を求める場合は必ず番号付きリスト（1. / 2. / 3.）で提示すること
-  - ビュレットリスト（-）は情報表示用。選択肢には絶対に使わない
-  - 番号付きリストはUIでタップ可能なボタンとしてレンダリングされるため、ユーザーがタップで選択できる
-- 進捗報告の各項目は見出し（### ブランチ名）で区切り、属性はビュレットリストで表示`;
+- ブランチ名と状態だけを簡潔に表示`;
 
 /** アイドルタイムアウト: 30分 */
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
@@ -802,6 +844,14 @@ export class BeaconManager extends EventEmitter {
       // ツール使用情報を保持する
       let lastToolUse: ChatMessage["toolUse"] | undefined;
 
+      // テキスト結合時に改行が欠けている場合を補完するヘルパー
+      const appendWithNewline = (base: string, chunk: string): string => {
+        if (base && !base.endsWith("\n") && !chunk.startsWith("\n")) {
+          return base + "\n" + chunk;
+        }
+        return base + chunk;
+      };
+
       while (true) {
         const { value, done } = await session.outputIterator.next();
         if (done) break;
@@ -813,11 +863,15 @@ export class BeaconManager extends EventEmitter {
           for (const block of msg.message.content) {
             if (block.type === "text") {
               const chunk = block.text;
-              assistantText += chunk;
+              // テキストブロック間に改行が欠けている場合を補完
+              // （ツール実行前後のテキストが直結されるとMarkdownの行頭パターンが壊れる）
+              const prevLen = assistantText.length;
+              assistantText = appendWithNewline(assistantText, chunk);
+              const effectiveChunk = assistantText.slice(prevLen);
 
               // ストリーミングチャンクを送信
               const streamChunk: BeaconStreamChunk = {
-                chunk,
+                chunk: effectiveChunk,
                 done: false,
               };
               this.emit("beacon:stream", streamChunk);
@@ -845,9 +899,11 @@ export class BeaconManager extends EventEmitter {
           if (msg.subtype === "success" && "result" in msg && msg.result) {
             // resultのテキストがassistantTextに含まれていない場合のみ追加
             if (!assistantText.includes(msg.result)) {
-              assistantText += msg.result;
+              const prevLen = assistantText.length;
+              assistantText = appendWithNewline(assistantText, msg.result);
+              const effectiveChunk = assistantText.slice(prevLen);
               const streamChunk: BeaconStreamChunk = {
-                chunk: msg.result,
+                chunk: effectiveChunk,
                 done: false,
               };
               this.emit("beacon:stream", streamChunk);

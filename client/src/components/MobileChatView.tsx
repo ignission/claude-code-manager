@@ -267,35 +267,12 @@ function renderSegments(
             {renderSegments(seg.children, onAction)}
           </div>
         );
-      case "list-item": {
-        const isSimple = seg.children.every(
-          c =>
-            c.type === "text" || c.type === "bold" || c.type === "code-inline"
-        );
-        const plainText = seg.children
-          .map(c => ("content" in c ? c.content : ""))
-          .join("");
-        if (isSimple && onAction && plainText.length > 0) {
-          return (
-            <button
-              key={i}
-              type="button"
-              className="group flex items-center gap-2.5 w-full text-left my-0.5 px-3 py-2.5 rounded-lg border border-border/40 bg-card/50 hover:bg-primary/5 hover:border-primary/30 active:bg-primary/10 text-sm transition-all min-h-[44px]"
-              onClick={() => onAction(plainText)}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary shrink-0 transition-colors" />
-              <span className="flex-1">
-                {renderSegments(seg.children, onAction)}
-              </span>
-            </button>
-          );
-        }
+      case "list-item":
         return (
-          <li key={i} className="ml-4 list-disc my-0.5">
-            {renderSegments(seg.children, onAction)}
-          </li>
+          <ul key={i} className="list-disc ml-4">
+            <li className="my-0.5">{renderSegments(seg.children, onAction)}</li>
+          </ul>
         );
-      }
       case "numbered-item":
         return (
           <button
@@ -473,6 +450,7 @@ export function MobileChatView({
   const handleSend = useCallback(() => {
     const trimmed = inputValue.trim();
     if (!trimmed || isStreaming) return;
+    isNearBottom.current = true;
     onSendMessage(trimmed);
     setInputValue("");
   }, [inputValue, isStreaming, onSendMessage]);
@@ -488,9 +466,19 @@ export function MobileChatView({
   const handleQuickCommand = useCallback(
     (message: string) => {
       if (isStreaming) return;
+      isNearBottom.current = true;
       onSendMessage(message);
     },
     [isStreaming, onSendMessage]
+  );
+
+  // 選択肢（番号付きリスト）タップ時のハンドラー
+  const handleAction = useCallback(
+    (message: string) => {
+      isNearBottom.current = true;
+      onSendMessage(message);
+    },
+    [onSendMessage]
   );
 
   // 自動スクロール（ユーザーが上にスクロール中は抑制）
@@ -573,7 +561,7 @@ export function MobileChatView({
                 ) : (
                   <AssistantBubble
                     content={msg.content}
-                    onAction={onSendMessage}
+                    onAction={handleAction}
                   />
                 )}
                 {msg.toolUse && (
