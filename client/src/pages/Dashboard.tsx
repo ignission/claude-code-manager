@@ -765,19 +765,16 @@ export default function Dashboard() {
                       <Terminal className="w-5 h-5 text-primary" />
                     </div>
                     <SheetTitle className="text-sidebar-foreground">
-                      Claude Code Manager
+                      Ark
                     </SheetTitle>
                   </div>
                 </SheetHeader>
                 <SidebarContent />
               </SheetContent>
             </Sheet>
-            <div className="flex items-center gap-2">
-              <Terminal className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-sidebar-foreground">
-                Claude Code
-              </span>
-            </div>
+            <span className="font-semibold text-sidebar-foreground tracking-wide">
+              Ark
+            </span>
           </div>
           <div className="flex items-center gap-2">
             {isConnected ? (
@@ -795,6 +792,11 @@ export default function Dashboard() {
           className="h-screen border-r border-border flex flex-col bg-sidebar shrink-0 relative"
           style={{ width: `${sidebarWidth}px` }}
         >
+          <div className="h-12 border-b border-sidebar-border flex items-center px-4 shrink-0">
+            <h1 className="font-semibold text-sidebar-foreground tracking-wide">
+              Ark
+            </h1>
+          </div>
           <SidebarContent />
           {/* リサイズハンドル */}
           <div
