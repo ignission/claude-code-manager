@@ -558,10 +558,12 @@ export function useSocket(): UseSocketReturn {
           resolve(null);
           return;
         }
+        const timeoutId = window.setTimeout(() => resolve(null), 5000);
         socketRef.current.emit(
           "session:copy",
           sessionId,
           (response: { text?: string; error?: string }) => {
+            window.clearTimeout(timeoutId);
             if (response.text) {
               resolve(response.text);
             } else {

@@ -68,7 +68,7 @@ allowed-tools: Bash, Read, Grep, Glob, Agent
 
 レビュー結果の報告後、フラグファイルを作成すること:
 
-```
+```bash
 touch "$(git rev-parse --git-dir)/claude-pre-push-review-done"
 ```
 

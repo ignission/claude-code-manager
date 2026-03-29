@@ -44,7 +44,7 @@ CCM内部の操作にはMCPツールを使用してください:
 - create_worktree: worktree作成（リポジトリパス、ブランチ名、ベースブランチ）
 - delete_worktree: worktree削除
 - get_pr_url: worktreeのブランチに紐づくPR URLを取得
-- gh_exec: gh CLIコマンドを実行（pr view, issue list, api等）
+- gh_exec: gh CLIコマンドを実行（pr view, issue list, search等）
 
 git/gh操作はMCPツールを通じて実行してください。
 worktreeの作成・削除はMCPツールを使ってください。
@@ -274,16 +274,27 @@ export class BeaconManager extends EventEmitter {
     }
     const deps = this.deps;
 
-    const ALLOWED_GH_SUBCOMMANDS = new Set([
-      "pr",
-      "issue",
-      "search",
-      "run",
-      "workflow",
-      "release",
-      "label",
+    const ALLOWED_GH_COMMANDS = new Set([
+      "pr list",
+      "pr view",
+      "pr checks",
+      "pr diff",
+      "pr status",
+      "issue list",
+      "issue view",
+      "issue status",
+      "search prs",
+      "search issues",
+      "search repos",
+      "run list",
+      "run view",
+      "workflow list",
+      "workflow view",
+      "release list",
+      "release view",
+      "label list",
+      "repo view",
       "status",
-      "repo",
     ]);
 
     return createSdkMcpServer({
@@ -576,7 +587,8 @@ export class BeaconManager extends EventEmitter {
         },
         {
           name: "gh_exec",
-          description: `gh CLIコマンドを実行する（許可サブコマンド: ${Array.from(ALLOWED_GH_SUBCOMMANDS).join(", ")}）`,
+          description:
+            "gh CLIコマンドを実行する（読み取り専用コマンドのみ許可）",
           inputSchema: {
             args: z
               .array(z.string())
@@ -590,12 +602,26 @@ export class BeaconManager extends EventEmitter {
           },
           handler: async params => {
             const args = params.args as string[];
-            if (args.length === 0 || !ALLOWED_GH_SUBCOMMANDS.has(args[0])) {
+            // コマンドキーを構築（"pr view", "status" 等）
+            const commandKey =
+              args.length >= 2 ? `${args[0]} ${args[1]}` : args[0] || "";
+            // -R/--repo フラグを拒否
+            if (args.includes("-R") || args.includes("--repo")) {
               return {
                 content: [
                   {
                     type: "text" as const,
-                    text: `許可されていないサブコマンドです。使用可能: ${Array.from(ALLOWED_GH_SUBCOMMANDS).join(", ")}`,
+                    text: "--repo/-R フラグは許可されていません。cwdで対象リポジトリを指定してください",
+                  },
+                ],
+              };
+            }
+            if (!ALLOWED_GH_COMMANDS.has(commandKey)) {
+              return {
+                content: [
+                  {
+                    type: "text" as const,
+                    text: `許可されていないコマンドです。使用可能: ${Array.from(ALLOWED_GH_COMMANDS).join(", ")}`,
                   },
                 ],
               };
