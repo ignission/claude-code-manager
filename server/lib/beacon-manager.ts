@@ -813,11 +813,21 @@ export class BeaconManager extends EventEmitter {
           for (const block of msg.message.content) {
             if (block.type === "text") {
               const chunk = block.text;
-              assistantText += chunk;
+              // テキストブロック間に改行が欠けている場合を補完
+              // （ツール実行前後のテキストが直結されるとMarkdownの行頭パターンが壊れる）
+              let effectiveChunk = chunk;
+              if (
+                assistantText &&
+                !assistantText.endsWith("\n") &&
+                !chunk.startsWith("\n")
+              ) {
+                effectiveChunk = "\n" + chunk;
+              }
+              assistantText += effectiveChunk;
 
               // ストリーミングチャンクを送信
               const streamChunk: BeaconStreamChunk = {
-                chunk,
+                chunk: effectiveChunk,
                 done: false,
               };
               this.emit("beacon:stream", streamChunk);
