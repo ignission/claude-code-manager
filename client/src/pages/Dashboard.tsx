@@ -57,7 +57,10 @@ import { SessionDashboard } from "@/components/SessionDashboard";
 import { MobileLayout } from "@/components/MobileLayout";
 import { RepoSelectDialog } from "@/components/RepoSelectDialog";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
-import { isSessionBelongsToRepo, findRepoForSession } from "@/utils/sessionUtils";
+import {
+  isSessionBelongsToRepo,
+  findRepoForSession,
+} from "@/utils/sessionUtils";
 import { MobileChatView } from "@/components/MobileChatView";
 import { getBaseName } from "@/utils/pathUtils";
 import type { Worktree, ManagedSession } from "../../../shared/types";
@@ -80,7 +83,9 @@ function loadClosedPanes(): Set<string> {
     if (saved) {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
-        return new Set(parsed.filter((v): v is string => typeof v === "string"));
+        return new Set(
+          parsed.filter((v): v is string => typeof v === "string")
+        );
       }
     }
   } catch {}
@@ -142,7 +147,11 @@ export default function Dashboard() {
     const saved = localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
     if (saved) {
       const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed) && parsed >= SIDEBAR_MIN_WIDTH && parsed <= SIDEBAR_MAX_WIDTH) {
+      if (
+        !isNaN(parsed) &&
+        parsed >= SIDEBAR_MIN_WIDTH &&
+        parsed <= SIDEBAR_MAX_WIDTH
+      ) {
         return parsed;
       }
     }
@@ -162,7 +171,10 @@ export default function Dashboard() {
     if (!isResizing) return;
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, e.clientX));
+      const newWidth = Math.min(
+        SIDEBAR_MAX_WIDTH,
+        Math.max(SIDEBAR_MIN_WIDTH, e.clientX)
+      );
       setSidebarWidth(newWidth);
     };
 
@@ -193,7 +205,9 @@ export default function Dashboard() {
     } catch {}
     return "dashboard";
   });
-  const [activePanesPerRepo, setActivePanesPerRepo] = useState<Map<string, string[]>>(() => {
+  const [activePanesPerRepo, setActivePanesPerRepo] = useState<
+    Map<string, string[]>
+  >(() => {
     try {
       const saved = localStorage.getItem(ACTIVE_PANES_STORAGE_KEY);
       if (saved) {
@@ -221,13 +235,19 @@ export default function Dashboard() {
 
   const saveClosedPanes = useCallback(() => {
     try {
-      localStorage.setItem(CLOSED_PANES_STORAGE_KEY, JSON.stringify(Array.from(closedPanesRef.current)));
+      localStorage.setItem(
+        CLOSED_PANES_STORAGE_KEY,
+        JSON.stringify(Array.from(closedPanesRef.current))
+      );
     } catch {}
   }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem(ACTIVE_PANES_STORAGE_KEY, JSON.stringify(Array.from(activePanesPerRepo.entries())));
+      localStorage.setItem(
+        ACTIVE_PANES_STORAGE_KEY,
+        JSON.stringify(Array.from(activePanesPerRepo.entries()))
+      );
     } catch {}
   }, [activePanesPerRepo]);
 
@@ -239,39 +259,46 @@ export default function Dashboard() {
 
   useEffect(() => {
     try {
-      localStorage.setItem(MAXIMIZED_PANE_STORAGE_KEY, JSON.stringify(maximizedPane));
+      localStorage.setItem(
+        MAXIMIZED_PANE_STORAGE_KEY,
+        JSON.stringify(maximizedPane)
+      );
     } catch {}
   }, [maximizedPane]);
 
   // 現在のリポジトリのactivePanesを取得
-  const activePanes = repoPath ? (activePanesPerRepo.get(repoPath) || []) : [];
+  const activePanes = repoPath ? activePanesPerRepo.get(repoPath) || [] : [];
 
   // 全リポジトリ横断のactivePanes（Panesタブ用）
   const allActivePanes = useMemo(() => {
     const all: string[] = [];
-    activePanesPerRepo.forEach((panes) => all.push(...panes));
+    activePanesPerRepo.forEach(panes => all.push(...panes));
     return all;
   }, [activePanesPerRepo]);
 
   // activePanesを更新するヘルパー関数
-  const setActivePanes = (updater: string[] | ((prev: string[]) => string[])) => {
+  const setActivePanes = (
+    updater: string[] | ((prev: string[]) => string[])
+  ) => {
     if (!repoPath) return;
-    setActivePanesPerRepo((prev) => {
+    setActivePanesPerRepo(prev => {
       const newMap = new Map(prev);
       const currentPanes = newMap.get(repoPath) || [];
-      const newPanes = typeof updater === 'function' ? updater(currentPanes) : updater;
+      const newPanes =
+        typeof updater === "function" ? updater(currentPanes) : updater;
       newMap.set(repoPath, newPanes);
       return newMap;
     });
   };
-  const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(null);
+  const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(
+    null
+  );
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
   const [showTunnelDialog, setShowTunnelDialog] = useState(false);
   const [selectedPort, setSelectedPort] = useState<number | null>(null);
   const [showPortSelector, setShowPortSelector] = useState(false);
   const [showBeaconDialog, setShowBeaconDialog] = useState(false);
-
 
   const copyToClipboard = (text: string | null) => {
     if (text) {
@@ -305,12 +332,16 @@ export default function Dashboard() {
     setMaximizedPane(null);
     setSelectedWorktreeId(null);
     let totalPanes = 0;
-    activePanesPerRepo.forEach((panes) => { totalPanes += panes.length; });
+    activePanesPerRepo.forEach(panes => {
+      totalPanes += panes.length;
+    });
     setViewMode(totalPanes > 0 ? "panes" : "dashboard");
   }, [repoPath, activePanesPerRepo]);
 
-  const getSessionForWorktree = (worktreeId: string): ManagedSession | undefined => {
-    return Array.from(sessions.values()).find((s) => s.worktreeId === worktreeId);
+  const getSessionForWorktree = (
+    worktreeId: string
+  ): ManagedSession | undefined => {
+    return Array.from(sessions.values()).find(s => s.worktreeId === worktreeId);
   };
 
   const handleSelectRepo = (path: string) => {
@@ -361,8 +392,10 @@ export default function Dashboard() {
       saveClosedPanes();
       // Add to active panes if not already there
       if (!activePanes.includes(existingSession.id)) {
-        setActivePanes((prev) => [...prev, existingSession.id]);
-        toast.warning("このWorktreeには既にセッションが存在するため、既存セッションを開きます");
+        setActivePanes(prev => [...prev, existingSession.id]);
+        toast.warning(
+          "このWorktreeには既にセッションが存在するため、既存セッションを開きます"
+        );
       }
       setViewMode("panes");
       return;
@@ -373,18 +406,27 @@ export default function Dashboard() {
 
   // セッションIDをペインリストから削除するヘルパー
   // targetRepoが指定されていればそのリポのみ、nullならフォールバックで全リポから削除
-  const removeSessionFromPanes = (sessionId: string, targetRepo?: string | null) => {
-    setActivePanesPerRepo((prev) => {
+  const removeSessionFromPanes = (
+    sessionId: string,
+    targetRepo?: string | null
+  ) => {
+    setActivePanesPerRepo(prev => {
       const newMap = new Map(prev);
       if (targetRepo) {
         const currentPanes = newMap.get(targetRepo) || [];
-        newMap.set(targetRepo, currentPanes.filter((id) => id !== sessionId));
+        newMap.set(
+          targetRepo,
+          currentPanes.filter(id => id !== sessionId)
+        );
         return newMap;
       }
       // フォールバック: 全リポから削除
       Array.from(newMap.entries()).forEach(([repo, panes]) => {
         if (panes.includes(sessionId)) {
-          newMap.set(repo, panes.filter((id: string) => id !== sessionId));
+          newMap.set(
+            repo,
+            panes.filter((id: string) => id !== sessionId)
+          );
         }
       });
       return newMap;
@@ -420,7 +462,7 @@ export default function Dashboard() {
     // activePanesPerRepoを直接更新（リポジトリ切り替え後でも正しく動作するように）
     const targetRepoPath = targetRepo || repoPath;
     if (targetRepoPath) {
-      setActivePanesPerRepo((prev) => {
+      setActivePanesPerRepo(prev => {
         const newMap = new Map(prev);
         const currentPanes = newMap.get(targetRepoPath) || [];
         if (!currentPanes.includes(sessionId)) {
@@ -449,7 +491,6 @@ export default function Dashboard() {
     setMaximizedPane(maximizedPane === sessionId ? null : sessionId);
   };
 
-
   useEffect(() => {
     if (repoList.length === 0) return;
     sessions.forEach((session, sessionId) => {
@@ -457,7 +498,7 @@ export default function Dashboard() {
       if (closedPanesRef.current.has(sessionId)) return;
       const targetRepo = findRepoForSession(session, repoList);
       if (targetRepo) {
-        setActivePanesPerRepo((prev) => {
+        setActivePanesPerRepo(prev => {
           const currentPanes = prev.get(targetRepo) || [];
           if (currentPanes.includes(sessionId)) return prev;
           const newMap = new Map(prev);
@@ -482,7 +523,7 @@ export default function Dashboard() {
         allActivePanes.includes(sessionId)
       )
     );
-    const valid = allActivePanes.filter((id) => filtered.has(id));
+    const valid = allActivePanes.filter(id => filtered.has(id));
     return { filteredSessions: filtered, validActivePanes: valid };
   }, [sessions, allActivePanes]);
 
@@ -490,15 +531,21 @@ export default function Dashboard() {
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="p-4 border-b border-sidebar-border">
         <div className="flex items-center justify-between mb-2">
-          <Label className="text-xs text-muted-foreground uppercase tracking-wider">Repositories</Label>
+          <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+            Repositories
+          </Label>
           {allowedRepos.length > 0 ? (
             <Select onValueChange={selectRepo} value={repoPath || undefined}>
               <SelectTrigger className="w-auto h-8 text-xs gap-1">
                 <Plus className="w-3 h-3" />
               </SelectTrigger>
               <SelectContent>
-                {allowedRepos.map((repo) => (
-                  <SelectItem key={repo} value={repo} className="font-mono text-xs">
+                {allowedRepos.map(repo => (
+                  <SelectItem
+                    key={repo}
+                    value={repo}
+                    className="font-mono text-xs"
+                  >
                     {getBaseName(repo)}
                   </SelectItem>
                 ))}
@@ -519,7 +566,7 @@ export default function Dashboard() {
         <div className="max-h-[200px] overflow-y-auto">
           {repoList.length > 0 ? (
             <div className="space-y-1">
-              {repoList.map((repo) => {
+              {repoList.map(repo => {
                 const isSelected = repo === repoPath;
                 const repoName = getBaseName(repo);
                 return (
@@ -532,9 +579,13 @@ export default function Dashboard() {
                     }`}
                     onClick={() => selectRepo(repo)}
                   >
-                    <FolderOpen className={`w-4 h-4 shrink-0 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
+                    <FolderOpen
+                      className={`w-4 h-4 shrink-0 ${isSelected ? "text-primary" : "text-muted-foreground"}`}
+                    />
                     <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-medium truncate ${isSelected ? "text-primary" : "text-sidebar-foreground"}`}>
+                      <div
+                        className={`text-sm font-medium truncate ${isSelected ? "text-primary" : "text-sidebar-foreground"}`}
+                      >
                         {repoName}
                       </div>
                     </div>
@@ -544,7 +595,7 @@ export default function Dashboard() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => {
+                          onClick={e => {
                             e.stopPropagation();
                             refreshWorktrees();
                           }}
@@ -556,7 +607,7 @@ export default function Dashboard() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                        onClick={(e) => {
+                        onClick={e => {
                           e.stopPropagation();
                           removeRepo(repo);
                         }}
@@ -580,8 +631,12 @@ export default function Dashboard() {
         <div className="p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <GitBranch className="w-5 h-5 md:w-4 md:h-4 text-muted-foreground" />
-            <span className="text-base md:text-sm font-medium text-sidebar-foreground">Worktrees</span>
-            <span className="text-sm md:text-xs text-muted-foreground">({worktrees.length})</span>
+            <span className="text-base md:text-sm font-medium text-sidebar-foreground">
+              Worktrees
+            </span>
+            <span className="text-sm md:text-xs text-muted-foreground">
+              ({worktrees.length})
+            </span>
           </div>
           <CreateWorktreeDialog
             open={isCreateWorktreeOpen}
@@ -603,7 +658,7 @@ export default function Dashboard() {
                 Select a repository to view worktrees
               </div>
             )}
-            {worktrees.map((worktree) => {
+            {worktrees.map(worktree => {
               const session = getSessionForWorktree(worktree.id);
               const isSelected = selectedWorktreeId === worktree.id;
               const isInPane = session && activePanes.includes(session.id);
@@ -613,12 +668,12 @@ export default function Dashboard() {
                   key={worktree.id}
                   worktree={worktree}
                   session={session}
-                  onStartSession={(w) => {
+                  onStartSession={w => {
                     handleStartSession(w);
                     if (isMobile) setSidebarOpen(false);
                   }}
                   onStopSession={handleStopSession}
-                  onSelectSession={(sessionId) => {
+                  onSelectSession={sessionId => {
                     handleSelectSession(sessionId);
                     if (isMobile) setSidebarOpen(false);
                   }}
@@ -629,8 +684,8 @@ export default function Dashboard() {
                       isInPane
                         ? "bg-sidebar-accent border border-primary/30"
                         : isSelected
-                        ? "bg-sidebar-accent"
-                        : "hover:bg-sidebar-accent/50 active:bg-sidebar-accent/70"
+                          ? "bg-sidebar-accent"
+                          : "hover:bg-sidebar-accent/50 active:bg-sidebar-accent/70"
                     }`}
                     onClick={() => {
                       setSelectedWorktreeId(worktree.id);
@@ -674,9 +729,18 @@ export default function Dashboard() {
           Beacon
           {beaconStreaming && (
             <span className="ml-auto flex gap-0.5">
-              <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-              <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-              <span className="w-1 h-1 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+              <span
+                className="w-1 h-1 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "0ms" }}
+              />
+              <span
+                className="w-1 h-1 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "150ms" }}
+              />
+              <span
+                className="w-1 h-1 bg-primary rounded-full animate-bounce"
+                style={{ animationDelay: "300ms" }}
+              />
             </span>
           )}
         </Button>
@@ -726,13 +790,18 @@ export default function Dashboard() {
                   <Menu className="w-6 h-6" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-[85%] max-w-[320px] p-0 flex flex-col bg-sidebar h-full">
+              <SheetContent
+                side="left"
+                className="w-[85%] max-w-[320px] p-0 flex flex-col bg-sidebar h-full"
+              >
                 <SheetHeader className="p-4 border-b border-sidebar-border shrink-0">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
                       <Terminal className="w-5 h-5 text-primary" />
                     </div>
-                    <SheetTitle className="text-sidebar-foreground">Claude Code Manager</SheetTitle>
+                    <SheetTitle className="text-sidebar-foreground">
+                      Claude Code Manager
+                    </SheetTitle>
                   </div>
                 </SheetHeader>
                 <SidebarContent />
@@ -740,7 +809,9 @@ export default function Dashboard() {
             </Sheet>
             <div className="flex items-center gap-2">
               <Terminal className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-sidebar-foreground">Claude Code</span>
+              <span className="font-semibold text-sidebar-foreground">
+                Claude Code
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -766,8 +837,12 @@ export default function Dashboard() {
                   <Terminal className="w-5 h-5 text-primary" />
                 </div>
                 <div>
-                  <h1 className="font-semibold text-sidebar-foreground">Claude Code Manager</h1>
-                  <p className="text-xs text-muted-foreground font-mono">v0.2.0</p>
+                  <h1 className="font-semibold text-sidebar-foreground">
+                    Claude Code Manager
+                  </h1>
+                  <p className="text-xs text-muted-foreground font-mono">
+                    v0.2.0
+                  </p>
                 </div>
               </div>
               <div className="flex items-center gap-1">
@@ -811,7 +886,7 @@ export default function Dashboard() {
             beaconMessages={beaconMessages}
             beaconStreaming={beaconStreaming}
             beaconStreamText={beaconStreamText}
-            onBeaconSend={(message) => {
+            onBeaconSend={message => {
               beaconSend(message);
             }}
             onBeaconClear={beaconClear}
@@ -819,13 +894,22 @@ export default function Dashboard() {
         ) : (
           <>
             <div className="h-14 md:h-12 border-b border-border flex items-center justify-between px-4 bg-sidebar shrink-0">
-              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+              <Tabs
+                value={viewMode}
+                onValueChange={v => setViewMode(v as ViewMode)}
+              >
                 <TabsList className="bg-sidebar-accent h-10 md:h-9">
-                  <TabsTrigger value="dashboard" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
+                  <TabsTrigger
+                    value="dashboard"
+                    className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs"
+                  >
                     <LayoutGrid className="w-4 h-4 md:w-4 md:h-4" />
                     <span className="hidden sm:inline">Dashboard</span>
                   </TabsTrigger>
-                  <TabsTrigger value="panes" className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs">
+                  <TabsTrigger
+                    value="panes"
+                    className="gap-2 h-8 md:h-7 px-3 md:px-2 text-sm md:text-xs"
+                  >
                     <Columns2 className="w-4 h-4 md:w-4 md:h-4" />
                     <span className="hidden sm:inline">Panes</span>
                     {validActivePanes.length > 0 && (
@@ -840,7 +924,9 @@ export default function Dashboard() {
               {!isConnected && (
                 <div className="flex items-center gap-2 text-destructive text-sm">
                   <AlertCircle className="w-5 h-5 md:w-4 md:h-4" />
-                  <span className="hidden sm:inline">Not connected to server</span>
+                  <span className="hidden sm:inline">
+                    Not connected to server
+                  </span>
                 </div>
               )}
             </div>
@@ -871,28 +957,33 @@ export default function Dashboard() {
                   onCopyBuffer={copyBuffer}
                 />
               ) : (
-                  <div className="h-full flex items-center justify-center p-6">
-                    <div className="text-center max-w-md">
-                      <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
-                        <Terminal className="w-10 h-10 md:w-8 md:h-8 text-primary" />
+                <div className="h-full flex items-center justify-center p-6">
+                  <div className="text-center max-w-md">
+                    <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+                      <Terminal className="w-10 h-10 md:w-8 md:h-8 text-primary" />
+                    </div>
+                    <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">
+                      No Active Panes
+                    </h2>
+                    <p className="text-base md:text-sm text-muted-foreground mb-6">
+                      Start a session from the sidebar to open a chat pane.
+                    </p>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-base md:text-sm text-muted-foreground">
+                      <div className="flex items-center gap-2">
+                        <Play className="w-5 h-5 md:w-4 md:h-4 text-primary" />
+                        <span>Start session</span>
                       </div>
-                      <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">No Active Panes</h2>
-                      <p className="text-base md:text-sm text-muted-foreground mb-6">
-                        Start a session from the sidebar to open a chat pane.
-                      </p>
-                      <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-base md:text-sm text-muted-foreground">
-                        <div className="flex items-center gap-2">
-                          <Play className="w-5 h-5 md:w-4 md:h-4 text-primary" />
-                          <span>Start session</span>
-                        </div>
-                        <Separator orientation="vertical" className="h-4 hidden sm:block" />
-                        <div className="flex items-center gap-2">
-                          <Plus className="w-5 h-5 md:w-4 md:h-4 text-accent" />
-                          <span>Create worktree</span>
-                        </div>
+                      <Separator
+                        orientation="vertical"
+                        className="h-4 hidden sm:block"
+                      />
+                      <div className="flex items-center gap-2">
+                        <Plus className="w-5 h-5 md:w-4 md:h-4 text-accent" />
+                        <span>Create worktree</span>
                       </div>
                     </div>
                   </div>
+                </div>
               )}
             </div>
           </>
@@ -915,13 +1006,13 @@ export default function Dashboard() {
               <Label>Port</Label>
               <Select
                 value={selectedPort?.toString() ?? ""}
-                onValueChange={(v) => setSelectedPort(Number(v))}
+                onValueChange={v => setSelectedPort(Number(v))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="ポートを選択..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {listeningPorts.map((p) => (
+                  {listeningPorts.map(p => (
                     <SelectItem key={p.port} value={p.port.toString()}>
                       {p.port} ({p.process})
                     </SelectItem>
@@ -937,13 +1028,20 @@ export default function Dashboard() {
                 type="number"
                 placeholder="3000"
                 value={selectedPort ?? ""}
-                onChange={(e) => setSelectedPort(e.target.value ? Number(e.target.value) : null)}
+                onChange={e =>
+                  setSelectedPort(
+                    e.target.value ? Number(e.target.value) : null
+                  )
+                }
               />
             </div>
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowPortSelector(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowPortSelector(false)}
+            >
               キャンセル
             </Button>
             <Button
@@ -988,7 +1086,11 @@ export default function Dashboard() {
                 >
                   {tunnelUrl ? new URL(tunnelUrl).hostname : ""}
                 </a>
-                <Button size="icon" variant="outline" onClick={() => copyToClipboard(tunnelUrl)}>
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(tunnelUrl)}
+                >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -1007,8 +1109,17 @@ export default function Dashboard() {
             <div className="space-y-2">
               <Label className="text-sm font-medium">Auth Token</Label>
               <div className="flex gap-2">
-                <Input value={tunnelToken ?? ""} readOnly type="password" className="font-mono text-sm" />
-                <Button size="icon" variant="outline" onClick={() => copyToClipboard(tunnelToken)}>
+                <Input
+                  value={tunnelToken ?? ""}
+                  readOnly
+                  type="password"
+                  className="font-mono text-sm"
+                />
+                <Button
+                  size="icon"
+                  variant="outline"
+                  onClick={() => copyToClipboard(tunnelToken)}
+                >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -1035,17 +1146,22 @@ export default function Dashboard() {
 
       {/* Beaconチャットダイアログ */}
       <Dialog open={showBeaconDialog} onOpenChange={setShowBeaconDialog}>
-        <DialogContent className="max-w-2xl h-[80vh] p-0 flex flex-col overflow-hidden" showCloseButton={false}>
+        <DialogContent
+          className="max-w-2xl h-[80vh] p-0 flex flex-col overflow-hidden"
+          showCloseButton={false}
+        >
           {/* アクセシビリティ用（非表示） */}
           <DialogHeader className="sr-only">
             <DialogTitle>Beacon</DialogTitle>
-            <DialogDescription>全リポジトリを横断して操作できます</DialogDescription>
+            <DialogDescription>
+              全リポジトリを横断して操作できます
+            </DialogDescription>
           </DialogHeader>
           <MobileChatView
             messages={beaconMessages}
             isStreaming={beaconStreaming}
             streamingText={beaconStreamText}
-            onSendMessage={(message) => {
+            onSendMessage={message => {
               beaconSend(message);
             }}
             onClear={beaconClear}

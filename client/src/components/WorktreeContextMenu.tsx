@@ -25,7 +25,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/useMobile";
-import { MessageSquare, Play, Square, Trash2, MoreVertical } from "lucide-react";
+import {
+  MessageSquare,
+  Play,
+  Square,
+  Trash2,
+  MoreVertical,
+} from "lucide-react";
 import type { Worktree, ManagedSession } from "../../../shared/types";
 
 interface WorktreeContextMenuProps {
@@ -60,7 +66,9 @@ export function WorktreeContextMenu({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
-          <AlertDialogCancel className="h-12 md:h-10">キャンセル</AlertDialogCancel>
+          <AlertDialogCancel className="h-12 md:h-10">
+            キャンセル
+          </AlertDialogCancel>
           <AlertDialogAction
             className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-12 md:h-10"
             onClick={() => {
@@ -78,9 +86,7 @@ export function WorktreeContextMenu({
   if (isMobile) {
     return (
       <div className="flex items-center">
-        <div className="flex-1 min-w-0">
-          {children}
-        </div>
+        <div className="flex-1 min-w-0">{children}</div>
         <div className="shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -89,7 +95,7 @@ export function WorktreeContextMenu({
                 size="icon"
                 className="h-10 w-10"
                 aria-label="Worktree actions"
-                onClick={(e) => e.stopPropagation()}
+                onClick={e => e.stopPropagation()}
               >
                 <MoreVertical className="w-5 h-5" />
               </Button>
@@ -97,7 +103,9 @@ export function WorktreeContextMenu({
             <DropdownMenuContent align="end" className="w-48">
               {session ? (
                 <>
-                  <DropdownMenuItem onSelect={() => onSelectSession(session.id)}>
+                  <DropdownMenuItem
+                    onSelect={() => onSelectSession(session.id)}
+                  >
                     <MessageSquare className="w-4 h-4 mr-2" />
                     セッションを開く
                   </DropdownMenuItem>
@@ -138,9 +146,7 @@ export function WorktreeContextMenu({
   return (
     <>
       <ContextMenu>
-        <ContextMenuTrigger asChild>
-          {children}
-        </ContextMenuTrigger>
+        <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
         <ContextMenuContent className="w-48">
           {session ? (
             <>

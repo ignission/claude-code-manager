@@ -10,11 +10,13 @@ allowed-tools: Bash, Read, Grep, Glob, Agent
 2. 以下の4つのレビューを **全て並列** で実行する:
 
 ### code-simplifier（品質レビュー）— サブエージェント
+
 - 対象: 変更ファイル一覧
 - 観点: CLAUDE.md（プロジェクトルート・各サブディレクトリ）の規約への準拠、コードの簡潔さ・可読性、不要な冗長性、型安全性、性能、テストの品質
 - コードは変更しないこと。報告のみ
 
 ### security-auditor（セキュリティレビュー）— サブエージェント
+
 - 対象: 変更ファイル一覧（特に認証・認可・入力処理・エラーハンドリング関連）
 - 観点:
   - 認証情報の漏洩リスク（エラーメッセージ、ログ出力）
@@ -26,10 +28,12 @@ allowed-tools: Bash, Read, Grep, Glob, Agent
 - コードは変更しないこと。報告のみ
 
 ### CodeRabbit レビュー — スキル実行
+
 - `coderabbit:review` スキルを実行する
 - 結果をテーブルに統合する
 
 ### /security-review スキル — スキル実行
+
 - `security-review` スキルを実行する（HIGH CONFIDENCE の脆弱性のみ検出）
 - false positive フィルタリング済みの結果をテーブルに統合する
 
@@ -39,8 +43,8 @@ allowed-tools: Bash, Read, Grep, Glob, Agent
 
 全レビュー結果を以下のテーブル形式で統合する:
 
-| # | レビュー元 | 深刻度 | 対象ファイル | 指摘内容 | 対応方針案 |
-|---|-----------|--------|-------------|----------|-----------|
+| #   | レビュー元 | 深刻度 | 対象ファイル | 指摘内容 | 対応方針案 |
+| --- | ---------- | ------ | ------------ | -------- | ---------- |
 
 - レビュー元: code-simplifier / security-auditor / CodeRabbit / security-review
 - 深刻度は HIGH / MEDIUM / LOW の3段階
@@ -63,7 +67,9 @@ allowed-tools: Bash, Read, Grep, Glob, Agent
 ## 完了時
 
 レビュー結果の報告後、フラグファイルを作成すること:
-```
+
+```bash
 touch "$(git rev-parse --git-dir)/claude-pre-push-review-done"
 ```
+
 このフラグファイルにより、後続のPR作成hookが実行を許可する。

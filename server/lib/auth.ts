@@ -97,9 +97,7 @@ export class AuthManager {
     if (!host) return false;
     const hostname = host.split(":")[0];
     return (
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname === "::1"
+      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
     );
   }
 
@@ -233,8 +231,7 @@ export class AuthManager {
       }
 
       // クエリパラメータまたはヘッダーからトークンを取得
-      const token =
-        (req.query.token as string) || req.headers["x-auth-token"];
+      const token = (req.query.token as string) || req.headers["x-auth-token"];
 
       if (this.validateToken(token as string)) {
         return next();

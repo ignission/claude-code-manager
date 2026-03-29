@@ -55,6 +55,7 @@ gh api graphql -f query='
 **判定基準は未解決スレッド（`isResolved == false`）。PUSH_TIMEベースのフィルタは使用しない。**
 
 理由:
+
 - PUSH_TIMEベースだとpush前のコメント返信で不整合が生じる
 - 修正済みのコメントはCodeRabbitが `review_comment_addressed` タグを付けて自動resolveする
 - 未解決スレッドだけを見れば、対応が必要な指摘を正確に把握できる

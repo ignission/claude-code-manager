@@ -17,7 +17,9 @@ export function isSessionBelongsToRepo(
   const worktreeParent = getParentPath(worktreePath);
   const worktreeName = getBaseName(worktreePath);
 
-  return worktreeParent === repoParent && worktreeName.startsWith(`${repoName}-`);
+  return (
+    worktreeParent === repoParent && worktreeName.startsWith(`${repoName}-`)
+  );
 }
 
 /**

@@ -54,7 +54,7 @@ export class TtydManager extends EventEmitter {
    */
   private findAvailablePort(): number {
     const usedPorts = new Set(
-      Array.from(this.instances.values()).map((i) => i.port)
+      Array.from(this.instances.values()).map(i => i.port)
     );
 
     for (let port = this.nextPort; port <= this.MAX_PORT; port++) {
@@ -133,7 +133,7 @@ export class TtydManager extends EventEmitter {
         "-t",
         "fontFamily=JetBrains Mono, Menlo, Monaco, monospace",
         "-t",
-        "theme={\"background\":\"#1a1b26\",\"foreground\":\"#a9b1d6\"}",
+        'theme={"background":"#1a1b26","foreground":"#a9b1d6"}',
         "tmux",
         "attach-session",
         "-t",
@@ -170,12 +170,12 @@ export class TtydManager extends EventEmitter {
         }
       });
 
-      ttydProcess.on("error", (error) => {
+      ttydProcess.on("error", error => {
         clearTimeout(timeout);
         reject(error);
       });
 
-      ttydProcess.on("exit", (code) => {
+      ttydProcess.on("exit", code => {
         if (code !== 0 && code !== null) {
           clearTimeout(timeout);
           reject(new Error(`ttyd exited with code ${code}: ${stderr}`));
@@ -191,7 +191,7 @@ export class TtydManager extends EventEmitter {
     );
 
     // プロセス終了時の処理
-    ttydProcess.on("exit", (code) => {
+    ttydProcess.on("exit", code => {
       console.log(
         `[TtydManager] ttyd for session ${sessionId} exited with code ${code}`
       );

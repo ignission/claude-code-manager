@@ -56,7 +56,12 @@ export interface Message {
   type?: MessageType;
 }
 
-export type MessageType = "text" | "tool_use" | "tool_result" | "thinking" | "error";
+export type MessageType =
+  | "text"
+  | "tool_use"
+  | "tool_result"
+  | "thinking"
+  | "error";
 
 // Claude Code stream-json event types
 export interface ClaudeStreamEvent {
@@ -70,14 +75,29 @@ export interface ClaudeStreamEvent {
 }
 
 /** 特殊キー入力の種別 */
-export type SpecialKey = "Enter" | "C-c" | "C-d" | "y" | "n" | "S-Tab" | "Escape" | "scroll-up" | "scroll-down" | "copy-mode" | "q";
+export type SpecialKey =
+  | "Enter"
+  | "C-c"
+  | "C-d"
+  | "y"
+  | "n"
+  | "S-Tab"
+  | "Escape"
+  | "scroll-up"
+  | "scroll-down"
+  | "copy-mode"
+  | "q";
 
 // WebSocket event types
 export interface ServerToClientEvents {
   // Repository events
   "repos:list": (repos: string[]) => void;
   "repos:scanned": (repos: RepoInfo[]) => void;
-  "repos:scanning": (data: { basePath: string; status: "start" | "complete" | "error"; error?: string }) => void;
+  "repos:scanning": (data: {
+    basePath: string;
+    status: "start" | "complete" | "error";
+    error?: string;
+  }) => void;
 
   // Worktree events
   "worktree:list": (worktrees: Worktree[]) => void;
@@ -92,11 +112,18 @@ export interface ServerToClientEvents {
   "session:stopped": (sessionId: string) => void;
   "session:error": (data: { sessionId: string; error: string }) => void;
   "session:restored": (session: ManagedSession) => void;
-  "session:restore_failed": (data: { worktreePath: string; error: string }) => void;
+  "session:restore_failed": (data: {
+    worktreePath: string;
+    error: string;
+  }) => void;
 
   // Message events
   "message:received": (message: Message) => void;
-  "message:stream": (data: { sessionId: string; chunk: string; type?: MessageType }) => void;
+  "message:stream": (data: {
+    sessionId: string;
+    chunk: string;
+    type?: MessageType;
+  }) => void;
   "message:complete": (data: { sessionId: string; messageId: string }) => void;
 
   // Repository events
@@ -107,10 +134,16 @@ export interface ServerToClientEvents {
   "tunnel:started": (data: { url: string; token: string }) => void;
   "tunnel:stopped": () => void;
   "tunnel:error": (data: { message: string }) => void;
-  "tunnel:status": (data: { active: boolean; url?: string; token?: string }) => void;
+  "tunnel:status": (data: {
+    active: boolean;
+    url?: string;
+    token?: string;
+  }) => void;
 
   // Port events
-  "ports:list": (data: { ports: Array<{ port: number; process: string; pid: number }> }) => void;
+  "ports:list": (data: {
+    ports: Array<{ port: number; process: string; pid: number }>;
+  }) => void;
 
   // Image events
   "image:uploaded": (data: { path: string; filename: string }) => void;
@@ -126,7 +159,11 @@ export interface ServerToClientEvents {
 export interface ClientToServerEvents {
   // Worktree commands
   "worktree:list": (repoPath: string) => void;
-  "worktree:create": (data: { repoPath: string; branchName: string; baseBranch?: string }) => void;
+  "worktree:create": (data: {
+    repoPath: string;
+    branchName: string;
+    baseBranch?: string;
+  }) => void;
   "worktree:delete": (data: { repoPath: string; worktreePath: string }) => void;
 
   // Session commands
@@ -134,7 +171,10 @@ export interface ClientToServerEvents {
   "session:stop": (sessionId: string) => void;
   "session:send": (data: { sessionId: string; message: string }) => void;
   "session:key": (data: { sessionId: string; key: SpecialKey }) => void;
-  "session:copy": (sessionId: string, callback: (response: { text?: string; error?: string }) => void) => void;
+  "session:copy": (
+    sessionId: string,
+    callback: (response: { text?: string; error?: string }) => void
+  ) => void;
   "session:restore": (worktreePath: string) => void;
 
   // Repository commands
@@ -150,7 +190,11 @@ export interface ClientToServerEvents {
   "ports:scan": () => void;
 
   // Image commands
-  "image:upload": (data: { sessionId: string; base64Data: string; mimeType: string }) => void;
+  "image:upload": (data: {
+    sessionId: string;
+    base64Data: string;
+    mimeType: string;
+  }) => void;
 
   // Beacon commands
   "beacon:send": (data: { message: string }) => void;

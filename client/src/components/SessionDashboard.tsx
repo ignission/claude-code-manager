@@ -32,7 +32,9 @@ interface SessionDashboardProps {
 /**
  * セッションをリポジトリごとにグループ化
  */
-function groupSessionsByRepo(sessions: ManagedSession[]): Map<string, ManagedSession[]> {
+function groupSessionsByRepo(
+  sessions: ManagedSession[]
+): Map<string, ManagedSession[]> {
   const grouped = new Map<string, ManagedSession[]>();
 
   for (const session of sessions) {
@@ -99,7 +101,9 @@ export function SessionDashboard({
           <div className="w-20 h-20 md:w-16 md:h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
             <Terminal className="w-10 h-10 md:w-8 md:h-8 text-primary" />
           </div>
-          <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">No Active Sessions</h2>
+          <h2 className="text-2xl md:text-xl font-semibold mb-3 md:mb-2">
+            No Active Sessions
+          </h2>
           <p className="text-base md:text-sm text-muted-foreground">
             Start a session from the sidebar to begin working with Claude Code.
           </p>
@@ -124,111 +128,119 @@ export function SessionDashboard({
       </div>
 
       <div className="space-y-6">
-        {Array.from(groupedSessions.entries()).map(([repoPath, repoSessions]) => {
-          // リポジトリのベースパスから表示名を取得
-          const repoDisplayName = getBaseName(repoPath);
+        {Array.from(groupedSessions.entries()).map(
+          ([repoPath, repoSessions]) => {
+            // リポジトリのベースパスから表示名を取得
+            const repoDisplayName = getBaseName(repoPath);
 
-          return (
-            <div key={repoPath} className="space-y-3">
-              {/* リポジトリヘッダー */}
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <FolderOpen className="w-4 h-4" />
-                <span className="text-sm font-medium">{repoDisplayName}</span>
-                <span className="text-xs">({repoSessions.length})</span>
-              </div>
+            return (
+              <div key={repoPath} className="space-y-3">
+                {/* リポジトリヘッダー */}
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <FolderOpen className="w-4 h-4" />
+                  <span className="text-sm font-medium">{repoDisplayName}</span>
+                  <span className="text-xs">({repoSessions.length})</span>
+                </div>
 
-              {/* セッションカードグリッド */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                {repoSessions.map((session) => {
-                  const displayName = getBaseName(session.worktreePath);
+                {/* セッションカードグリッド */}
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {repoSessions.map(session => {
+                    const displayName = getBaseName(session.worktreePath);
 
-                  return (
-                    <div
-                      key={session.id}
-                      className="group bg-card border border-border rounded-lg overflow-hidden hover:border-primary/50 active:border-primary/70 transition-colors cursor-pointer"
-                      onClick={() => onSelectSession(session.id)}
-                    >
-                      {/* Card Header */}
-                      <div className="p-4 md:p-3 border-b border-border bg-sidebar">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div className={`status-indicator ${session.status}`} />
-                            <GitBranch className="w-5 h-5 md:w-4 md:h-4 text-muted-foreground shrink-0" />
-                            <span className="font-mono text-base md:text-sm truncate">
-                              {displayName}
-                            </span>
-                          </div>
-                          <div className={`flex items-center gap-1 ${getStatusColor(session.status)}`}>
-                            {getStatusIcon(session.status)}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Card Body */}
-                      <div className="p-4 md:p-3">
-                        {/* Session Info */}
-                        <div className="mb-4 md:mb-3 space-y-2">
-                          <div className="flex items-center gap-2 text-sm md:text-xs text-muted-foreground">
-                            <Terminal className="w-4 h-4 md:w-3 md:h-3 shrink-0" />
-                            <span className="font-mono truncate">
-                              tmux: {session.tmuxSessionName || session.id}
-                            </span>
-                          </div>
-                          {session.ttydPort && (
-                            <div className="flex items-center gap-2 text-sm md:text-xs text-muted-foreground">
-                              <ExternalLink className="w-4 h-4 md:w-3 md:h-3 shrink-0" />
-                              <span className="font-mono">
-                                port: {session.ttydPort}
+                    return (
+                      <div
+                        key={session.id}
+                        className="group bg-card border border-border rounded-lg overflow-hidden hover:border-primary/50 active:border-primary/70 transition-colors cursor-pointer"
+                        onClick={() => onSelectSession(session.id)}
+                      >
+                        {/* Card Header */}
+                        <div className="p-4 md:p-3 border-b border-border bg-sidebar">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <div
+                                className={`status-indicator ${session.status}`}
+                              />
+                              <GitBranch className="w-5 h-5 md:w-4 md:h-4 text-muted-foreground shrink-0" />
+                              <span className="font-mono text-base md:text-sm truncate">
+                                {displayName}
                               </span>
                             </div>
-                          )}
-                          <div className="text-sm md:text-xs text-muted-foreground font-mono truncate">
-                            {session.worktreePath}
+                            <div
+                              className={`flex items-center gap-1 ${getStatusColor(session.status)}`}
+                            >
+                              {getStatusIcon(session.status)}
+                            </div>
                           </div>
                         </div>
 
-                        {/* Actions */}
-                        <div className="flex items-center justify-between text-sm md:text-xs text-muted-foreground">
-                          <div className="flex items-center gap-1.5 md:gap-1">
-                            {session.ttydUrl ? (
-                              <span className="text-primary">Terminal ready</span>
-                            ) : (
-                              <span>Starting...</span>
+                        {/* Card Body */}
+                        <div className="p-4 md:p-3">
+                          {/* Session Info */}
+                          <div className="mb-4 md:mb-3 space-y-2">
+                            <div className="flex items-center gap-2 text-sm md:text-xs text-muted-foreground">
+                              <Terminal className="w-4 h-4 md:w-3 md:h-3 shrink-0" />
+                              <span className="font-mono truncate">
+                                tmux: {session.tmuxSessionName || session.id}
+                              </span>
+                            </div>
+                            {session.ttydPort && (
+                              <div className="flex items-center gap-2 text-sm md:text-xs text-muted-foreground">
+                                <ExternalLink className="w-4 h-4 md:w-3 md:h-3 shrink-0" />
+                                <span className="font-mono">
+                                  port: {session.ttydPort}
+                                </span>
+                              </div>
                             )}
+                            <div className="text-sm md:text-xs text-muted-foreground font-mono truncate">
+                              {session.worktreePath}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-10 w-10 md:h-6 md:w-6"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onSelectSession(session.id);
-                              }}
-                            >
-                              <Play className="w-5 h-5 md:w-3 md:h-3 text-primary" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-10 w-10 md:h-6 md:w-6"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onStopSession(session.id);
-                              }}
-                            >
-                              <Square className="w-5 h-5 md:w-3 md:h-3 text-destructive" />
-                            </Button>
+
+                          {/* Actions */}
+                          <div className="flex items-center justify-between text-sm md:text-xs text-muted-foreground">
+                            <div className="flex items-center gap-1.5 md:gap-1">
+                              {session.ttydUrl ? (
+                                <span className="text-primary">
+                                  Terminal ready
+                                </span>
+                              ) : (
+                                <span>Starting...</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-10 w-10 md:h-6 md:w-6"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  onSelectSession(session.id);
+                                }}
+                              >
+                                <Play className="w-5 h-5 md:w-3 md:h-3 text-primary" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-10 w-10 md:h-6 md:w-6"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  onStopSession(session.id);
+                                }}
+                              >
+                                <Square className="w-5 h-5 md:w-3 md:h-3 text-destructive" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          }
+        )}
       </div>
     </ScrollArea>
   );

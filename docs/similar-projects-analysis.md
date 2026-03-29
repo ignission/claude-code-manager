@@ -17,12 +17,12 @@
 
 ### 技術スタック
 
-| レイヤー | 技術 |
-|---------|------|
-| Frontend | React, Vite, TailwindCSS |
-| Backend | Hono (Deno/Node.js両対応) |
-| Claude通信 | `@anthropic-ai/claude-code` パッケージの `query()` 関数 |
-| ストリーミング | NDJSON (Newline Delimited JSON) |
+| レイヤー       | 技術                                                    |
+| -------------- | ------------------------------------------------------- |
+| Frontend       | React, Vite, TailwindCSS                                |
+| Backend        | Hono (Deno/Node.js両対応)                               |
+| Claude通信     | `@anthropic-ai/claude-code` パッケージの `query()` 関数 |
+| ストリーミング | NDJSON (Newline Delimited JSON)                         |
 
 ### Claude CLIとの通信方法
 
@@ -40,9 +40,8 @@ async function* executeClaudeCommand(
   sessionId?: string,
   allowedTools?: string[],
   workingDirectory?: string,
-  permissionMode?: PermissionMode,
+  permissionMode?: PermissionMode
 ): AsyncGenerator<StreamResponse> {
-  
   const abortController = new AbortController();
   requestAbortControllers.set(requestId, abortController);
 
@@ -66,7 +65,7 @@ async function* executeClaudeCommand(
       data: sdkMessage,
     };
   }
-  
+
   yield { type: "done" };
 }
 ```
@@ -127,12 +126,12 @@ return new Response(stream, {
 
 ### 技術スタック
 
-| レイヤー | 技術 |
-|---------|------|
-| Daemon | Node.js, chokidar (ファイル監視), XState (状態管理) |
-| UI | React, TanStack Router, Radix UI |
-| 同期 | Durable Streams (リアルタイム状態同期) |
-| DB | TanStack DB (リアクティブDB) |
+| レイヤー | 技術                                                |
+| -------- | --------------------------------------------------- |
+| Daemon   | Node.js, chokidar (ファイル監視), XState (状態管理) |
+| UI       | React, TanStack Router, Radix UI                    |
+| 同期     | Durable Streams (リアルタイム状態同期)              |
+| DB       | TanStack DB (リアクティブDB)                        |
 
 ### 重要な違い
 
@@ -154,22 +153,22 @@ export class SessionWatcher extends EventEmitter {
   async start(): Promise<void> {
     // ~/.claude/projects/ ディレクトリを監視
     this.watcher = watch(CLAUDE_PROJECTS_DIR, {
-      ignored: /agent-.*\.jsonl$/,  // サブエージェントファイルは無視
+      ignored: /agent-.*\.jsonl$/, // サブエージェントファイルは無視
       persistent: true,
       ignoreInitial: false,
       depth: 2,
     });
 
     this.watcher
-      .on("add", (path) => {
+      .on("add", path => {
         if (!path.endsWith(".jsonl")) return;
         this.handleFile(path, "add");
       })
-      .on("change", (path) => {
+      .on("change", path => {
         if (!path.endsWith(".jsonl")) return;
         this.debouncedHandleFile(path);
       })
-      .on("unlink", (path) => this.handleDelete(path));
+      .on("unlink", path => this.handleDelete(path));
 
     // シグナルディレクトリも監視（フック出力）
     this.signalWatcher = watch(SIGNALS_DIR, {
@@ -238,15 +237,15 @@ if (hasPendingPermission) {
 
 ## 比較表
 
-| 項目 | sugyan/claude-code-webui | KyleAMathews/claude-code-ui |
-|------|--------------------------|----------------------------|
-| **目的** | Claude Codeのウェブインターフェース | セッション監視ダッシュボード |
-| **Claude通信** | `@anthropic-ai/claude-code` query() | ログファイル監視 |
-| **会話継続** | `resume: sessionId` オプション | N/A（監視のみ） |
-| **ストリーミング** | NDJSON over HTTP | Durable Streams |
-| **状態管理** | フロントエンドで管理 | XState状態マシン |
-| **複数セッション** | 1セッション/接続 | 全セッション監視 |
-| **Agent SDK使用** | ❌ (claude-code パッケージ) | ❌ (ログ監視) |
+| 項目               | sugyan/claude-code-webui            | KyleAMathews/claude-code-ui  |
+| ------------------ | ----------------------------------- | ---------------------------- |
+| **目的**           | Claude Codeのウェブインターフェース | セッション監視ダッシュボード |
+| **Claude通信**     | `@anthropic-ai/claude-code` query() | ログファイル監視             |
+| **会話継続**       | `resume: sessionId` オプション      | N/A（監視のみ）              |
+| **ストリーミング** | NDJSON over HTTP                    | Durable Streams              |
+| **状態管理**       | フロントエンドで管理                | XState状態マシン             |
+| **複数セッション** | 1セッション/接続                    | 全セッション監視             |
+| **Agent SDK使用**  | ❌ (claude-code パッケージ)         | ❌ (ログ監視)                |
 
 ---
 
@@ -298,13 +297,13 @@ if (hasPendingPermission) {
 
 ### 技術スタック
 
-| レイヤー | 技術 |
-|---------|------|
-| Frontend | Vanilla JavaScript, xterm.js, PWA |
-| Backend | Bun, Express, WebSocket |
-| Claude通信 | PTY (疑似ターミナル) で Claude CLI を直接起動 |
-| リモートアクセス | Cloudflare Tunnel |
-| ターミナル | node-pty, xterm.js |
+| レイヤー         | 技術                                          |
+| ---------------- | --------------------------------------------- |
+| Frontend         | Vanilla JavaScript, xterm.js, PWA             |
+| Backend          | Bun, Express, WebSocket                       |
+| Claude通信       | PTY (疑似ターミナル) で Claude CLI を直接起動 |
+| リモートアクセス | Cloudflare Tunnel                             |
+| ターミナル       | node-pty, xterm.js                            |
 
 ### 重要な違い
 
@@ -357,11 +356,13 @@ export class PtySession extends EventEmitter {
       env: { ...process.env, TERM: "xterm-256color" },
     });
 
-    this.pty.onData((data) => {
+    this.pty.onData(data => {
       this.outputHistory += data;
       // 履歴サイズ制限
       if (this.outputHistory.length > PtySession.MAX_HISTORY_SIZE) {
-        this.outputHistory = this.outputHistory.slice(-PtySession.MAX_HISTORY_SIZE);
+        this.outputHistory = this.outputHistory.slice(
+          -PtySession.MAX_HISTORY_SIZE
+        );
       }
       this.emit("output", data);
     });
@@ -402,7 +403,7 @@ export class SessionManager {
   }
 
   listSessions(): SessionInfo[] {
-    return Array.from(this.sessions.values()).map((s) => ({
+    return Array.from(this.sessions.values()).map(s => ({
       id: s.id,
       cwd: s.cwd,
       status: s.status,
@@ -433,7 +434,7 @@ export class SessionManager {
 // バイナリ: JSON制御コマンド（認証・セッション管理）
 // テキスト: ターミナルへの生入力
 
-wss.on("connection", (ws) => {
+wss.on("connection", ws => {
   const state: ClientState = {
     authenticated: false,
     sessionId: null,
@@ -464,7 +465,7 @@ function handleControlMessage(ws, state, msg) {
       const session = sessionManager.createSession(msg.cwd);
       state.sessionId = session.id;
       // 出力をWebSocketに転送
-      session.on("output", (data) => ws.send(data));
+      session.on("output", data => ws.send(data));
       break;
     case "session:attach":
       // 既存セッションにアタッチ
@@ -493,7 +494,7 @@ class TerminalApp {
   connect() {
     this.ws = new WebSocket(wsUrl);
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = event => {
       if (typeof event.data === "string") {
         // ターミナル出力
         this.terminal.write(event.data);
@@ -532,17 +533,17 @@ class TerminalApp {
 
 ## 比較表
 
-| 項目 | sugyan/claude-code-webui | KyleAMathews/claude-code-ui | yazinsai/claude-code-remote |
-|------|--------------------------|----------------------------|----------------------------|
-| **目的** | ウェブインターフェース | セッション監視ダッシュボード | リモートターミナルアクセス |
-| **Claude通信** | `@anthropic-ai/claude-code` query() | ログファイル監視 | PTY でCLI直接起動 |
-| **会話継続** | `resume: sessionId` | N/A（監視のみ） | セッション維持（PTY） |
-| **ストリーミング** | NDJSON over HTTP | Durable Streams | WebSocket + xterm.js |
-| **状態管理** | フロントエンドで管理 | XState状態マシン | SessionManager |
-| **複数セッション** | 1セッション/接続 | 全セッション監視 | タブで複数管理 |
-| **UI形式** | チャットUI | Kanbanダッシュボード | フルターミナル |
-| **モバイル対応** | ❌ | ❌ | ✅ PWA + QRコード |
-| **Agent SDK使用** | ❌ (claude-code) | ❌ (ログ監視) | ❌ (PTY) |
+| 項目               | sugyan/claude-code-webui            | KyleAMathews/claude-code-ui  | yazinsai/claude-code-remote |
+| ------------------ | ----------------------------------- | ---------------------------- | --------------------------- |
+| **目的**           | ウェブインターフェース              | セッション監視ダッシュボード | リモートターミナルアクセス  |
+| **Claude通信**     | `@anthropic-ai/claude-code` query() | ログファイル監視             | PTY でCLI直接起動           |
+| **会話継続**       | `resume: sessionId`                 | N/A（監視のみ）              | セッション維持（PTY）       |
+| **ストリーミング** | NDJSON over HTTP                    | Durable Streams              | WebSocket + xterm.js        |
+| **状態管理**       | フロントエンドで管理                | XState状態マシン             | SessionManager              |
+| **複数セッション** | 1セッション/接続                    | 全セッション監視             | タブで複数管理              |
+| **UI形式**         | チャットUI                          | Kanbanダッシュボード         | フルターミナル              |
+| **モバイル対応**   | ❌                                  | ❌                           | ✅ PWA + QRコード           |
+| **Agent SDK使用**  | ❌ (claude-code)                    | ❌ (ログ監視)                | ❌ (PTY)                    |
 
 ---
 

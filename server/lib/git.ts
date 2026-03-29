@@ -1,6 +1,6 @@
 /**
  * Git Worktree Utilities
- * 
+ *
  * Provides safe wrappers around git worktree commands.
  * All paths are validated to prevent command injection.
  */
@@ -17,12 +17,12 @@ const execAsync = promisify(exec);
 function validatePath(inputPath: string): string {
   // Normalize and resolve the path
   const resolved = path.resolve(inputPath);
-  
+
   // Check for dangerous characters
   if (/[;&|`$(){}[\]<>!"']/.test(resolved)) {
     throw new Error("Invalid characters in path");
   }
-  
+
   return resolved;
 }
 
@@ -32,19 +32,19 @@ function validateBranchName(branch: string): string {
   if (!/^[a-zA-Z0-9._\-/]+$/.test(branch)) {
     throw new Error("Invalid branch name");
   }
-  
+
   // Prevent dangerous patterns
   if (branch.startsWith("-") || branch.includes("..")) {
     throw new Error("Invalid branch name pattern");
   }
-  
+
   return branch;
 }
 
 // Check if a directory is a git repository
 export async function isGitRepository(dirPath: string): Promise<boolean> {
   const safePath = validatePath(dirPath);
-  
+
   try {
     await execAsync("git rev-parse --is-inside-work-tree", {
       cwd: safePath,
@@ -128,7 +128,7 @@ async function scanWithFind(basePath: string): Promise<RepoInfo[]> {
 
   // .gitディレクトリの親ディレクトリがリポジトリパス
   // ブランチ取得は省略して即座に返す（UIで後から取得可能）
-  return gitDirs.map((gitDir) => {
+  return gitDirs.map(gitDir => {
     const repoPath = path.dirname(gitDir);
     return {
       path: repoPath,
@@ -210,7 +210,7 @@ export async function scanRepositories(
 
     // .gitディレクトリが存在するかチェック
     const hasGitDir = entries.some(
-      (entry) => entry.isDirectory() && entry.name === ".git"
+      entry => entry.isDirectory() && entry.name === ".git"
     );
 
     if (hasGitDir) {
@@ -227,7 +227,7 @@ export async function scanRepositories(
 
     // サブディレクトリを探索
     const subdirs = entries.filter(
-      (entry) =>
+      entry =>
         entry.isDirectory() &&
         !entry.name.startsWith(".") &&
         !SKIP_DIRECTORIES.has(entry.name)
@@ -238,9 +238,7 @@ export async function scanRepositories(
     for (let i = 0; i < subdirs.length; i += CONCURRENCY_LIMIT) {
       const batch = subdirs.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.all(
-        batch.map((entry) =>
-          scan(path.join(currentPath, entry.name), depth + 1)
-        )
+        batch.map(entry => scan(path.join(currentPath, entry.name), depth + 1))
       );
     }
   }
@@ -254,36 +252,38 @@ export async function scanRepositories(
 // Get the root of the git repository
 export async function getGitRoot(dirPath: string): Promise<string> {
   const safePath = validatePath(dirPath);
-  
+
   const { stdout } = await execAsync("git rev-parse --show-toplevel", {
     cwd: safePath,
   });
-  
+
   return stdout.trim();
 }
 
 // List all worktrees for a repository
 export async function listWorktrees(repoPath: string): Promise<Worktree[]> {
   const safePath = validatePath(repoPath);
-  
+
   // Check if it's a git repository
   if (!(await isGitRepository(safePath))) {
     throw new Error("Not a git repository");
   }
-  
+
   const { stdout } = await execAsync("git worktree list --porcelain", {
     cwd: safePath,
   });
-  
+
   const worktrees: Worktree[] = [];
   const lines = stdout.trim().split("\n");
-  
+
   let current: Partial<Worktree> = {};
-  
+
   for (const line of lines) {
     if (line.startsWith("worktree ")) {
       current.path = line.substring(9);
-      current.id = Buffer.from(current.path).toString("base64").replace(/[/+=]/g, "");
+      current.id = Buffer.from(current.path)
+        .toString("base64")
+        .replace(/[/+=]/g, "");
     } else if (line.startsWith("HEAD ")) {
       current.commit = line.substring(5);
     } else if (line.startsWith("branch ")) {
@@ -308,7 +308,7 @@ export async function listWorktrees(repoPath: string): Promise<Worktree[]> {
       current = {};
     }
   }
-  
+
   // Handle last entry if no trailing newline
   if (current.path) {
     worktrees.push({
@@ -320,9 +320,9 @@ export async function listWorktrees(repoPath: string): Promise<Worktree[]> {
       isBare: current.isBare || false,
     });
   }
-  
+
   // ディレクトリが存在しないworktreeを除外（削除済みworktreeのゴミ防止）
-  return worktrees.filter((w) => w.isBare || fs.existsSync(w.path));
+  return worktrees.filter(w => w.isBare || fs.existsSync(w.path));
 }
 
 // Create a new worktree
@@ -333,35 +333,41 @@ export async function createWorktree(
 ): Promise<Worktree> {
   const safePath = validatePath(repoPath);
   const safeBranch = validateBranchName(branchName);
-  
+
   // Get the repository root
   const gitRoot = await getGitRoot(safePath);
-  
+
   // Generate worktree path (sibling directory)
   const repoName = path.basename(gitRoot);
   const parentDir = path.dirname(gitRoot);
-  const worktreePath = path.join(parentDir, `${repoName}-${safeBranch.replace(/\//g, "-")}`);
-  
+  const worktreePath = path.join(
+    parentDir,
+    `${repoName}-${safeBranch.replace(/\//g, "-")}`
+  );
+
   // Check if path already exists
   if (fs.existsSync(worktreePath)) {
     throw new Error(`Directory already exists: ${worktreePath}`);
   }
-  
+
   // Create the worktree with a new branch
   const baseRef = baseBranch ? validateBranchName(baseBranch) : "HEAD";
-  
-  await execAsync(`git worktree add -b "${safeBranch}" "${worktreePath}" ${baseRef}`, {
-    cwd: gitRoot,
-  });
-  
+
+  await execAsync(
+    `git worktree add -b "${safeBranch}" "${worktreePath}" ${baseRef}`,
+    {
+      cwd: gitRoot,
+    }
+  );
+
   // Get the created worktree info
   const worktrees = await listWorktrees(gitRoot);
-  const created = worktrees.find((w) => w.path === worktreePath);
-  
+  const created = worktrees.find(w => w.path === worktreePath);
+
   if (!created) {
     throw new Error("Failed to create worktree");
   }
-  
+
   return created;
 }
 
@@ -372,27 +378,27 @@ export async function deleteWorktree(
 ): Promise<void> {
   const safePath = validatePath(repoPath);
   const safeWorktreePath = validatePath(worktreePath);
-  
+
   // Get the repository root
   const gitRoot = await getGitRoot(safePath);
-  
+
   // Verify the worktree exists
   const worktrees = await listWorktrees(gitRoot);
-  const worktree = worktrees.find((w) => w.path === safeWorktreePath);
-  
+  const worktree = worktrees.find(w => w.path === safeWorktreePath);
+
   if (!worktree) {
     throw new Error("Worktree not found");
   }
-  
+
   if (worktree.isMain) {
     throw new Error("Cannot delete the main worktree");
   }
-  
+
   // Remove the worktree
   await execAsync(`git worktree remove "${safeWorktreePath}" --force`, {
     cwd: gitRoot,
   });
-  
+
   // Also delete the branch if it was created for this worktree
   try {
     await execAsync(`git branch -D "${worktree.branch}"`, {
@@ -406,13 +412,16 @@ export async function deleteWorktree(
 // Get list of branches
 export async function listBranches(repoPath: string): Promise<string[]> {
   const safePath = validatePath(repoPath);
-  
-  const { stdout } = await execAsync("git branch -a --format='%(refname:short)'", {
-    cwd: safePath,
-  });
-  
+
+  const { stdout } = await execAsync(
+    "git branch -a --format='%(refname:short)'",
+    {
+      cwd: safePath,
+    }
+  );
+
   return stdout
     .trim()
     .split("\n")
-    .filter((b) => b && !b.startsWith("origin/HEAD"));
+    .filter(b => b && !b.startsWith("origin/HEAD"));
 }

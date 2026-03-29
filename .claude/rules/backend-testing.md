@@ -15,11 +15,13 @@ paths:
 ## テスト方針
 
 ### ユニットテスト
+
 - `server/lib/` 配下の各マネージャーを個別にテスト
 - 外部プロセス（tmux, ttyd, cloudflared）の呼び出しはモック化
 - `child_process.execSync` / `spawnSync` を `vi.mock` でスタブ
 
 ### 統合テスト
+
 - Socket.IOイベントのE2Eフロー
 - Express APIエンドポイントのテスト（supertest推奨）
 

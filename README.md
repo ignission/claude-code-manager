@@ -59,15 +59,15 @@ pnpm start:quick
 
 ## 開発
 
-| コマンド | 説明 |
-|---------|------|
-| `pnpm dev` | フロントエンド開発サーバー |
-| `pnpm dev:server` | バックエンド開発サーバー |
-| `pnpm dev:full` | フルスタック開発 |
-| `pnpm dev:quick` | Quick Tunnel付き開発 |
-| `pnpm build` | 本番ビルド |
-| `pnpm start` | 本番起動 |
-| `pnpm check` | 型チェック |
+| コマンド          | 説明                       |
+| ----------------- | -------------------------- |
+| `pnpm dev`        | フロントエンド開発サーバー |
+| `pnpm dev:server` | バックエンド開発サーバー   |
+| `pnpm dev:full`   | フルスタック開発           |
+| `pnpm dev:quick`  | Quick Tunnel付き開発       |
+| `pnpm build`      | 本番ビルド                 |
+| `pnpm start`      | 本番起動                   |
+| `pnpm check`      | 型チェック                 |
 
 ## ライセンス
 
