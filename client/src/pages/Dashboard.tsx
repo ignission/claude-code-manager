@@ -74,7 +74,7 @@ function loadClosedPanes(): Set<string> {
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
         return new Set(
-          parsed.filter((v): v is string => typeof v === "string")
+          parsed.filter((v): v is string => typeof v === "string"),
         );
       }
     }
@@ -163,7 +163,7 @@ export default function Dashboard() {
     const handleMouseMove = (e: MouseEvent) => {
       const newWidth = Math.min(
         SIDEBAR_MAX_WIDTH,
-        Math.max(SIDEBAR_MIN_WIDTH, e.clientX)
+        Math.max(SIDEBAR_MIN_WIDTH, e.clientX),
       );
       setSidebarWidth(newWidth);
     };
@@ -216,7 +216,7 @@ export default function Dashboard() {
     try {
       localStorage.setItem(
         CLOSED_PANES_STORAGE_KEY,
-        JSON.stringify(Array.from(closedPanesRef.current))
+        JSON.stringify(Array.from(closedPanesRef.current)),
       );
     } catch {}
   }, []);
@@ -225,7 +225,7 @@ export default function Dashboard() {
     try {
       localStorage.setItem(
         ACTIVE_PANES_STORAGE_KEY,
-        JSON.stringify(Array.from(activePanesPerRepo.entries()))
+        JSON.stringify(Array.from(activePanesPerRepo.entries())),
       );
     } catch {}
   }, [activePanesPerRepo]);
@@ -234,7 +234,7 @@ export default function Dashboard() {
     try {
       localStorage.setItem(
         MAXIMIZED_PANE_STORAGE_KEY,
-        JSON.stringify(maximizedPane)
+        JSON.stringify(maximizedPane),
       );
     } catch {}
   }, [maximizedPane]);
@@ -245,16 +245,16 @@ export default function Dashboard() {
   // 全リポジトリ横断のactivePanes（Panesタブ用）
   const allActivePanes = useMemo(() => {
     const all: string[] = [];
-    activePanesPerRepo.forEach(panes => all.push(...panes));
+    activePanesPerRepo.forEach((panes) => all.push(...panes));
     return all;
   }, [activePanesPerRepo]);
 
   // activePanesを更新するヘルパー関数
   const setActivePanes = (
-    updater: string[] | ((prev: string[]) => string[])
+    updater: string[] | ((prev: string[]) => string[]),
   ) => {
     if (!repoPath) return;
-    setActivePanesPerRepo(prev => {
+    setActivePanesPerRepo((prev) => {
       const newMap = new Map(prev);
       const currentPanes = newMap.get(repoPath) || [];
       const newPanes =
@@ -264,7 +264,7 @@ export default function Dashboard() {
     });
   };
   const [selectedWorktreeId, setSelectedWorktreeId] = useState<string | null>(
-    null
+    null,
   );
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
@@ -297,15 +297,18 @@ export default function Dashboard() {
     }
   }, [tunnelJustStarted, clearTunnelJustStarted]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: リポジトリ切替時にUI状態をリセットする意図的な依存配列
   useEffect(() => {
     setMaximizedPane(null);
     setSelectedWorktreeId(null);
-  }, []);
+  }, [repoPath, activePanesPerRepo]);
 
   const getSessionForWorktree = (
-    worktreeId: string
+    worktreeId: string,
   ): ManagedSession | undefined => {
-    return Array.from(sessions.values()).find(s => s.worktreeId === worktreeId);
+    return Array.from(sessions.values()).find(
+      (s) => s.worktreeId === worktreeId,
+    );
   };
 
   const handleSelectRepo = (path: string) => {
@@ -356,9 +359,9 @@ export default function Dashboard() {
       saveClosedPanes();
       // Add to active panes if not already there
       if (!activePanes.includes(existingSession.id)) {
-        setActivePanes(prev => [...prev, existingSession.id]);
+        setActivePanes((prev) => [...prev, existingSession.id]);
         toast.warning(
-          "このWorktreeには既にセッションが存在するため、既存セッションを開きます"
+          "このWorktreeには既にセッションが存在するため、既存セッションを開きます",
         );
       }
       return;
@@ -371,15 +374,15 @@ export default function Dashboard() {
   // targetRepoが指定されていればそのリポのみ、nullならフォールバックで全リポから削除
   const removeSessionFromPanes = (
     sessionId: string,
-    targetRepo?: string | null
+    targetRepo?: string | null,
   ) => {
-    setActivePanesPerRepo(prev => {
+    setActivePanesPerRepo((prev) => {
       const newMap = new Map(prev);
       if (targetRepo) {
         const currentPanes = newMap.get(targetRepo) || [];
         newMap.set(
           targetRepo,
-          currentPanes.filter(id => id !== sessionId)
+          currentPanes.filter((id) => id !== sessionId),
         );
         return newMap;
       }
@@ -388,7 +391,7 @@ export default function Dashboard() {
         if (panes.includes(sessionId)) {
           newMap.set(
             repo,
-            panes.filter((id: string) => id !== sessionId)
+            panes.filter((id: string) => id !== sessionId),
           );
         }
       });
@@ -425,7 +428,7 @@ export default function Dashboard() {
     // activePanesPerRepoを直接更新（リポジトリ切り替え後でも正しく動作するように）
     const targetRepoPath = targetRepo || repoPath;
     if (targetRepoPath) {
-      setActivePanesPerRepo(prev => {
+      setActivePanesPerRepo((prev) => {
         const newMap = new Map(prev);
         const currentPanes = newMap.get(targetRepoPath) || [];
         if (!currentPanes.includes(sessionId)) {
@@ -459,7 +462,7 @@ export default function Dashboard() {
       if (closedPanesRef.current.has(sessionId)) return;
       const targetRepo = findRepoForSession(session, repoList);
       if (targetRepo) {
-        setActivePanesPerRepo(prev => {
+        setActivePanesPerRepo((prev) => {
           const currentPanes = prev.get(targetRepo) || [];
           if (currentPanes.includes(sessionId)) return prev;
           const newMap = new Map(prev);
@@ -480,10 +483,10 @@ export default function Dashboard() {
   const { filteredSessions, validActivePanes } = useMemo(() => {
     const filtered = new Map(
       Array.from(sessions.entries()).filter(([sessionId]) =>
-        allActivePanes.includes(sessionId)
-      )
+        allActivePanes.includes(sessionId),
+      ),
     );
-    const valid = allActivePanes.filter(id => filtered.has(id));
+    const valid = allActivePanes.filter((id) => filtered.has(id));
     return { filteredSessions: filtered, validActivePanes: valid };
   }, [sessions, allActivePanes]);
 
@@ -500,7 +503,7 @@ export default function Dashboard() {
                 <Plus className="w-3 h-3" />
               </SelectTrigger>
               <SelectContent>
-                {allowedRepos.map(repo => (
+                {allowedRepos.map((repo) => (
                   <SelectItem
                     key={repo}
                     value={repo}
@@ -526,7 +529,7 @@ export default function Dashboard() {
         <div className="max-h-[200px] overflow-y-auto">
           {repoList.length > 0 ? (
             <div className="space-y-1">
-              {repoList.map(repo => {
+              {repoList.map((repo) => {
                 const isSelected = repo === repoPath;
                 const repoName = getBaseName(repo);
                 return (
@@ -555,7 +558,7 @@ export default function Dashboard() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={e => {
+                          onClick={(e) => {
                             e.stopPropagation();
                             refreshWorktrees();
                           }}
@@ -567,7 +570,7 @@ export default function Dashboard() {
                         variant="ghost"
                         size="icon"
                         className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity text-destructive"
-                        onClick={e => {
+                        onClick={(e) => {
                           e.stopPropagation();
                           removeRepo(repo);
                         }}
@@ -618,7 +621,7 @@ export default function Dashboard() {
                 Select a repository to view worktrees
               </div>
             )}
-            {worktrees.map(worktree => {
+            {worktrees.map((worktree) => {
               const session = getSessionForWorktree(worktree.id);
               const isSelected = selectedWorktreeId === worktree.id;
               const isInPane = session && activePanes.includes(session.id);
@@ -628,12 +631,12 @@ export default function Dashboard() {
                   key={worktree.id}
                   worktree={worktree}
                   session={session}
-                  onStartSession={w => {
+                  onStartSession={(w) => {
                     handleStartSession(w);
                     if (isMobile) setSidebarOpen(false);
                   }}
                   onStopSession={handleStopSession}
-                  onSelectSession={sessionId => {
+                  onSelectSession={(sessionId) => {
                     handleSelectSession(sessionId);
                     if (isMobile) setSidebarOpen(false);
                   }}
@@ -824,7 +827,7 @@ export default function Dashboard() {
             beaconMessages={beaconMessages}
             beaconStreaming={beaconStreaming}
             beaconStreamText={beaconStreamText}
-            onBeaconSend={message => {
+            onBeaconSend={(message) => {
               beaconSend(message);
             }}
             onBeaconClear={beaconClear}
@@ -907,13 +910,13 @@ export default function Dashboard() {
               <Label>Port</Label>
               <Select
                 value={selectedPort?.toString() ?? ""}
-                onValueChange={v => setSelectedPort(Number(v))}
+                onValueChange={(v) => setSelectedPort(Number(v))}
               >
                 <SelectTrigger>
                   <SelectValue placeholder="ポートを選択..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {listeningPorts.map(p => (
+                  {listeningPorts.map((p) => (
                     <SelectItem key={p.port} value={p.port.toString()}>
                       {p.port} ({p.process})
                     </SelectItem>
@@ -929,9 +932,9 @@ export default function Dashboard() {
                 type="number"
                 placeholder="3000"
                 value={selectedPort ?? ""}
-                onChange={e =>
+                onChange={(e) =>
                   setSelectedPort(
-                    e.target.value ? Number(e.target.value) : null
+                    e.target.value ? Number(e.target.value) : null,
                   )
                 }
               />
@@ -1062,7 +1065,7 @@ export default function Dashboard() {
             messages={beaconMessages}
             isStreaming={beaconStreaming}
             streamingText={beaconStreamText}
-            onSendMessage={message => {
+            onSendMessage={(message) => {
               beaconSend(message);
             }}
             onClear={beaconClear}
