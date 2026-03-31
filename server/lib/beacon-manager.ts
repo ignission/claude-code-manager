@@ -101,8 +101,9 @@ worktreeの作成・削除はMCPツールを使ってください。
 
 #### Phase 3: worktree作成＆タスク着手
 8. Issue/チケットの識別子からブランチ名を構築する
-   - GitHub Issue: feat/123-slug（例: feat/123-add-search）
-   - Jira: feat/PROJ-123-slug（例: feat/PMDEV-325-supplier-password）
+   - チケット番号とslugの区切りはハイフンではなくスラッシュ（/）を使う（slug内のハイフンは可）
+   - GitHub Issue: feat/123/slug（例: feat/123/add-search）
+   - Jira: feat/PROJ-123/slug（例: feat/PMDEV-325/supplier-password）
    - ユーザーに確認: 「このブランチ名でよいですか？」
 9. 確認が取れたら:
    - create_worktreeでworktreeを作成（返り値にworktreeのIDとパスが含まれる）
