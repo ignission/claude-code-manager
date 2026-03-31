@@ -173,7 +173,7 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSession.tmuxSessionName
     );
 
-    // DBに保存（既存レコードがあればupsertで更新、idは既存値を維持）
+    // DBに保存（既存レコードがあればupsertで更新）
     db.upsertSession({
       id: tmuxSession.id,
       worktreeId,
@@ -181,12 +181,8 @@ export class SessionOrchestrator extends EventEmitter {
       status: "active",
     });
 
-    // upsertではidが更新されないため、DB上の実際のidを取得して使用する
-    const dbSession = db.getSessionByWorktreePath(worktreePath);
-    const sessionId = dbSession?.id ?? tmuxSession.id;
-
     const managed: ManagedSession = {
-      id: sessionId,
+      id: tmuxSession.id,
       worktreeId,
       worktreePath,
       status: "active",
