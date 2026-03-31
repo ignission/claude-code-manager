@@ -176,6 +176,34 @@ class SessionDatabase {
   }
 
   /**
+   * セッションをupsert（存在すれば更新、なければ作成）
+   *
+   * worktree_pathのUNIQUE制約に基づき、競合時はid, worktree_id, statusを更新する
+   *
+   * @param session - セッション作成データ
+   */
+  upsertSession(session: CreateSessionInput): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT INTO sessions (id, worktree_id, worktree_path, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(worktree_path) DO UPDATE SET
+        id = excluded.id,
+        worktree_id = excluded.worktree_id,
+        status = excluded.status,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run(
+      session.id,
+      session.worktreeId,
+      session.worktreePath,
+      session.status,
+      now,
+      now
+    );
+  }
+
+  /**
    * IDでセッションを取得
    *
    * @param id - セッションID

@@ -7,6 +7,7 @@
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import net from "node:net";
 import { TTYD_PORT_END, TTYD_PORT_START } from "./constants.js";
 
 export interface TtydInstance {
@@ -50,21 +51,47 @@ export class TtydManager extends EventEmitter {
   }
 
   /**
-   * 利用可能なポートを探す
+   * 指定ポートがOSレベルで使用可能かチェック
+   * 127.0.0.1にbindを試みて確認する
    */
-  private findAvailablePort(): number {
+  private checkPortAvailable(port: number): Promise<boolean> {
+    return new Promise(resolve => {
+      const server = net.createServer();
+      server.once("error", () => {
+        resolve(false);
+      });
+      server.once("listening", () => {
+        server.close(() => resolve(true));
+      });
+      server.listen(port, "127.0.0.1");
+    });
+  }
+
+  /**
+   * 利用可能なポートを探す
+   * 自身の管理ポートに加え、OSレベルでのバインド可否もチェックする
+   */
+  private async findAvailablePort(): Promise<number> {
     const usedPorts = new Set(
       Array.from(this.instances.values()).map(i => i.port)
     );
 
     for (let port = this.nextPort; port <= this.MAX_PORT; port++) {
-      if (!usedPorts.has(port)) {
-        this.nextPort = port + 1;
-        if (this.nextPort > this.MAX_PORT) {
-          this.nextPort = this.MIN_PORT; // ラップアラウンド
-        }
-        return port;
+      if (usedPorts.has(port)) {
+        continue;
       }
+      const available = await this.checkPortAvailable(port);
+      if (!available) {
+        console.log(
+          `[TtydManager] Port ${port} is in use by another process, skipping`
+        );
+        continue;
+      }
+      this.nextPort = port + 1;
+      if (this.nextPort > this.MAX_PORT) {
+        this.nextPort = this.MIN_PORT; // ラップアラウンド
+      }
+      return port;
     }
     throw new Error("No available ports for ttyd");
   }
@@ -107,7 +134,7 @@ export class TtydManager extends EventEmitter {
     sessionId: string,
     tmuxSessionName: string
   ): Promise<TtydInstance> {
-    const port = this.findAvailablePort();
+    const port = await this.findAvailablePort();
     const basePath = `/ttyd/${sessionId}`;
 
     // ttydオプション:
