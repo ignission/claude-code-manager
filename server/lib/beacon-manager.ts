@@ -259,7 +259,7 @@ class MessageQueue {
       if (this.messages.length > 0) {
         yield this.messages.shift()!;
       } else {
-        const msg = await new Promise<SDKUserMessage>((resolve) => {
+        const msg = await new Promise<SDKUserMessage>(resolve => {
           this.waiting = resolve;
         });
         // close()で解決された場合はyieldせずにループを抜ける
@@ -309,7 +309,7 @@ export interface BeaconDeps {
   createWorktree: (
     repoPath: string,
     branchName: string,
-    baseBranch?: string,
+    baseBranch?: string
   ) => Promise<unknown>;
   deleteWorktree: (repoPath: string, worktreePath: string) => Promise<void>;
   getRepos: () => string[];
@@ -394,7 +394,7 @@ export class BeaconManager extends EventEmitter {
               .optional()
               .describe("リポジトリパス（省略時は全リポジトリ）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const repoPath = args.repoPath as string | undefined;
             if (repoPath) {
               const worktrees = await deps.listWorktrees(repoPath);
@@ -440,7 +440,7 @@ export class BeaconManager extends EventEmitter {
             worktreeId: z.string().describe("worktreeのID"),
             worktreePath: z.string().describe("worktreeのパス"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const worktreeId = args.worktreeId as string;
             const worktreePath = args.worktreePath as string;
             const session = await deps.startSession(worktreeId, worktreePath);
@@ -460,7 +460,7 @@ export class BeaconManager extends EventEmitter {
           inputSchema: {
             sessionId: z.string().describe("セッションID"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const sessionId = args.sessionId as string;
             deps.stopSession(sessionId);
             return {
@@ -481,7 +481,7 @@ export class BeaconManager extends EventEmitter {
             sessionId: z.string().describe("セッションID"),
             message: z.string().describe("送信するテキスト"),
           },
-          handler: async (args) => {
+          handler: async args => {
             deps.sendMessage(args.sessionId as string, args.message as string);
             return {
               content: [
@@ -503,7 +503,7 @@ export class BeaconManager extends EventEmitter {
               .string()
               .describe("送信するキー（y, n, C-c, Escape, Enter, S-Tab）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const validKeys = new Set([
               "Enter",
               "C-c",
@@ -550,10 +550,10 @@ export class BeaconManager extends EventEmitter {
               .optional()
               .describe("取得する行数（デフォルト: 100）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const output = deps.capturePane(
               args.sessionId as string,
-              (args.lines as number | undefined) ?? 100,
+              (args.lines as number | undefined) ?? 100
             );
             if (output === null) {
               return {
@@ -581,12 +581,12 @@ export class BeaconManager extends EventEmitter {
               .optional()
               .describe("ベースブランチ（省略時はHEAD）"),
           },
-          handler: async (args) => {
+          handler: async args => {
             try {
               const worktree = await deps.createWorktree(
                 args.repoPath as string,
                 args.branchName as string,
-                args.baseBranch as string | undefined,
+                args.baseBranch as string | undefined
               );
               return {
                 content: [
@@ -612,11 +612,11 @@ export class BeaconManager extends EventEmitter {
             repoPath: z.string().describe("リポジトリのパス"),
             worktreePath: z.string().describe("削除するworktreeのパス"),
           },
-          handler: async (args) => {
+          handler: async args => {
             try {
               await deps.deleteWorktree(
                 args.repoPath as string,
-                args.worktreePath as string,
+                args.worktreePath as string
               );
               return {
                 content: [
@@ -638,7 +638,7 @@ export class BeaconManager extends EventEmitter {
           inputSchema: {
             worktreePath: z.string().describe("worktreeのパス"),
           },
-          handler: async (args) => {
+          handler: async args => {
             const url = await deps.getPrUrl(args.worktreePath as string);
             if (url) {
               return {
@@ -663,14 +663,14 @@ export class BeaconManager extends EventEmitter {
             args: z
               .array(z.string())
               .describe(
-                'ghサブコマンドと引数（例: ["pr", "view", "--json", "url"]）',
+                'ghサブコマンドと引数（例: ["pr", "view", "--json", "url"]）'
               ),
             cwd: z
               .string()
               .optional()
               .describe("実行ディレクトリ（省略時はHOME）"),
           },
-          handler: async (params) => {
+          handler: async params => {
             const args = params.args as string[];
             // コマンドキーを構築（"pr view", "status" 等）
             const commandKey =
@@ -743,7 +743,7 @@ export class BeaconManager extends EventEmitter {
     const idleMs = now - this.session.lastActivity.getTime();
     if (idleMs > IDLE_TIMEOUT_MS) {
       console.log(
-        `[BeaconManager] セッションがアイドルタイムアウト (${Math.round(idleMs / 60000)}分)`,
+        `[BeaconManager] セッションがアイドルタイムアウト (${Math.round(idleMs / 60000)}分)`
       );
       this.closeSession();
     }
