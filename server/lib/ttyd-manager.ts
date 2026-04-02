@@ -7,6 +7,7 @@
 
 import { type ChildProcess, execSync, spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
+import net from "node:net";
 import { TTYD_PORT_END, TTYD_PORT_START } from "./constants.js";
 
 export interface TtydInstance {
@@ -50,21 +51,58 @@ export class TtydManager extends EventEmitter {
   }
 
   /**
-   * 利用可能なポートを探す
+   * 指定ポートがOSレベルで使用可能かチェック
+   * 127.0.0.1にbindを試みて確認する（3秒タイムアウト付き）
    */
-  private findAvailablePort(): number {
+  private checkPortAvailable(port: number): Promise<boolean> {
+    return new Promise(resolve => {
+      const timeout = setTimeout(() => {
+        server.close();
+        resolve(false);
+      }, 3000);
+
+      const server = net.createServer();
+      server.once("error", () => {
+        clearTimeout(timeout);
+        resolve(false);
+      });
+      server.once("listening", () => {
+        clearTimeout(timeout);
+        server.close(() => resolve(true));
+      });
+      server.listen(port, "127.0.0.1");
+    });
+  }
+
+  /**
+   * 利用可能なポートを探す
+   * 自身の管理ポートに加え、OSレベルでのバインド可否もチェックする
+   */
+  private async findAvailablePort(): Promise<number> {
     const usedPorts = new Set(
       Array.from(this.instances.values()).map(i => i.port)
     );
 
-    for (let port = this.nextPort; port <= this.MAX_PORT; port++) {
-      if (!usedPorts.has(port)) {
-        this.nextPort = port + 1;
-        if (this.nextPort > this.MAX_PORT) {
-          this.nextPort = this.MIN_PORT; // ラップアラウンド
-        }
-        return port;
+    // nextPortからMAX_PORTまで探し、見つからなければMIN_PORTからnextPort-1まで探索
+    const totalPorts = this.MAX_PORT - this.MIN_PORT + 1;
+    for (let i = 0; i < totalPorts; i++) {
+      const port =
+        this.MIN_PORT + ((this.nextPort - this.MIN_PORT + i) % totalPorts);
+      if (usedPorts.has(port)) {
+        continue;
       }
+      const available = await this.checkPortAvailable(port);
+      if (!available) {
+        console.log(
+          `[TtydManager] Port ${port} is in use by another process, skipping`
+        );
+        continue;
+      }
+      this.nextPort = port + 1;
+      if (this.nextPort > this.MAX_PORT) {
+        this.nextPort = this.MIN_PORT;
+      }
+      return port;
     }
     throw new Error("No available ports for ttyd");
   }
@@ -107,7 +145,7 @@ export class TtydManager extends EventEmitter {
     sessionId: string,
     tmuxSessionName: string
   ): Promise<TtydInstance> {
-    const port = this.findAvailablePort();
+    const port = await this.findAvailablePort();
     const basePath = `/ttyd/${sessionId}`;
 
     // ttydオプション:
