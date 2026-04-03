@@ -27,6 +27,13 @@ function getTokenFromUrl(): string | null {
   return params.get("token");
 }
 
+interface UseSocketOptions {
+  initialRepoList?: string[];
+  initialRepoPath?: string | null;
+  onRepoListChange?: (list: string[]) => void;
+  onRepoPathChange?: (path: string | null) => void;
+}
+
 interface UseSocketReturn {
   isConnected: boolean;
   error: string | null;
@@ -104,21 +111,22 @@ interface UseSocketReturn {
   beaconClear: () => void;
 }
 
-export function useSocket(): UseSocketReturn {
+export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   const socketRef = useRef<TypedSocket | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [allowedRepos, setAllowedRepos] = useState<string[]>([]);
   const [scannedRepos, setScannedRepos] = useState<RepoInfo[]>([]);
   const [isScanning, setIsScanning] = useState(false);
 
-  const [repoList, setRepoList] = useState<string[]>(() => {
-    const saved = localStorage.getItem("repoList");
-    return saved ? JSON.parse(saved) : [];
-  });
-  const [repoPath, setRepoPath] = useState<string | null>(() => {
-    return localStorage.getItem("selectedRepoPath");
-  });
+  const [repoList, setRepoList] = useState<string[]>(
+    options.initialRepoList ?? []
+  );
+  const [repoPath, setRepoPath] = useState<string | null>(
+    options.initialRepoPath ?? null
+  );
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [deletedWorktreeId, setDeletedWorktreeId] = useState<string | null>(
     null
@@ -179,10 +187,9 @@ export function useSocket(): UseSocketReturn {
       setIsConnected(true);
       setError(null);
 
-      // 保存されたリポジトリを自動復元
-      const savedRepoPath = localStorage.getItem("selectedRepoPath");
-      if (savedRepoPath) {
-        socket.emit("repo:select", savedRepoPath);
+      // 保存されたリポジトリを自動復元（optionsから取得）
+      if (optionsRef.current.initialRepoPath) {
+        socket.emit("repo:select", optionsRef.current.initialRepoPath);
       }
     });
 
@@ -206,13 +213,13 @@ export function useSocket(): UseSocketReturn {
     // Repository events
     socket.on("repo:set", path => {
       setRepoPath(path);
-      localStorage.setItem("selectedRepoPath", path);
+      optionsRef.current.onRepoPathChange?.(path);
 
       // リポジトリリストに追加（重複しない場合）
       setRepoList(prev => {
         if (prev.includes(path)) return prev;
         const newList = [...prev, path];
-        localStorage.setItem("repoList", JSON.stringify(newList));
+        optionsRef.current.onRepoListChange?.(newList);
         return newList;
       });
 
@@ -443,7 +450,7 @@ export function useSocket(): UseSocketReturn {
     (path: string) => {
       setRepoList(prev => {
         const newList = prev.filter(p => p !== path);
-        localStorage.setItem("repoList", JSON.stringify(newList));
+        optionsRef.current.onRepoListChange?.(newList);
         return newList;
       });
 
@@ -451,7 +458,7 @@ export function useSocket(): UseSocketReturn {
       if (repoPath === path) {
         setRepoPath(null);
         setWorktrees([]);
-        localStorage.removeItem("selectedRepoPath");
+        optionsRef.current.onRepoPathChange?.(null);
       }
     },
     [repoPath]

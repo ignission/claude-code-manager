@@ -36,6 +36,15 @@ import type { Worktree } from "../../../shared/types";
 
 export default function Dashboard() {
   const {
+    isLoading: isSettingsLoading,
+    getSetting,
+    setSetting,
+  } = useSettings();
+
+  const savedRepoList = getSetting<string[]>("repoList", []);
+  const savedRepoPath = getSetting<string | null>("selectedRepoPath", null);
+
+  const {
     isConnected,
     error,
     repoList,
@@ -75,20 +84,27 @@ export default function Dashboard() {
     beaconClear,
     sessionPreviews,
     sessionActivityTexts,
-  } = useSocket();
-
-  const { isLoading: isSettingsLoading, getSetting, setSetting } = useSettings();
+  } = useSocket({
+    initialRepoList: savedRepoList,
+    initialRepoPath: savedRepoPath,
+    onRepoListChange: list => setSetting("repoList", list),
+    onRepoPathChange: path => setSetting("selectedRepoPath", path),
+  });
 
   const isMobile = useIsMobile();
 
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
+    null
+  );
 
   // サーバーからの設定が読み込まれたらセッションIDを復元
   const settingsInitializedRef = useRef(false);
   useEffect(() => {
     if (!isSettingsLoading && !settingsInitializedRef.current) {
       settingsInitializedRef.current = true;
-      setSelectedSessionId(getSetting<string | null>("selectedSessionId", null));
+      setSelectedSessionId(
+        getSetting<string | null>("selectedSessionId", null)
+      );
     }
   }, [isSettingsLoading, getSetting]);
 
