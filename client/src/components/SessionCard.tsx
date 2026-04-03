@@ -1,4 +1,8 @@
+import { useEffect, useRef, useState } from "react";
 import type { ManagedSession, Worktree } from "../../../shared/types";
+
+/** プレビュー無変化でアイドル判定するまでの秒数 */
+const IDLE_THRESHOLD_MS = 10_000;
 
 interface SessionCardProps {
   session: ManagedSession;
@@ -10,21 +14,6 @@ interface SessionCardProps {
   onStop: () => void;
 }
 
-/** セッションステータスに応じた色クラスを返す */
-function statusColor(status: ManagedSession["status"]): string {
-  switch (status) {
-    case "active":
-      return "bg-green-500";
-    case "idle":
-      return "bg-yellow-500";
-    case "stopped":
-    case "error":
-      return "bg-red-500";
-    default:
-      return "bg-gray-500";
-  }
-}
-
 export function SessionCard({
   session,
   worktree,
@@ -33,10 +22,38 @@ export function SessionCard({
   onClick,
   onStop,
 }: SessionCardProps) {
-  // ブランチ名のみ表示（リポジトリ名はサイドバーのグループヘッダーで表示）
   const branch =
     worktree?.branch ||
     session.worktreePath.substring(session.worktreePath.lastIndexOf("/") + 1);
+
+  // プレビューの変化を追跡してアイドル判定
+  const prevTextRef = useRef(previewText);
+  const lastChangedRef = useRef(Date.now());
+  const [isIdle, setIsIdle] = useState(false);
+
+  useEffect(() => {
+    if (previewText !== prevTextRef.current) {
+      prevTextRef.current = previewText;
+      lastChangedRef.current = Date.now();
+      setIsIdle(false);
+    }
+  }, [previewText]);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - lastChangedRef.current;
+      setIsIdle(elapsed >= IDLE_THRESHOLD_MS);
+    }, 2000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // セッション自体が停止していれば赤、動作中でもプレビュー無変化なら赤
+  const dotColor =
+    session.status === "stopped" || session.status === "error"
+      ? "bg-red-500"
+      : isIdle
+        ? "bg-red-500"
+        : "bg-green-500";
 
   return (
     <button
@@ -53,9 +70,7 @@ export function SessionCard({
       }}
     >
       <div className="flex items-center gap-2 min-w-0">
-        <div
-          className={`w-2 h-2 rounded-full shrink-0 ${statusColor(session.status)}`}
-        />
+        <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
         <span className="text-sm font-mono truncate text-sidebar-foreground">
           {branch}
         </span>
