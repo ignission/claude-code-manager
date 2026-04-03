@@ -45,15 +45,17 @@ export function useSettings() {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entries),
-    }).then(res => {
-      if (res.ok) {
-        for (const key of Object.keys(entries)) {
-          pendingRef.current.delete(key);
+    })
+      .then(res => {
+        if (res.ok) {
+          for (const key of Object.keys(entries)) {
+            pendingRef.current.delete(key);
+          }
         }
-      }
-    }).catch(() => {
-      // サーバーエラー時はサイレントに失敗（次回リロード時にサーバーの値を使用）
-    });
+      })
+      .catch(() => {
+        // サーバーエラー時はサイレントに失敗（次回リロード時にサーバーの値を使用）
+      });
   }, []);
 
   const setSetting = useCallback(
@@ -70,13 +72,10 @@ export function useSettings() {
     [flushToServer]
   );
 
-  const getSetting = useCallback(
-    <T>(key: string, defaultValue: T): T => {
-      const value = settingsRef.current[key];
-      return value !== undefined ? (value as T) : defaultValue;
-    },
-    []
-  );
+  const getSetting = useCallback(<T>(key: string, defaultValue: T): T => {
+    const value = settingsRef.current[key];
+    return value !== undefined ? (value as T) : defaultValue;
+  }, []);
 
   // アンマウント時にpending分をフラッシュ
   useEffect(() => {

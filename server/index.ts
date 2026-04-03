@@ -158,7 +158,7 @@ async function startServer() {
   }
 
   // JSON body parser（Settings API用）
-  app.use(express.json());
+  app.use(express.json({ limit: "10kb" }));
 
   // セキュリティヘッダー
   app.use((_req, res, next) => {
@@ -355,18 +355,27 @@ async function startServer() {
 
   // ===== Settings API =====
 
+  // Settings APIのキー名バリデーション
+  const isValidSettingKey = (key: string): boolean =>
+    /^[a-zA-Z0-9_\-:.]+$/.test(key) && key.length <= 64;
+
   // 全設定を取得
   app.get("/api/settings", (_req, res) => {
     try {
       const settings = db.getAllSettings();
       res.json(settings);
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
+      console.error("Settings API error:", getErrorMessage(e));
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // 特定キーの設定を取得
   app.get("/api/settings/:key", (req, res) => {
+    if (!isValidSettingKey(req.params.key)) {
+      res.status(400).json({ error: "Invalid setting key" });
+      return;
+    }
     try {
       const value = db.getSetting(req.params.key);
       if (value === undefined) {
@@ -375,7 +384,8 @@ async function startServer() {
       }
       res.json({ value });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
+      console.error("Settings API error:", getErrorMessage(e));
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
@@ -387,15 +397,31 @@ async function startServer() {
         res.status(400).json({ error: "Body must be a JSON object" });
         return;
       }
+      const keys = Object.keys(entries);
+      if (keys.length > 50) {
+        res.status(400).json({ error: "Too many keys (max 50)" });
+        return;
+      }
+      for (const key of keys) {
+        if (!isValidSettingKey(key)) {
+          res.status(400).json({ error: "Invalid setting key" });
+          return;
+        }
+      }
       db.setSettings(entries);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
+      console.error("Settings API error:", getErrorMessage(e));
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // 単一キーを更新
   app.put("/api/settings/:key", (req, res) => {
+    if (!isValidSettingKey(req.params.key)) {
+      res.status(400).json({ error: "Invalid setting key" });
+      return;
+    }
     try {
       const { value } = req.body;
       if (value === undefined) {
@@ -405,17 +431,23 @@ async function startServer() {
       db.setSetting(req.params.key, value);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
+      console.error("Settings API error:", getErrorMessage(e));
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
   // 設定を削除
   app.delete("/api/settings/:key", (req, res) => {
+    if (!isValidSettingKey(req.params.key)) {
+      res.status(400).json({ error: "Invalid setting key" });
+      return;
+    }
     try {
       db.deleteSetting(req.params.key);
       res.json({ ok: true });
     } catch (e) {
-      res.status(500).json({ error: getErrorMessage(e) });
+      console.error("Settings API error:", getErrorMessage(e));
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
