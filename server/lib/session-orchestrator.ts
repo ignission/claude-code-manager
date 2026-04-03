@@ -340,22 +340,34 @@ export class SessionOrchestrator extends EventEmitter {
     for (const session of allSessions) {
       const raw = tmuxManager.capturePane(session.id, 40);
       if (raw === null) continue;
-      const lines = stripAnsi(raw)
+      const allLines = stripAnsi(raw)
         .split("\n")
-        .filter((line) => {
-          const trimmed = line.trim();
-          if (trimmed === "") return false;
-          // Claude Code UIのステータス行・チャットエリアを除外
-          if (trimmed.includes("⏵")) return false;
-          if (trimmed.includes("bypass permissions")) return false;
-          if (trimmed.includes("shift+tab to cycle")) return false;
-          if (trimmed.includes("auto mode")) return false;
-          if (trimmed.includes("plan mode")) return false;
-          // プロンプト入力行（> で始まる短い行）を除外
-          if (/^[>❯$%#]\s*$/.test(trimmed)) return false;
-          return true;
+        .map((line) => line.trim())
+        .filter((line) => line !== "");
+
+      // ✢ を含む行（Claude Codeの活動状態）を最優先で取得
+      const activityLine = allLines.findLast((line) => line.includes("✢"));
+      if (activityLine) {
+        previews.push({
+          sessionId: session.id,
+          text: activityLine,
+          timestamp: Date.now(),
         });
-      const text = lines.length > 0 ? lines[lines.length - 1] : "";
+        continue;
+      }
+
+      // それ以外: Claude Code UI行を除外した最後の行
+      const contentLines = allLines.filter((line) => {
+        if (line.includes("⏵")) return false;
+        if (line.includes("bypass permissions")) return false;
+        if (line.includes("shift+tab to cycle")) return false;
+        if (line.includes("auto mode")) return false;
+        if (line.includes("plan mode")) return false;
+        if (/^[>❯$%#]\s*$/.test(line)) return false;
+        return true;
+      });
+      const text =
+        contentLines.length > 0 ? contentLines[contentLines.length - 1] : "";
       previews.push({ sessionId: session.id, text, timestamp: Date.now() });
     }
 
