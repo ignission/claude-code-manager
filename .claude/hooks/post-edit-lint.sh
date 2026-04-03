@@ -30,15 +30,15 @@ case "$EXT" in
   ts|tsx|js|jsx)
     # --- TypeScript/JavaScriptファイル ---
 
-    # prettierで自動フォーマット（出力は捨てる）
-    (cd "$PROJECT_ROOT" && npx prettier --write "$FILE_PATH" >/dev/null 2>&1) || true
+    # biomeで自動フォーマット（出力は捨てる）
+    (cd "$PROJECT_ROOT" && npx biome format --write "$FILE_PATH" >/dev/null 2>&1) || true
 
     # フォーマットが変更されたか確認（git diffで検出）
     if [ -n "$(git diff --name-only "$FILE_PATH" 2>/dev/null)" ]; then
       jq -n '{
         "hookSpecificOutput": {
           "hookEventName": "PostToolUse",
-          "additionalContext": "prettierによりフォーマットが自動修正されました。変更内容を確認してください。"
+          "additionalContext": "biomeによりフォーマットが自動修正されました。変更内容を確認してください。"
         }
       }'
     fi

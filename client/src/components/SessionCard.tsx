@@ -58,7 +58,8 @@ export function SessionCard({
         : "bg-green-500";
 
   // アイドル時はactivityText（✻ Baked for ...）、アクティブ時はコンテンツ行
-  const displayText = isIdle && activityText ? activityText : previewText;
+  const idle = session.status === "idle" || isIdle;
+  const displayText = idle && activityText ? activityText : previewText;
 
   return (
     <button
