@@ -338,7 +338,7 @@ export class SessionOrchestrator extends EventEmitter {
     }> = [];
 
     for (const session of allSessions) {
-      const raw = tmuxManager.capturePane(session.id, 40);
+      const raw = tmuxManager.capturePane(session.id, 200);
       if (raw === null) continue;
       const allLines = stripAnsi(raw)
         .split("\n")
@@ -356,20 +356,30 @@ export class SessionOrchestrator extends EventEmitter {
         continue;
       }
 
-      // それ以外: Claude Code UI行を除外した最後の行
-      const contentLines = allLines.filter((line) => {
-        if (line.includes("⏵")) return false;
-        if (line.includes("bypass permissions")) return false;
-        if (line.includes("shift+tab to cycle")) return false;
-        if (line.includes("auto mode")) return false;
-        if (line.includes("plan mode")) return false;
-        // Claude Code対話UIのヒント行
-        if (line.includes("Enter to select")) return false;
-        if (line.includes("to navigate")) return false;
-        if (line.includes("Baked for")) return false;
-        if (/^[>❯$%#]\s*$/.test(line)) return false;
-        return true;
-      });
+      // Claude Code UI行を判定する関数
+      const isUiLine = (line: string): boolean => {
+        // ステータスバー・モード表示
+        if (line.includes("⏵")) return true;
+        if (line.includes("bypass permissions")) return true;
+        if (line.includes("shift+tab to cycle")) return true;
+        if (line.includes("auto mode")) return true;
+        if (line.includes("plan mode")) return true;
+        // 対話UIのヒント行
+        if (line.includes("Enter to select")) return true;
+        if (line.includes("to navigate")) return true;
+        if (line.includes("Baked for")) return true;
+        if (line.includes("Chat about this")) return true;
+        // メニュー選択肢（"1. ...", "S. ...", "a. ..." 等の短い行）
+        if (/^[A-Za-z0-9]\.\s/.test(line) && line.length < 60) return true;
+        // プロンプト記号のみ
+        if (/^[>❯$%#]\s*$/.test(line)) return true;
+        // ─ や ━ のみの区切り線
+        if (/^[─━═▔▁]{3,}$/.test(line)) return true;
+        return false;
+      };
+
+      // UI行を除外した最後の行を取得
+      const contentLines = allLines.filter((line) => !isUiLine(line));
       const text =
         contentLines.length > 0 ? contentLines[contentLines.length - 1] : "";
       previews.push({ sessionId: session.id, text, timestamp: Date.now() });
