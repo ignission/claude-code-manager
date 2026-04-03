@@ -23,6 +23,7 @@ interface SessionSidebarProps {
   sessionActivityTexts: Map<string, string>;
   onSelectSession: (sessionId: string) => void;
   onStopSession: (sessionId: string) => void;
+  onDeleteWorktree: (worktreePath: string) => void;
   onNewSession: () => void;
 }
 
@@ -35,6 +36,7 @@ export function SessionSidebar({
   sessionActivityTexts,
   onSelectSession,
   onStopSession,
+  onDeleteWorktree,
   onNewSession,
 }: SessionSidebarProps) {
   const getWorktree = (session: ManagedSession): Worktree | undefined => {
@@ -45,7 +47,7 @@ export function SessionSidebar({
   const groupedSessions = useMemo(() => {
     const groups = new Map<string, ManagedSession[]>();
     for (const session of Array.from(sessions.values())) {
-      const repo = findRepoForSession(session, repoList);
+      const repo = session.repoPath ?? findRepoForSession(session, repoList);
       const repoName = repo ? getBaseName(repo) : "unknown";
       const existing = groups.get(repoName) || [];
       existing.push(session);
@@ -108,6 +110,10 @@ export function SessionSidebar({
                         }
                         onClick={() => onSelectSession(session.id)}
                         onStop={() => onStopSession(session.id)}
+                        onDeleteWorktree={() => {
+                          const wt = getWorktree(session);
+                          onDeleteWorktree(wt?.path ?? session.worktreePath);
+                        }}
                       />
                     ))}
                   </div>

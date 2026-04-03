@@ -527,6 +527,9 @@ async function startServer() {
   io.on("connection", socket => {
     console.log(`Client connected: ${socket.id}`);
 
+    // このソケット接続で選択中のリポジトリパス
+    let currentRepoPath: string | null = null;
+
     // Send allowed repos list to client on connection
     socket.emit("repos:list", allowedRepos);
 
@@ -625,6 +628,7 @@ async function startServer() {
           return;
         }
         socket.emit("repo:set", repoPath);
+        currentRepoPath = repoPath;
         knownRepos.add(repoPath);
 
         const worktrees = await listWorktrees(repoPath);
@@ -695,7 +699,8 @@ async function startServer() {
       try {
         const session = await sessionOrchestrator.startSession(
           worktreeId,
-          worktreePath
+          worktreePath,
+          currentRepoPath ?? undefined
         );
         socket.emit("session:created", session);
       } catch (error) {
