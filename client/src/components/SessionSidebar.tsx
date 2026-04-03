@@ -38,7 +38,7 @@ export function SessionSidebar({
   onNewSession,
 }: SessionSidebarProps) {
   const getWorktree = (session: ManagedSession): Worktree | undefined => {
-    return worktrees.find((w) => w.id === session.worktreeId);
+    return worktrees.find(w => w.id === session.worktreeId);
   };
 
   // リポジトリ別にセッションをグルーピング
@@ -95,7 +95,7 @@ export function SessionSidebar({
                   </div>
                   {/* そのリポジトリのセッション */}
                   <div className="space-y-1">
-                    {repoSessions.map((session) => (
+                    {repoSessions.map(session => (
                       <SessionCard
                         key={session.id}
                         session={session}
@@ -112,7 +112,7 @@ export function SessionSidebar({
                     ))}
                   </div>
                 </div>
-              ),
+              )
             )
           )}
         </div>

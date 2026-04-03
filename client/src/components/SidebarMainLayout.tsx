@@ -88,7 +88,7 @@ export function SidebarMainLayout({
         style={{ width: `${sidebarWidth}px` }}
       >
         {sidebar}
-        {/* リサイズハンドル */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: リサイズハンドルはマウス操作専用 */}
         <div
           className={`absolute top-0 -right-1 w-3 h-full cursor-col-resize hover:bg-primary/50 transition-colors ${
             isResizing ? "bg-primary/50" : "bg-transparent"
