@@ -12,6 +12,7 @@ import type {
   SessionStatus,
   SpecialKey,
 } from "../../shared/types.js";
+import { stripAnsi } from "./ansi.js";
 import { db } from "./database.js";
 import { type TmuxSession, tmuxManager } from "./tmux-manager.js";
 import { ttydManager } from "./ttyd-manager.js";
@@ -319,6 +320,36 @@ export class SessionOrchestrator extends EventEmitter {
   getTtydPort(sessionId: string): number | null {
     const instance = ttydManager.getInstance(sessionId);
     return instance?.port || null;
+  }
+
+  /**
+   * 全アクティブセッションのプレビューテキストを取得
+   */
+  getAllPreviews(): Array<{
+    sessionId: string;
+    text: string;
+    timestamp: number;
+  }> {
+    const allSessions = tmuxManager.getAllSessions();
+    const previews: Array<{
+      sessionId: string;
+      text: string;
+      timestamp: number;
+    }> = [];
+
+    for (const session of allSessions) {
+      const raw = tmuxManager.capturePane(session.id, 3);
+      if (raw === null) continue;
+      const text =
+        stripAnsi(raw)
+          .split("\n")
+          .filter(line => line.trim() !== "")
+          .slice(-1)
+          .join("") || "";
+      previews.push({ sessionId: session.id, text, timestamp: Date.now() });
+    }
+
+    return previews;
   }
 
   /**
