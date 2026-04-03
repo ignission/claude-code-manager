@@ -49,13 +49,15 @@ export function SessionCard({
     return () => clearInterval(timer);
   }, []);
 
-  // stopped/error → 赤、idle（サーバーまたはクライアント検出） → 青、active → 緑
+  // stopped/error → 赤、no content(サーバーidle) → 青、変化なし(クライアントidle) → 赤、active → 緑
   const dotColor =
     session.status === "stopped" || session.status === "error"
       ? "bg-red-500"
-      : session.status === "idle" || isIdle
+      : session.status === "idle"
         ? "bg-blue-500"
-        : "bg-green-500";
+        : isIdle
+          ? "bg-red-500"
+          : "bg-green-500";
 
   // アイドル時はactivityText（✻ Baked for ...）、アクティブ時はコンテンツ行
   const idle = session.status === "idle" || isIdle;

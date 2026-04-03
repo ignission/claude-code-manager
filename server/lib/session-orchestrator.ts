@@ -337,6 +337,7 @@ export class SessionOrchestrator extends EventEmitter {
     sessionId: string;
     text: string;
     activityText: string;
+    status: SessionStatus;
     timestamp: number;
   }> {
     const allSessions = tmuxManager.getAllSessions();
@@ -344,6 +345,7 @@ export class SessionOrchestrator extends EventEmitter {
       sessionId: string;
       text: string;
       activityText: string;
+      status: SessionStatus;
       timestamp: number;
     }> = [];
 
@@ -357,8 +359,10 @@ export class SessionOrchestrator extends EventEmitter {
 
       // Claude Code UI行を判定する関数
       const isUiLine = (line: string): boolean => {
-        // アニメーション記号行（✢ ✻ 等）は常にUI行として除外
-        if (/[✢✻]/.test(line)) return true;
+        // アニメーション記号行（✢ ✻ や起動アニメーションのブロック要素）は常にUI行として除外
+        if (/[✢✻▘▝▛▜▐▌█]/.test(line)) return true;
+        // Sautéed/Baked等のアイドル表示
+        if (line.includes("Sautéed for")) return true;
         // ステータスバー・モード表示
         if (line.includes("⏵")) return true;
         if (line.includes("bypass permissions")) return true;
@@ -384,23 +388,26 @@ export class SessionOrchestrator extends EventEmitter {
       // ✢✻行（アイドル時表示用）
       const activityLine = allLines.findLast(line => /[✢✻]/.test(line)) || "";
 
-      // Claude Codeのアクティビティ記号でステータスを判定
-      // ✢ = 稼働中（スピナー）、✻ = 待機中（Baked for ...）
-      const hasActiveSpinner = allLines.some(line => /✢/.test(line));
-      const hasIdleIndicator = allLines.some(line => /✻/.test(line));
-
-      if (hasActiveSpinner) {
-        db.updateSessionStatus(session.id, "active");
-      } else if (hasIdleIndicator || text === "") {
-        // ✻表示（待機中）またはコンテンツなし（起動中等）→ idle
-        db.updateSessionStatus(session.id, "idle");
+      // コンテンツ行が空 → idle（起動中アニメーションやno content）
+      // コンテンツ行あり → active
+      const status: SessionStatus = text === "" ? "idle" : "active";
+      // ステータス変化時のみDB更新（不要なI/Oを回避）
+      // stopped/errorはライフサイクル駆動のstatusなので上書きしない
+      const dbSession = db.getSessionByWorktreePath(session.worktreePath);
+      if (
+        dbSession &&
+        dbSession.status !== "stopped" &&
+        dbSession.status !== "error" &&
+        dbSession.status !== status
+      ) {
+        db.updateSessionStatus(session.id, status);
       }
-      // どちらの記号もなくコンテンツありの場合はDB状態を維持（許可待ち等）
 
       previews.push({
         sessionId: session.id,
         text,
         activityText: activityLine,
+        status,
         timestamp: Date.now(),
       });
     }
