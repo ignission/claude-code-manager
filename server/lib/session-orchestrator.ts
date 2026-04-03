@@ -391,7 +391,11 @@ export class SessionOrchestrator extends EventEmitter {
       // コンテンツ行が空 → idle（起動中アニメーションやno content）
       // コンテンツ行あり → active
       const status: SessionStatus = text === "" ? "idle" : "active";
-      db.updateSessionStatus(session.id, status);
+      // ステータス変化時のみDB更新（不要なI/Oを回避）
+      const dbSession = db.getSessionByWorktreePath(session.worktreePath);
+      if (!dbSession || dbSession.status !== status) {
+        db.updateSessionStatus(session.id, status);
+      }
 
       previews.push({
         sessionId: session.id,
