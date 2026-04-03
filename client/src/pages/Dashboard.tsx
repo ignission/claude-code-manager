@@ -208,11 +208,8 @@ export default function Dashboard() {
   };
 
   const handleNewSession = () => {
-    if (repoList.length === 0) {
-      setIsSelectRepoOpen(true);
-    } else {
-      setIsCreateWorktreeOpen(true);
-    }
+    // まずリポジトリ選択（なければスキャン、あれば選択→worktree作成へ）
+    setIsSelectRepoOpen(true);
   };
 
   return (
