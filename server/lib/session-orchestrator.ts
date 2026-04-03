@@ -20,9 +20,6 @@ import { ttydManager } from "./ttyd-manager.js";
 export type { ManagedSession };
 
 export class SessionOrchestrator extends EventEmitter {
-  /** プレビューテキストの前回値を保持し、変化検出に使用 */
-  private previousPreviews: Map<string, string> = new Map();
-
   constructor() {
     super();
     this.setupEventForwarding();
@@ -387,18 +384,18 @@ export class SessionOrchestrator extends EventEmitter {
       // ✢✻行（アイドル時表示用）
       const activityLine = allLines.findLast(line => /[✢✻]/.test(line)) || "";
 
-      // プレビューテキストの変化を追跡し、DBのstatusを更新
-      const previousText = this.previousPreviews.get(session.id);
-      if (previousText !== undefined) {
-        // 前回と比較して変化がなければidle、変化があればactive
-        if (text === previousText) {
-          db.updateSessionStatus(session.id, "idle");
-        } else {
-          db.updateSessionStatus(session.id, "active");
-        }
+      // Claude Codeのアクティビティ記号でステータスを判定
+      // ✢ = 稼働中（スピナー）、✻ = 待機中（Baked for ...）
+      const hasActiveSpinner = allLines.some(line => /✢/.test(line));
+      const hasIdleIndicator = allLines.some(line => /✻/.test(line));
+
+      if (hasActiveSpinner) {
+        db.updateSessionStatus(session.id, "active");
+      } else if (hasIdleIndicator || text === "") {
+        // ✻表示（待機中）またはコンテンツなし（起動中等）→ idle
+        db.updateSessionStatus(session.id, "idle");
       }
-      // 今回のプレビューテキストを保存
-      this.previousPreviews.set(session.id, text);
+      // どちらの記号もなくコンテンツありの場合はDB状態を維持（許可待ち等）
 
       previews.push({
         sessionId: session.id,
