@@ -32,6 +32,7 @@ interface SessionRow {
   id: string;
   worktree_id: string;
   worktree_path: string;
+  repo_path: string | null;
   status: string;
   created_at: string;
   updated_at: string;
@@ -52,6 +53,7 @@ interface CreateSessionInput {
   readonly id: string;
   readonly worktreeId: string;
   readonly worktreePath: string;
+  readonly repoPath?: string;
   readonly status: SessionStatus;
 }
 
@@ -156,6 +158,18 @@ class SessionDatabase {
         updated_at TEXT NOT NULL
       )
     `);
+
+    // マイグレーション: sessionsテーブルにrepo_pathカラムを追加
+    // SQLiteのALTER TABLEはIF NOT EXISTSをサポートしないためtry-catchで囲む
+    try {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN repo_path TEXT");
+    } catch (e) {
+      // カラムが既に存在する場合のみ無視、それ以外は再スロー
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes("duplicate column name")) {
+        throw e;
+      }
+    }
   }
 
   // ============================================================
@@ -171,13 +185,14 @@ class SessionDatabase {
   createSession(session: CreateSessionInput): void {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, worktree_id, worktree_path, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
       session.worktreeId,
       session.worktreePath,
+      session.repoPath ?? null,
       session.status,
       now,
       now
@@ -194,11 +209,12 @@ class SessionDatabase {
   upsertSession(session: CreateSessionInput): void {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, worktree_id, worktree_path, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(worktree_path) DO UPDATE SET
         id = excluded.id,
         worktree_id = excluded.worktree_id,
+        repo_path = COALESCE(excluded.repo_path, repo_path),
         status = excluded.status,
         updated_at = excluded.updated_at
     `);
@@ -206,6 +222,7 @@ class SessionDatabase {
       session.id,
       session.worktreeId,
       session.worktreePath,
+      session.repoPath ?? null,
       session.status,
       now,
       now
@@ -250,6 +267,20 @@ class SessionDatabase {
       "UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?"
     );
     stmt.run(status, now, id);
+  }
+
+  /**
+   * セッションのリポジトリパスを更新
+   *
+   * @param id - セッションID
+   * @param repoPath - リポジトリのルートパス
+   */
+  updateSessionRepoPath(id: string, repoPath: string): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(
+      "UPDATE sessions SET repo_path = ?, updated_at = ? WHERE id = ?"
+    );
+    stmt.run(repoPath, now, id);
   }
 
   /**
@@ -336,6 +367,7 @@ class SessionDatabase {
       id: row.id,
       worktreeId: row.worktree_id,
       worktreePath: row.worktree_path,
+      repoPath: row.repo_path ?? undefined,
       status: row.status as SessionStatus,
       createdAt: new Date(row.created_at),
     };

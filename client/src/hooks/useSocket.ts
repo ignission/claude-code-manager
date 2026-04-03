@@ -28,6 +28,8 @@ function getTokenFromUrl(): string | null {
 }
 
 interface UseSocketOptions {
+  /** 設定読み込み完了後にtrueにする（falseの間はソケット接続しない） */
+  enabled?: boolean;
   initialRepoList?: string[];
   initialRepoPath?: string | null;
   onRepoListChange?: (list: string[]) => void;
@@ -129,6 +131,7 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   );
   // 再接続時に最新のrepoPathを参照するためのref
   const repoPathRef = useRef(options.initialRepoPath ?? null);
+
   const [worktrees, setWorktrees] = useState<Worktree[]>([]);
   const [deletedWorktreeId, setDeletedWorktreeId] = useState<string | null>(
     null
@@ -188,8 +191,20 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     }
   }, [repoList]);
 
-  // Initialize socket connection
+  // Initialize socket connection（enabled=falseの間は接続しない）
+  const enabled = options.enabled ?? true;
   useEffect(() => {
+    if (!enabled) return;
+
+    // enabled時点のinitial値でstate同期（useStateの初期値は初回のみなので）
+    const list = optionsRef.current.initialRepoList ?? [];
+    if (list.length > 0) setRepoList(list);
+    const path = optionsRef.current.initialRepoPath ?? null;
+    if (path) {
+      setRepoPath(path);
+      repoPathRef.current = path;
+    }
+
     const serverUrl = import.meta.env.DEV
       ? "http://localhost:3001"
       : window.location.origin;
@@ -469,7 +484,7 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       socket.off("session:previews");
       socket.disconnect();
     };
-  }, []);
+  }, [enabled]);
 
   // Repository actions
   const selectRepo = useCallback((path: string) => {

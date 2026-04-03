@@ -28,18 +28,23 @@ export function SessionCard({
     worktree?.branch ||
     session.worktreePath.substring(session.worktreePath.lastIndexOf("/") + 1);
 
-  // プレビューの変化を追跡してアイドル判定
+  // プレビュー/アクティビティの変化を追跡してアイドル判定
   const prevTextRef = useRef(previewText);
+  const prevActivityRef = useRef(activityText);
   const lastChangedRef = useRef(Date.now());
   const [isIdle, setIsIdle] = useState(false);
 
   useEffect(() => {
-    if (previewText !== prevTextRef.current) {
+    if (
+      previewText !== prevTextRef.current ||
+      activityText !== prevActivityRef.current
+    ) {
       prevTextRef.current = previewText;
+      prevActivityRef.current = activityText;
       lastChangedRef.current = Date.now();
       setIsIdle(false);
     }
-  }, [previewText]);
+  }, [previewText, activityText]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -49,15 +54,16 @@ export function SessionCard({
     return () => clearInterval(timer);
   }, []);
 
-  // stopped/error → 赤、no content(サーバーidle) → 青、変化なし(クライアントidle) → 赤、active → 緑
+  // ✢✻はどちらもClaude Codeの動作中アニメーション記号
+  const hasActivitySymbol = /[✢✻]/.test(activityText);
+
+  // 緑: 動作中（✢✻+変化あり）、青: 起動直後//clear後（コンテンツなし）、赤: それ以外
   const dotColor =
-    session.status === "stopped" || session.status === "error"
-      ? "bg-red-500"
-      : session.status === "idle"
+    hasActivitySymbol && !isIdle
+      ? "bg-green-500"
+      : session.status === "idle" && !hasActivitySymbol
         ? "bg-blue-500"
-        : isIdle
-          ? "bg-red-500"
-          : "bg-green-500";
+        : "bg-red-500";
 
   // アイドル時はactivityText（✻ Baked for ...）、アクティブ時はコンテンツ行
   const idle = session.status === "idle" || isIdle;

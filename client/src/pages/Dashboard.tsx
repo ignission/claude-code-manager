@@ -85,6 +85,7 @@ export default function Dashboard() {
     sessionPreviews,
     sessionActivityTexts,
   } = useSocket({
+    enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
     initialRepoPath: savedRepoPath,
     onRepoListChange: list => setSetting("repoList", list),

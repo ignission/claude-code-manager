@@ -5,6 +5,7 @@
  * セッションライフサイクルの統一APIを提供する。
  */
 
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import type {
@@ -75,7 +76,13 @@ export class SessionOrchestrator extends EventEmitter {
         console.log(
           `[Orchestrator] Restored session: ${tmuxSession.tmuxSessionName} -> ${dbSession.id} (status: ${dbSession.status})`
         );
-        // DBのstatusがidle等の場合はそのまま維持し、activeで上書きしない
+        // repoPathが未設定ならgitから導出して保存
+        if (!dbSession.repoPath && tmuxSession.worktreePath) {
+          const repoPath = this.deriveRepoPath(tmuxSession.worktreePath);
+          if (repoPath) {
+            db.updateSessionRepoPath(dbSession.id, repoPath);
+          }
+        }
       }
 
       // ttydも自動起動（起動完了後にクライアントへ通知）
@@ -119,16 +126,47 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSession.status === "running"
         ? (dbSession?.status as SessionStatus) || "active"
         : this.mapTmuxStatus(tmuxSession.status);
+
+    // repoPathがDBにない場合はgitから導出して保存
+    let repoPath = dbSession?.repoPath;
+    if (!repoPath && tmuxSession.worktreePath) {
+      repoPath = this.deriveRepoPath(tmuxSession.worktreePath);
+      if (repoPath && dbSession) {
+        db.updateSessionRepoPath(dbSession.id, repoPath);
+      }
+    }
+
     return {
       id: tmuxSession.id,
       worktreeId,
       worktreePath: tmuxSession.worktreePath,
+      repoPath,
       status,
       createdAt: tmuxSession.createdAt,
       tmuxSessionName: tmuxSession.tmuxSessionName,
       ttydPort: ttydInstance?.port || null,
       ttydUrl: ttydInstance ? `/ttyd/${tmuxSession.id}/` : null,
     };
+  }
+
+  /** worktreePathからメインリポジトリのパスを導出 */
+  private deriveRepoPath(worktreePath: string): string | undefined {
+    try {
+      const gitCommonDir = execFileSync(
+        "git",
+        [
+          "-C",
+          worktreePath,
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-common-dir",
+        ],
+        { encoding: "utf-8" }
+      ).trim();
+      return gitCommonDir.replace(/\/\.git\/?$/, "") || undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -154,11 +192,20 @@ export class SessionOrchestrator extends EventEmitter {
    */
   async startSession(
     worktreeId: string,
-    worktreePath: string
+    worktreePath: string,
+    repoPath?: string
   ): Promise<ManagedSession> {
     // 既存セッションがあれば再利用
     const existingTmux = tmuxManager.getSessionByWorktree(worktreePath);
     if (existingTmux) {
+      // repoPathが渡された場合はDBを更新（既存セッションにrepoPath情報を補完）
+      if (repoPath) {
+        const dbSession = db.getSessionByWorktreePath(worktreePath);
+        if (dbSession && !dbSession.repoPath) {
+          db.updateSessionRepoPath(dbSession.id, repoPath);
+        }
+      }
+
       // ttydが起動していなければ起動
       let ttydInstance = ttydManager.getInstance(existingTmux.id);
       if (!ttydInstance) {
@@ -187,6 +234,7 @@ export class SessionOrchestrator extends EventEmitter {
       id: tmuxSession.id,
       worktreeId,
       worktreePath,
+      repoPath,
       status: "active",
     });
 
@@ -194,6 +242,7 @@ export class SessionOrchestrator extends EventEmitter {
       id: tmuxSession.id,
       worktreeId,
       worktreePath,
+      repoPath,
       status: "active",
       createdAt: tmuxSession.createdAt,
       tmuxSessionName: tmuxSession.tmuxSessionName,
@@ -378,6 +427,19 @@ export class SessionOrchestrator extends EventEmitter {
         if (/^[>❯$%#]\s*$/.test(line)) return true;
         // ─ や ━ のみの区切り線
         if (/^[─━═▔▁]{3,}$/.test(line)) return true;
+        // Claude Code起動ヘッダー
+        if (/^Claude Code\s/.test(line)) return true;
+        // モデル情報行（Opus/Sonnet/Haiku + context）
+        if (/context\)/.test(line) && /Opus|Sonnet|Haiku/.test(line))
+          return true;
+        // リポジトリパス表示（~/path や /path でスペースなし）
+        if (/^[~\/][\w.\-\/]+$/.test(line)) return true;
+        // Claude Codeスラッシュコマンド（/clear等）
+        if (/^\/[a-z][\w-]*$/.test(line)) return true;
+        // (no content)表示
+        if (line.includes("(no content)")) return true;
+        // ツリー文字行（└├│で始まる）
+        if (/^[└├│]/.test(line)) return true;
         return false;
       };
 

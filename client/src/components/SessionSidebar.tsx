@@ -45,7 +45,7 @@ export function SessionSidebar({
   const groupedSessions = useMemo(() => {
     const groups = new Map<string, ManagedSession[]>();
     for (const session of Array.from(sessions.values())) {
-      const repo = findRepoForSession(session, repoList);
+      const repo = session.repoPath ?? findRepoForSession(session, repoList);
       const repoName = repo ? getBaseName(repo) : "unknown";
       const existing = groups.get(repoName) || [];
       existing.push(session);

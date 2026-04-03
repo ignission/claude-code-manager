@@ -26,6 +26,8 @@ export interface Session {
   id: string;
   worktreeId: string;
   worktreePath: string;
+  /** セッションが属するリポジトリのルートパス（既存セッション互換のためoptional） */
+  repoPath?: string;
   status: SessionStatus;
   createdAt: Date;
 }
