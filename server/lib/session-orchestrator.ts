@@ -363,6 +363,10 @@ export class SessionOrchestrator extends EventEmitter {
         if (line.includes("shift+tab to cycle")) return false;
         if (line.includes("auto mode")) return false;
         if (line.includes("plan mode")) return false;
+        // Claude Code対話UIのヒント行
+        if (line.includes("Enter to select")) return false;
+        if (line.includes("to navigate")) return false;
+        if (line.includes("Baked for")) return false;
         if (/^[>❯$%#]\s*$/.test(line)) return false;
         return true;
       });
