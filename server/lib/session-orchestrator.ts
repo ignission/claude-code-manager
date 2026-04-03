@@ -359,8 +359,10 @@ export class SessionOrchestrator extends EventEmitter {
 
       // Claude Code UI行を判定する関数
       const isUiLine = (line: string): boolean => {
-        // アニメーション記号行（✢ ✻ 等）は常にUI行として除外
-        if (/[✢✻]/.test(line)) return true;
+        // アニメーション記号行（✢ ✻ や起動アニメーションのブロック要素）は常にUI行として除外
+        if (/[✢✻▘▝▛▜▐▌█]/.test(line)) return true;
+        // Sautéed/Baked等のアイドル表示
+        if (line.includes("Sautéed for")) return true;
         // ステータスバー・モード表示
         if (line.includes("⏵")) return true;
         if (line.includes("bypass permissions")) return true;
