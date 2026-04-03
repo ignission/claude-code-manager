@@ -17,12 +17,17 @@ export function useSettings() {
   const [isLoading, setIsLoading] = useState(true);
   const pendingRef = useRef<Map<string, unknown>>(new Map());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settingsRef = useRef<SettingsState>({});
 
   // 初回マウント時に全設定を取得
   useEffect(() => {
     fetch(API_BASE)
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) throw new Error("Failed to fetch settings");
+        return res.json();
+      })
       .then((data: SettingsState) => {
+        settingsRef.current = data;
         setSettings(data);
         setIsLoading(false);
       })
@@ -34,13 +39,18 @@ export function useSettings() {
   // debounce付きでサーバーに保存
   const flushToServer = useCallback(() => {
     const entries = Object.fromEntries(pendingRef.current);
-    pendingRef.current.clear();
     if (Object.keys(entries).length === 0) return;
 
     fetch(API_BASE, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(entries),
+    }).then(res => {
+      if (res.ok) {
+        for (const key of Object.keys(entries)) {
+          pendingRef.current.delete(key);
+        }
+      }
     }).catch(() => {
       // サーバーエラー時はサイレントに失敗（次回リロード時にサーバーの値を使用）
     });
@@ -48,6 +58,7 @@ export function useSettings() {
 
   const setSetting = useCallback(
     (key: string, value: unknown) => {
+      settingsRef.current = { ...settingsRef.current, [key]: value };
       setSettings(prev => ({ ...prev, [key]: value }));
       pendingRef.current.set(key, value);
 
@@ -61,10 +72,10 @@ export function useSettings() {
 
   const getSetting = useCallback(
     <T>(key: string, defaultValue: T): T => {
-      const value = settings[key];
+      const value = settingsRef.current[key];
       return value !== undefined ? (value as T) : defaultValue;
     },
-    [settings]
+    []
   );
 
   // アンマウント時にpending分をフラッシュ
@@ -75,11 +86,13 @@ export function useSettings() {
       }
       if (pendingRef.current.size > 0) {
         const entries = Object.fromEntries(pendingRef.current);
-        // sendBeaconでページ離脱時にも確実に送信
-        navigator.sendBeacon(
-          API_BASE,
-          new Blob([JSON.stringify(entries)], { type: "application/json" })
-        );
+        // keepalive: true でページ離脱時にも確実にPUTリクエストを送信
+        fetch(API_BASE, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entries),
+          keepalive: true,
+        }).catch(() => {});
       }
     };
   }, []);
