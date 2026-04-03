@@ -79,11 +79,14 @@ export function SessionCard({
   // ✢✻はどちらもClaude Codeの動作中アニメーション記号
   const hasActivitySymbol = /[✢✻]/.test(activityText);
 
-  // 緑: 動作中（✢✻+変化あり）、青: 起動直後//clear後（コンテンツなし）、赤: それ以外
+  // 緑: 動作中（✢✻+変化あり）、青: 起動直後/clear後（コンテンツなし）、赤: それ以外
+  const hasVisibleContent =
+    previewText.trim().length > 0 || activityText.trim().length > 0;
+
   const dotColor =
     hasActivitySymbol && !isIdle
       ? "bg-green-500"
-      : session.status === "idle" && !hasActivitySymbol
+      : !hasVisibleContent
         ? "bg-blue-500"
         : "bg-red-500";
 
@@ -133,7 +136,7 @@ export function SessionCard({
             <Square className="w-4 h-4 mr-2" />
             セッションを停止
           </ContextMenuItem>
-          {worktree?.isMain !== true && (
+          {worktree && !worktree.isMain && (
             <>
               <ContextMenuSeparator />
               <ContextMenuItem
@@ -162,6 +165,7 @@ export function SessionCard({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 h-12 md:h-10"
               onClick={() => {
+                onStop();
                 onDeleteWorktree();
                 setShowDeleteDialog(false);
               }}
