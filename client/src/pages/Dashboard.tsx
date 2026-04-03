@@ -1,6 +1,6 @@
 import { AlertCircle, Copy, Loader2, Terminal } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { MobileChatView } from "@/components/MobileChatView";
@@ -28,12 +28,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/useMobile";
+import { useSettings } from "@/hooks/useSettings";
 import { useSocket } from "@/hooks/useSocket";
 import { getBaseName } from "@/utils/pathUtils";
 import { findRepoForSession } from "@/utils/sessionUtils";
 import type { Worktree } from "../../../shared/types";
-
-const SELECTED_SESSION_STORAGE_KEY = "selectedSessionId";
 
 export default function Dashboard() {
   const {
@@ -78,28 +77,27 @@ export default function Dashboard() {
     sessionActivityTexts,
   } = useSocket();
 
+  const { isLoading: isSettingsLoading, getSetting, setSetting } = useSettings();
+
   const isMobile = useIsMobile();
 
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
-    () => {
-      try {
-        const saved = localStorage.getItem(SELECTED_SESSION_STORAGE_KEY);
-        return saved ? JSON.parse(saved) : null;
-      } catch {
-        return null;
-      }
-    }
-  );
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 
-  // selectedSessionIdのlocalStorage永続化
+  // サーバーからの設定が読み込まれたらセッションIDを復元
+  const settingsInitializedRef = useRef(false);
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        SELECTED_SESSION_STORAGE_KEY,
-        JSON.stringify(selectedSessionId)
-      );
-    } catch {}
-  }, [selectedSessionId]);
+    if (!isSettingsLoading && !settingsInitializedRef.current) {
+      settingsInitializedRef.current = true;
+      setSelectedSessionId(getSetting<string | null>("selectedSessionId", null));
+    }
+  }, [isSettingsLoading, getSetting]);
+
+  // selectedSessionIdのサーバー永続化
+  useEffect(() => {
+    if (settingsInitializedRef.current) {
+      setSetting("selectedSessionId", selectedSessionId);
+    }
+  }, [selectedSessionId, setSetting]);
 
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
@@ -117,14 +115,6 @@ export default function Dashboard() {
   useEffect(() => {
     if (error) toast.error(error);
   }, [error]);
-
-  // 旧レイアウトのlocalStorageキーをクリーンアップ
-  useEffect(() => {
-    localStorage.removeItem("activePanesPerRepo");
-    localStorage.removeItem("maximizedPane");
-    localStorage.removeItem("closedPanes");
-    localStorage.removeItem("sidebar-width");
-  }, []);
 
   // Beacon履歴をマウント時に読み込む
   useEffect(() => {
@@ -314,6 +304,8 @@ export default function Dashboard() {
               onClear={beaconClear}
             />
           }
+          initialSidebarWidth={getSetting<number>("ark-sidebar-width", 250)}
+          onSidebarWidthChange={w => setSetting("ark-sidebar-width", w)}
         />
       )}
 
