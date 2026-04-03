@@ -112,7 +112,7 @@ export function SessionSidebar({
                         onStop={() => onStopSession(session.id)}
                         onDeleteWorktree={() => {
                           const wt = getWorktree(session);
-                          if (wt) onDeleteWorktree(wt.path);
+                          onDeleteWorktree(wt?.path ?? session.worktreePath);
                         }}
                       />
                     ))}

@@ -136,7 +136,7 @@ export function SessionCard({
             <Square className="w-4 h-4 mr-2" />
             セッションを停止
           </ContextMenuItem>
-          {worktree && !worktree.isMain && (
+          {worktree?.isMain !== true && (
             <>
               <ContextMenuSeparator />
               <ContextMenuItem
