@@ -1,4 +1,3 @@
-import { Plus } from "lucide-react";
 import { type KeyboardEvent, useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,7 +7,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +36,7 @@ export function CreateWorktreeDialog({
       }
       onOpenChange(isOpen);
     },
-    [onOpenChange]
+    [onOpenChange],
   );
 
   const handleCreate = useCallback(() => {
@@ -68,7 +66,7 @@ export function CreateWorktreeDialog({
         handleCreate();
       }
     },
-    [newBranchName, handleCreate]
+    [newBranchName, handleCreate],
   );
 
   // Base Branch入力: エンターで作成
@@ -79,21 +77,11 @@ export function CreateWorktreeDialog({
         handleCreate();
       }
     },
-    [handleCreate]
+    [handleCreate],
   );
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-10 w-10 md:h-7 md:w-7"
-          disabled={!selectedRepoPath}
-        >
-          <Plus className="w-5 h-5 md:w-4 md:h-4" />
-        </Button>
-      </DialogTrigger>
       <DialogContent className="bg-card border-border w-[calc(100%-2rem)] max-w-md mx-auto">
         <DialogHeader>
           <DialogTitle>Create New Worktree</DialogTitle>
@@ -108,7 +96,7 @@ export function CreateWorktreeDialog({
               id="branch"
               placeholder="feature/new-feature"
               value={newBranchName}
-              onChange={e => setNewBranchName(e.target.value)}
+              onChange={(e) => setNewBranchName(e.target.value)}
               onKeyDown={handleBranchNameKeyDown}
               className="font-mono h-12 md:h-10 text-base md:text-sm"
             />
@@ -119,7 +107,7 @@ export function CreateWorktreeDialog({
               id="baseBranch"
               placeholder="main"
               value={baseBranch}
-              onChange={e => setBaseBranch(e.target.value)}
+              onChange={(e) => setBaseBranch(e.target.value)}
               onKeyDown={handleBaseBranchKeyDown}
               className="font-mono h-12 md:h-10 text-base md:text-sm"
             />

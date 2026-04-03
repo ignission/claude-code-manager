@@ -167,6 +167,8 @@ export default function Dashboard() {
   const handleSelectRepo = (path: string) => {
     selectRepo(path);
     setIsSelectRepoOpen(false);
+    // リポジトリ選択後にWorktree作成ダイアログを開く
+    setIsCreateWorktreeOpen(true);
   };
 
   const handleCreateWorktree = (branchName: string, baseBranch?: string) => {
@@ -320,6 +322,7 @@ export default function Dashboard() {
         />
       )}
 
+      {/* ダイアログ群はレイアウトの外にポータル表示されるが、DOM上の配置はここ */}
       {/* ポート選択ダイアログ */}
       <Dialog open={showPortSelector} onOpenChange={setShowPortSelector}>
         <DialogContent className="sm:max-w-md">
