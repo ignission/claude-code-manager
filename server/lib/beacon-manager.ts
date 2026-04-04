@@ -299,7 +299,9 @@ interface BeaconSession {
 export interface BeaconDeps {
   getAllSessions: () => unknown[];
   startSession: (worktreeId: string, worktreePath: string) => Promise<unknown>;
-  stopSession: (sessionId: string) => void;
+  stopSession: (
+    sessionId: string
+  ) => { worktreePath: string; repoPath?: string } | null;
   sendMessage: (sessionId: string, message: string) => void;
   sendKey: (sessionId: string, key: SpecialKey) => void;
   capturePane: (sessionId: string, lines?: number) => string | null;
