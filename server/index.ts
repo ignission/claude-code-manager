@@ -751,13 +751,23 @@ async function startServer() {
         if (result?.worktreePath && result.repoPath) {
           const isMain = result.worktreePath === result.repoPath;
           if (!isMain) {
-            const deletedWorktreeId = Buffer.from(result.worktreePath)
-              .toString("base64")
-              .replace(/[/+=]/g, "");
-            await deleteWorktree(result.repoPath, result.worktreePath);
-            socket.emit("worktree:deleted", deletedWorktreeId);
-            const worktrees = await listWorktrees(result.repoPath);
-            socket.emit("worktree:list", worktrees);
+            try {
+              const deletedWorktreeId = Buffer.from(result.worktreePath)
+                .toString("base64")
+                .replace(/[/+=]/g, "");
+              await deleteWorktree(result.repoPath, result.worktreePath);
+              socket.emit("worktree:deleted", deletedWorktreeId);
+              const worktrees = await listWorktrees(result.repoPath);
+              socket.emit("worktree:list", worktrees);
+            } catch (wtError) {
+              console.error(
+                `[Session] Worktree削除に失敗（セッションは削除済み）: ${getErrorMessage(wtError)}`
+              );
+              socket.emit("session:error", {
+                sessionId,
+                error: `セッションは削除しましたが、Worktreeの削除に失敗しました: ${getErrorMessage(wtError)}`,
+              });
+            }
           }
         }
       } catch (error) {

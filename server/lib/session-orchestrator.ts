@@ -285,7 +285,10 @@ export class SessionOrchestrator extends EventEmitter {
       ? db.getSessionByWorktreePath(tmuxSession.worktreePath)
       : null;
     const worktreePath = tmuxSession?.worktreePath || "";
-    const repoPath = dbSession?.repoPath || undefined;
+    // DBにrepoPathがない場合はgitコマンドで導出を試みる
+    const repoPath =
+      dbSession?.repoPath ||
+      (worktreePath ? this.deriveRepoPath(worktreePath) : undefined);
 
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);

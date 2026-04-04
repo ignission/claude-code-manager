@@ -140,7 +140,9 @@ export function SessionCard({
           <AlertDialogHeader>
             <AlertDialogTitle>セッションを削除</AlertDialogTitle>
             <AlertDialogDescription>
-              このセッションとWorktreeを削除しますか？関連するブランチも削除されます。
+              {worktree?.isMain
+                ? "このセッションを削除しますか？メインWorktreeは削除されません。"
+                : "このセッションとWorktreeを削除しますか？関連するブランチも削除されます。"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col gap-2 sm:flex-row">
