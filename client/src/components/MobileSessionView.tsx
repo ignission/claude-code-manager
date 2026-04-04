@@ -13,7 +13,7 @@ import {
   MoreVertical,
   RefreshCw,
   Send,
-  Square,
+  Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -328,14 +328,15 @@ export function MobileSessionView({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* Stopボタン */}
+          {/* 削除ボタン */}
           <Button
             variant="ghost"
             size="icon"
             className="h-10 w-10 text-destructive hover:text-destructive"
             onClick={onStopSession}
+            title="セッションを削除"
           >
-            <Square className="w-5 h-5" />
+            <Trash2 className="w-5 h-5" />
           </Button>
         </div>
       </header>

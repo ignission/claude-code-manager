@@ -19,8 +19,8 @@ import {
   Keyboard,
   RefreshCw,
   Send,
-  Square,
   StopCircle,
+  Trash2,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -313,9 +313,9 @@ export function TerminalPane({
             size="icon"
             className="h-10 w-10 md:h-6 md:w-6 text-destructive hover:text-destructive"
             onClick={onStopSession}
-            title="Stop session (kills tmux)"
+            title="セッションを削除"
           >
-            <Square className="w-5 h-5 md:w-3 md:h-3" />
+            <Trash2 className="w-5 h-5 md:w-3 md:h-3" />
           </Button>
         </div>
       </header>
