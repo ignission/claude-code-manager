@@ -65,7 +65,7 @@ export class SessionOrchestrator extends EventEmitter {
         tmuxManager.killSession(tmuxSession.id);
         const dbSession = db.getSessionByWorktreePath(tmuxSession.worktreePath);
         if (dbSession) {
-          db.updateSessionStatus(dbSession.id, "stopped");
+          db.deleteSession(dbSession.id);
         }
         continue;
       }
@@ -279,7 +279,7 @@ export class SessionOrchestrator extends EventEmitter {
   stopSession(sessionId: string): void {
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
-    db.updateSessionStatus(sessionId, "stopped");
+    db.deleteSession(sessionId);
     this.emit("session:stopped", sessionId);
   }
 
@@ -351,7 +351,7 @@ export class SessionOrchestrator extends EventEmitter {
         tmuxManager.killSession(s.id);
         const dbSession = db.getSessionByWorktreePath(s.worktreePath);
         if (dbSession) {
-          db.updateSessionStatus(dbSession.id, "stopped");
+          db.deleteSession(dbSession.id);
         }
         this.emit("session:stopped", s.id);
       }
