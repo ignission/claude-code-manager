@@ -731,8 +731,28 @@ async function startServer() {
       }
     });
 
-    socket.on("session:stop", sessionId => {
-      sessionOrchestrator.stopSession(sessionId);
+    socket.on("session:stop", async sessionId => {
+      const result = sessionOrchestrator.stopSession(sessionId);
+
+      // worktreeも削除（メインworktreeは除外）
+      if (result?.worktreePath && result.repoPath) {
+        try {
+          const isMain = result.worktreePath === result.repoPath;
+          if (!isMain) {
+            const deletedWorktreeId = Buffer.from(result.worktreePath)
+              .toString("base64")
+              .replace(/[/+=]/g, "");
+            await deleteWorktree(result.repoPath, result.worktreePath);
+            io.emit("worktree:deleted", deletedWorktreeId);
+            const worktrees = await listWorktrees(result.repoPath);
+            io.emit("worktree:list", worktrees);
+          }
+        } catch (error) {
+          console.error(
+            `[Session] Failed to delete worktree: ${getErrorMessage(error)}`
+          );
+        }
+      }
     });
 
     socket.on("session:send", ({ sessionId, message }) => {

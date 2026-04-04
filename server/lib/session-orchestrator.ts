@@ -274,13 +274,25 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
-   * セッションを停止
+   * セッションを削除（tmux/ttyd停止 + DB削除）
+   * worktreeの削除はserver/index.tsのハンドラ側で行う
    */
-  stopSession(sessionId: string): void {
+  stopSession(
+    sessionId: string
+  ): { worktreePath: string; repoPath?: string } | null {
+    const tmuxSession = tmuxManager.getSession(sessionId);
+    const dbSession = tmuxSession
+      ? db.getSessionByWorktreePath(tmuxSession.worktreePath)
+      : null;
+    const worktreePath = tmuxSession?.worktreePath || "";
+    const repoPath = dbSession?.repoPath || undefined;
+
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
     db.deleteSession(sessionId);
     this.emit("session:stopped", sessionId);
+
+    return worktreePath ? { worktreePath, repoPath } : null;
   }
 
   /**
