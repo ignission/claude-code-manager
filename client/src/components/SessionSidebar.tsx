@@ -25,7 +25,6 @@ interface SessionSidebarProps {
   onSelectSession: (sessionId: string) => void;
   onStopSession: (sessionId: string) => void;
   onStartSession: (worktree: Worktree) => void;
-  onDeleteWorktree: (worktreePath: string) => void;
   onNewSession: () => void;
 }
 
@@ -44,7 +43,6 @@ export function SessionSidebar({
   onSelectSession,
   onStopSession,
   onStartSession,
-  onDeleteWorktree,
   onNewSession,
 }: SessionSidebarProps) {
   // worktreeId → session のマップ
@@ -66,11 +64,14 @@ export function SessionSidebar({
       const session = sessionByWorktreeId.get(wt.id) ?? null;
       if (session) worktreeSessionIds.add(session.id);
       // worktreeからrepo名を導出
-      const repoName = session?.repoPath
-        ? getBaseName(session.repoPath)
-        : repoList.length > 0
-          ? getBaseName(repoList[0])
-          : "unknown";
+      const repoName = (() => {
+        if (session?.repoPath) return getBaseName(session.repoPath);
+        // worktreeのパスからリポジトリを特定
+        const matchedRepo = repoList.find(repo => wt.path.startsWith(repo));
+        if (matchedRepo) return getBaseName(matchedRepo);
+        // worktreeのパスから親ディレクトリ名を使う（フォールバック）
+        return getBaseName(wt.path.split("/.worktrees/")[0] || wt.path);
+      })();
       const existing = groups.get(repoName) || [];
       existing.push({ worktree: wt, session });
       groups.set(repoName, existing);
