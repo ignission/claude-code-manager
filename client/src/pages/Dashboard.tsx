@@ -264,10 +264,7 @@ export default function Dashboard() {
               sessionActivityTexts={sessionActivityTexts}
               onSelectSession={setSelectedSessionId}
               onStopSession={handleStopSession}
-              onDeleteWorktree={path => {
-                const wt = worktrees.find(w => w.path === path);
-                if (wt) handleDeleteWorktree(wt);
-              }}
+              onStartSession={handleStartSession}
               onNewSession={handleNewSession}
             />
           }
