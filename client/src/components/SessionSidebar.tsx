@@ -29,7 +29,10 @@ interface SessionSidebarProps {
   onNewSession: () => void;
 }
 
-type SidebarItem = { worktree: Worktree; session: ManagedSession | null };
+type SidebarItem = {
+  worktree: Worktree | null;
+  session: ManagedSession | null;
+};
 
 export function SessionSidebar({
   sessions,
@@ -79,7 +82,7 @@ export function SessionSidebar({
       const repo = session.repoPath ?? findRepoForSession(session, repoList);
       const repoName = repo ? getBaseName(repo) : "unknown";
       const existing = groups.get(repoName) || [];
-      existing.push({ worktree: undefined as unknown as Worktree, session });
+      existing.push({ worktree: null, session });
       groups.set(repoName, existing);
     }
 
@@ -130,7 +133,7 @@ export function SessionSidebar({
                     <SessionCard
                       key={session?.id ?? wt?.id ?? "unknown"}
                       session={session}
-                      worktree={wt}
+                      worktree={wt ?? undefined}
                       repoList={repoList}
                       isSelected={
                         session ? selectedSessionId === session.id : false
@@ -145,7 +148,7 @@ export function SessionSidebar({
                       }
                       onClick={() => session && onSelectSession(session.id)}
                       onStop={() => session && onStopSession(session.id)}
-                      onStart={() => wt && onStartSession(wt)}
+                      onStart={() => (wt ? onStartSession(wt) : undefined)}
                     />
                   ))}
                 </div>
