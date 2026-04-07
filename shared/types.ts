@@ -169,6 +169,15 @@ export interface ServerToClientEvents {
   "beacon:stream": (data: BeaconStreamChunk) => void;
   "beacon:history": (data: { messages: ChatMessage[] }) => void;
   "beacon:error": (data: { error: string }) => void;
+
+  // ファイルビューワー
+  "file:content": (data: {
+    filePath: string;
+    content: string;
+    mimeType: string;
+    size: number;
+    error?: string;
+  }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -215,6 +224,9 @@ export interface ClientToServerEvents {
   "beacon:send": (data: { message: string }) => void;
   "beacon:history": () => void;
   "beacon:close": () => void;
+
+  // ファイルビューワー
+  "file:read": (data: { worktreePath: string; filePath: string }) => void;
 }
 
 /** Beaconチャットのメッセージ */
