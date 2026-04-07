@@ -88,7 +88,9 @@ export type SpecialKey =
   | "scroll-up"
   | "scroll-down"
   | "copy-mode"
-  | "q";
+  | "q"
+  | "Up"
+  | "Down";
 
 // WebSocket event types
 export interface ServerToClientEvents {

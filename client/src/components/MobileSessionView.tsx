@@ -425,7 +425,7 @@ export function MobileSessionView({
         </div>
       )}
 
-      {/* Quick Keys: スクロールモードトグル + y/n/Esc/Ctrl+C/S-Tab 常時表示 */}
+      {/* Quick Keys: スクロールモードトグル + ↑/↓/Esc/Ctrl+C/S-Tab 常時表示 */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-t border-border/50 bg-sidebar overflow-x-auto select-none">
         {/* スクロールモードトグル: ON=スワイプでスクロール、OFF=通常操作 */}
         <Button
@@ -445,18 +445,18 @@ export function MobileSessionView({
           variant="ghost"
           size="sm"
           className="h-8 px-3 text-xs shrink-0"
-          onClick={() => onSendKey("y")}
+          onClick={() => onSendKey("Up")}
         >
-          y
+          ↑
         </Button>
         <Button
           type="button"
           variant="ghost"
           size="sm"
           className="h-8 px-3 text-xs shrink-0"
-          onClick={() => onSendKey("n")}
+          onClick={() => onSendKey("Down")}
         >
-          n
+          ↓
         </Button>
         <Button
           type="button"

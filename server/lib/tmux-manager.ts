@@ -23,6 +23,8 @@ const ALLOWED_SPECIAL_KEYS = new Set<SpecialKey>([
   "scroll-down",
   "copy-mode",
   "q",
+  "Up",
+  "Down",
 ]);
 
 export interface TmuxSession {
@@ -282,6 +284,8 @@ export class TmuxManager extends EventEmitter {
       "S-Tab": "BTab",
       "scroll-up": "Up",
       "scroll-down": "Down",
+      Up: "Up",
+      Down: "Down",
     };
     const tmuxKey = keyMap[key] ?? key;
     const result = spawnSync(
