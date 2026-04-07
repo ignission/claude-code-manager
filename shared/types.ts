@@ -85,10 +85,6 @@ export type SpecialKey =
   | "n"
   | "S-Tab"
   | "Escape"
-  | "scroll-up"
-  | "scroll-down"
-  | "copy-mode"
-  | "q"
   | "Up"
   | "Down";
 
@@ -169,6 +165,15 @@ export interface ServerToClientEvents {
   "beacon:stream": (data: BeaconStreamChunk) => void;
   "beacon:history": (data: { messages: ChatMessage[] }) => void;
   "beacon:error": (data: { error: string }) => void;
+
+  // ファイルビューワー
+  "file:content": (data: {
+    filePath: string;
+    content: string;
+    mimeType: string;
+    size: number;
+    error?: string;
+  }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -215,6 +220,9 @@ export interface ClientToServerEvents {
   "beacon:send": (data: { message: string }) => void;
   "beacon:history": () => void;
   "beacon:close": () => void;
+
+  // ファイルビューワー
+  "file:read": (data: { sessionId: string; filePath: string }) => void;
 }
 
 /** Beaconチャットのメッセージ */

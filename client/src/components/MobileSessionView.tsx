@@ -31,7 +31,12 @@ import type {
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
+import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import { useVisualViewport } from "../hooks/useVisualViewport";
+import { BrowserPane } from "./BrowserPane";
+import { FileViewerPane } from "./FileViewerPane";
+import type { ViewerTab } from "./TerminalPane";
+import { ViewerTabBar } from "./ViewerTabBar";
 
 interface MobileSessionViewProps {
   session: ManagedSession;
@@ -45,6 +50,10 @@ interface MobileSessionViewProps {
   imageUploadError?: string | null;
   onClearImageUploadState?: () => void;
   onCopyBuffer?: () => Promise<string | null>;
+  tabs: ViewerTab[];
+  activeTabIndex: number;
+  onTabSelect: (index: number) => void;
+  onTabClose: (index: number) => void;
 }
 
 export function MobileSessionView({
@@ -59,6 +68,10 @@ export function MobileSessionView({
   imageUploadError,
   onClearImageUploadState,
   onCopyBuffer,
+  tabs,
+  activeTabIndex,
+  onTabSelect,
+  onTabClose,
 }: MobileSessionViewProps) {
   const { height: viewportHeight, isKeyboardVisible } = useVisualViewport();
   const [inputValue, setInputValue] = useState("");
@@ -70,24 +83,18 @@ export function MobileSessionView({
   } | null>(null);
   const [imageMessage, setImageMessage] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // ttyd iframe URL構築
-  const isLocalAccess =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1");
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
   const urlToken =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("token")
       : null;
   const ttydBasePath = `/ttyd/${session.id}/`;
-  const ttydIframeSrc =
-    isLocalAccess && session.ttydPort
-      ? `http://127.0.0.1:${session.ttydPort}${ttydBasePath}`
-      : urlToken
-        ? `${ttydBasePath}?token=${urlToken}`
-        : ttydBasePath;
+  // 常にプロキシ経由でアクセスし同一オリジンを維持する
+  const ttydIframeSrc = urlToken
+    ? `${ttydBasePath}?token=${urlToken}`
+    : ttydBasePath;
 
   // メッセージ送信（空文字でもEnterとして送信 = ターミナルへの空行送信）
   const handleSubmit = (e: React.FormEvent) => {
@@ -206,52 +213,8 @@ export function MobileSessionView({
     }
   };
 
-  // スワイプスクロールモード
-  const [scrollMode, setScrollMode] = useState(false);
-  const swipeStateRef = useRef<{ startY: number; sentLines: number } | null>(
-    null
-  );
-  const LINE_HEIGHT = 20; // 1行あたりのpx閾値
-
-  // スクロールモードON時にcopy-modeに入り、OFF時にqで抜ける
-  const toggleScrollMode = useCallback(() => {
-    if (scrollMode) {
-      onSendKey("q");
-      setScrollMode(false);
-    } else {
-      onSendKey("copy-mode");
-      setScrollMode(true);
-    }
-  }, [scrollMode, onSendKey]);
-
-  const handleOverlayTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    swipeStateRef.current = { startY: touch.clientY, sentLines: 0 };
-  }, []);
-
-  const handleOverlayTouchMove = useCallback(
-    (e: React.TouchEvent) => {
-      const state = swipeStateRef.current;
-      if (!state) return;
-      e.preventDefault();
-      const touch = e.touches[0];
-      const deltaY = state.startY - touch.clientY;
-      const totalLines = Math.floor(Math.abs(deltaY) / LINE_HEIGHT);
-      const newLines = totalLines - state.sentLines;
-      if (newLines > 0) {
-        const key: SpecialKey = deltaY > 0 ? "scroll-up" : "scroll-down";
-        for (let i = 0; i < newLines; i++) {
-          onSendKey(key);
-        }
-        state.sentLines = totalLines;
-      }
-    },
-    [onSendKey]
-  );
-
-  const handleOverlayTouchEnd = useCallback(() => {
-    swipeStateRef.current = null;
-  }, []);
+  // ttyd iframe内のxterm.jsにリンク検出をインジェクト（共通フック）
+  useTerminalLinkInjection(iframeRef, iframeKey);
 
   // スラッシュコマンド
   const slashCommands = [
@@ -341,29 +304,31 @@ export function MobileSessionView({
         </div>
       </header>
 
+      {/* タブバー（共通コンポーネント） */}
+      <ViewerTabBar
+        tabs={tabs}
+        activeTabIndex={activeTabIndex}
+        onTabSelect={onTabSelect}
+        onTabClose={onTabClose}
+      />
+
       {/* ttyd iframe + スクロールモード時のオーバーレイ */}
-      <div className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden relative">
+      <div
+        className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden relative"
+        style={{
+          display:
+            tabs[activeTabIndex]?.type === "terminal" ? undefined : "none",
+        }}
+      >
         {session.ttydUrl || session.ttydPort ? (
-          <>
-            <iframe
-              key={iframeKey}
-              src={ttydIframeSrc}
-              className="w-full h-full border-0"
-              title={`Terminal - ${worktree?.branch || session.id}`}
-              allow="clipboard-read; clipboard-write; keyboard-map"
-            />
-            {/* スクロールモード中のみ表示されるスワイプ検出オーバーレイ */}
-            {scrollMode && (
-              <div
-                className="absolute inset-0 bg-primary/5"
-                style={{ touchAction: "none" }}
-                onTouchStart={handleOverlayTouchStart}
-                onTouchMove={handleOverlayTouchMove}
-                onTouchEnd={handleOverlayTouchEnd}
-                onTouchCancel={handleOverlayTouchEnd}
-              />
-            )}
-          </>
+          <iframe
+            key={iframeKey}
+            ref={iframeRef}
+            src={ttydIframeSrc}
+            className="w-full h-full border-0"
+            title={`Terminal - ${worktree?.branch || session.id}`}
+            allow="clipboard-read; clipboard-write; keyboard-map"
+          />
         ) : (
           <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
@@ -373,6 +338,33 @@ export function MobileSessionView({
           </div>
         )}
       </div>
+
+      {/* ファイルビューワー / ブラウザ */}
+      {tabs[activeTabIndex]?.type === "file" &&
+        (() => {
+          const tab = tabs[activeTabIndex] as ViewerTab & { type: "file" };
+          return (
+            <div className="flex-1 min-h-0">
+              <FileViewerPane
+                filePath={tab.filePath}
+                content={tab.content}
+                mimeType={tab.mimeType}
+                size={tab.size}
+                targetLine={tab.targetLine}
+                error={tab.error}
+              />
+            </div>
+          );
+        })()}
+      {tabs[activeTabIndex]?.type === "browser" &&
+        (() => {
+          const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
+          return (
+            <div className="flex-1 min-h-0">
+              <BrowserPane url={tab.url} />
+            </div>
+          );
+        })()}
 
       {/* 画像ペーストプレビュー */}
       {pastedImage && (
@@ -425,21 +417,8 @@ export function MobileSessionView({
         </div>
       )}
 
-      {/* Quick Keys: スクロールモードトグル + ↑/↓/Esc/Ctrl+C/S-Tab 常時表示 */}
+      {/* Quick Keys: ↑/↓/Esc/Ctrl+C/S-Tab 常時表示 */}
       <div className="flex items-center gap-1 px-3 py-1.5 border-t border-border/50 bg-sidebar overflow-x-auto select-none">
-        {/* スクロールモードトグル: ON=スワイプでスクロール、OFF=通常操作 */}
-        <Button
-          type="button"
-          variant={scrollMode ? "default" : "ghost"}
-          size="sm"
-          className={`h-8 px-3 text-xs shrink-0 ${scrollMode ? "bg-primary text-primary-foreground" : ""}`}
-          onClick={toggleScrollMode}
-        >
-          {scrollMode ? "Scroll ✓" : "Scroll"}
-        </Button>
-        {/* 区切り線 */}
-        <div className="w-px h-5 bg-border/50 mx-1" />
-        {/* 既存のQuick Keys */}
         <Button
           type="button"
           variant="ghost"

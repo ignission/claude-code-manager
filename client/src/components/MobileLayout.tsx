@@ -16,6 +16,7 @@ import type {
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
+import { useViewerTabs } from "../hooks/useViewerTabs";
 
 interface MobileLayoutProps {
   sessions: Map<string, ManagedSession>;
@@ -38,6 +39,15 @@ interface MobileLayoutProps {
   onClearImageUploadState?: () => void;
   onCopyBuffer?: (sessionId: string) => Promise<string | null>;
   onNewSession: () => void;
+  // ファイルビューワー
+  readFile: (sessionId: string, filePath: string) => void;
+  fileContent: {
+    filePath: string;
+    content: string;
+    mimeType: string;
+    size: number;
+    error?: string;
+  } | null;
   // Beaconチャット
   beaconMessages: ChatMessage[];
   beaconStreaming: boolean;
@@ -63,6 +73,8 @@ export function MobileLayout({
   onClearImageUploadState,
   onCopyBuffer,
   onNewSession,
+  readFile,
+  fileContent,
   beaconMessages,
   beaconStreaming,
   beaconStreamText,
@@ -76,6 +88,14 @@ export function MobileLayout({
     null
   );
   const [openedSessions, setOpenedSessions] = useState<Set<string>>(new Set());
+
+  // タブ状態管理（共通フック）
+  const {
+    getTabsForSession,
+    getActiveTabForSession,
+    handleTabSelect,
+    handleTabClose,
+  } = useViewerTabs(selectedSessionId, sessions, readFile, fileContent);
 
   // セッションを選択して詳細画面に遷移
   const handleOpenSession = useCallback(
@@ -167,6 +187,10 @@ export function MobileLayout({
               onCopyBuffer={
                 onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined
               }
+              tabs={getTabsForSession(sessionId)}
+              activeTabIndex={getActiveTabForSession(sessionId)}
+              onTabSelect={idx => handleTabSelect(sessionId, idx)}
+              onTabClose={idx => handleTabClose(sessionId, idx)}
             />
           </div>
         ))}

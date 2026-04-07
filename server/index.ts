@@ -25,8 +25,10 @@ import type {
 } from "../shared/types.js";
 import { authManager } from "./lib/auth.js";
 import { beaconManager } from "./lib/beacon-manager.js";
+import { TTYD_PORT_END, TTYD_PORT_START } from "./lib/constants.js";
 import { db } from "./lib/database.js";
 import { getErrorMessage } from "./lib/errors.js";
+import { readFileFromWorktree } from "./lib/file-manager.js";
 import {
   createWorktree,
   deleteWorktree,
@@ -475,14 +477,45 @@ async function startServer() {
     });
   });
 
+  // ===== ローカルポートプロキシ（リモートアクセス時にlocalhost URLを表示するため） =====
+
+  app.all("/proxy/:port/*", (req, res) => {
+    const port = parseInt(req.params.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      res.status(400).json({ error: "Invalid port" });
+      return;
+    }
+
+    // Ark自体のポートとttydポート範囲をブロック（SSRF対策）
+    const serverPort = parseInt(process.env.PORT || "3001", 10);
+    if (port === serverPort) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
+      return;
+    }
+    // ttydポート範囲(TTYD_PORT_START〜TTYD_PORT_END)もブロック
+    if (port >= TTYD_PORT_START && port <= TTYD_PORT_END) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
+      return;
+    }
+
+    const targetPath = req.url.replace(`/proxy/${port}`, "") || "/";
+    req.url = targetPath;
+
+    ttydProxy.web(req, res, { target: `http://127.0.0.1:${port}` }, err => {
+      if (!res.headersSent) {
+        res.status(502).json({ error: "Proxy error" });
+      }
+    });
+  });
+
   // Serve static files from dist/public in production only
   if (process.env.NODE_ENV === "production") {
     const staticPath = path.resolve(__dirname, "public");
     app.use(express.static(staticPath));
 
     // Handle client-side routing - serve index.html for all routes
-    // Exclude ttyd routes
-    app.get(/^(?!\/ttyd\/).*$/, (_req, res) => {
+    // Exclude ttyd and proxy routes
+    app.get(/^(?!\/ttyd\/|\/proxy\/).*$/, (_req, res) => {
       res.sendFile(path.join(staticPath, "index.html"));
     });
   }
@@ -513,6 +546,31 @@ async function startServer() {
         socket.destroy();
         return;
       }
+    }
+
+    // Handle proxy WebSocket connections（ローカルポートプロキシ用）
+    const proxyMatch = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
+    if (proxyMatch) {
+      const proxyPort = parseInt(proxyMatch[1], 10);
+      if (proxyPort >= 1 && proxyPort <= 65535) {
+        // SSRF対策: Ark自体のポートとttydポート範囲をブロック
+        const serverPort = parseInt(process.env.PORT || "3001", 10);
+        if (
+          proxyPort === serverPort ||
+          (proxyPort >= TTYD_PORT_START && proxyPort <= TTYD_PORT_END)
+        ) {
+          socket.destroy();
+          return;
+        }
+        const targetPath = proxyMatch[2] || "/";
+        req.url = targetPath;
+        ttydProxy.ws(req, socket, head, {
+          target: `ws://127.0.0.1:${proxyPort}`,
+        });
+        return;
+      }
+      socket.destroy();
+      return;
     }
 
     // Let Socket.IO handle other WebSocket connections
@@ -897,6 +955,54 @@ async function startServer() {
             error instanceof ImageManagerError
               ? error.message
               : "画像のアップロードに失敗しました",
+        });
+      }
+    });
+
+    // ===== File Viewer =====
+    // レート制限: ソケットごとに最後のリクエスト時間を記録
+    let lastFileReadTime = 0;
+
+    socket.on("file:read", async ({ sessionId, filePath }) => {
+      // レート制限チェック（100ms未満の間隔のリクエストを拒否）
+      const now = Date.now();
+      if (now - lastFileReadTime < 100) {
+        socket.emit("file:content", {
+          filePath,
+          content: "",
+          mimeType: "application/octet-stream",
+          size: 0,
+          error: "リクエストが多すぎます",
+        });
+        return;
+      }
+      lastFileReadTime = now;
+
+      try {
+        // sessionIdからworktreePathをサーバー側で解決
+        const session = sessionOrchestrator.getSession(sessionId);
+        if (!session?.worktreePath) {
+          socket.emit("file:content", {
+            filePath,
+            content: "",
+            mimeType: "application/octet-stream",
+            size: 0,
+            error: "セッションが見つかりません",
+          });
+          return;
+        }
+        const result = await readFileFromWorktree(
+          session.worktreePath,
+          filePath
+        );
+        socket.emit("file:content", result);
+      } catch (error) {
+        socket.emit("file:content", {
+          filePath,
+          content: "",
+          mimeType: "application/octet-stream",
+          size: 0,
+          error: getErrorMessage(error),
         });
       }
     });

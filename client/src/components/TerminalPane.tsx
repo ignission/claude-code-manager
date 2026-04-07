@@ -32,6 +32,24 @@ import type {
   Worktree,
 } from "../../../shared/types";
 import { useIsMobile } from "../hooks/useMobile";
+import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
+import { BrowserPane } from "./BrowserPane";
+import { FileViewerPane } from "./FileViewerPane";
+import { ViewerTabBar } from "./ViewerTabBar";
+
+export type ViewerTab =
+  | { type: "terminal"; id: string }
+  | {
+      type: "file";
+      id: string;
+      filePath: string;
+      content: string;
+      mimeType: string;
+      size: number;
+      targetLine?: number | null;
+      error?: string;
+    }
+  | { type: "browser"; id: string; url: string };
 
 interface TerminalPaneProps {
   session: ManagedSession;
@@ -45,6 +63,10 @@ interface TerminalPaneProps {
   imageUploadError?: string | null;
   onClearImageUploadState?: () => void;
   onCopyBuffer?: () => Promise<string | null>;
+  tabs: ViewerTab[];
+  activeTabIndex: number;
+  onTabSelect: (index: number) => void;
+  onTabClose: (index: number) => void;
 }
 
 export function TerminalPane({
@@ -59,6 +81,10 @@ export function TerminalPane({
   imageUploadError,
   onClearImageUploadState,
   onCopyBuffer,
+  tabs,
+  activeTabIndex,
+  onTabSelect,
+  onTabClose,
 }: TerminalPaneProps) {
   const isMobile = useIsMobile();
   const [inputValue, setInputValue] = useState("");
@@ -74,6 +100,10 @@ export function TerminalPane({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);
+
+  // ttyd iframe内のxterm.jsにリンク検出をインジェクト（共通フック）
+  useTerminalLinkInjection(iframeRef, iframeKey);
+
   const [pastedImage, setPastedImage] = useState<{
     base64: string;
     mimeType: string;
@@ -219,23 +249,17 @@ export function TerminalPane({
   ]);
 
   // Construct ttyd iframe URL
-  // ローカル開発時のみ直接接続、リモートアクセス時はプロキシ経由
-  const isLocalAccess =
-    typeof window !== "undefined" &&
-    (window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1");
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
   const urlToken =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("token")
       : null;
   const ttydBasePath = `/ttyd/${session.id}/`;
-  const ttydIframeSrc =
-    isLocalAccess && session.ttydPort
-      ? `http://127.0.0.1:${session.ttydPort}${ttydBasePath}`
-      : urlToken
-        ? `${ttydBasePath}?token=${urlToken}`
-        : ttydBasePath;
+  // 常にプロキシ経由でアクセスし同一オリジンを維持する
+  // （リンクインジェクト等でiframe内DOMにアクセスするため必須）
+  const ttydIframeSrc = urlToken
+    ? `${ttydBasePath}?token=${urlToken}`
+    : ttydBasePath;
 
   // Quick commands for mobile
   const quickCommands = [
@@ -320,8 +344,22 @@ export function TerminalPane({
         </div>
       </header>
 
+      {/* タブバー（共通コンポーネント） */}
+      <ViewerTabBar
+        tabs={tabs}
+        activeTabIndex={activeTabIndex}
+        onTabSelect={onTabSelect}
+        onTabClose={onTabClose}
+      />
+
       {/* ttyd iframe */}
-      <div className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden">
+      <div
+        className="flex-1 min-h-0 bg-[#1a1b26] overflow-hidden"
+        style={{
+          display:
+            tabs[activeTabIndex]?.type === "terminal" ? undefined : "none",
+        }}
+      >
         {session.ttydUrl || session.ttydPort ? (
           <iframe
             key={iframeKey}
@@ -340,6 +378,33 @@ export function TerminalPane({
           </div>
         )}
       </div>
+
+      {/* ファイルビューワー / ブラウザ */}
+      {tabs[activeTabIndex]?.type === "file" &&
+        (() => {
+          const tab = tabs[activeTabIndex] as ViewerTab & { type: "file" };
+          return (
+            <div className="flex-1 min-h-0">
+              <FileViewerPane
+                filePath={tab.filePath}
+                content={tab.content}
+                mimeType={tab.mimeType}
+                size={tab.size}
+                targetLine={tab.targetLine}
+                error={tab.error}
+              />
+            </div>
+          );
+        })()}
+      {tabs[activeTabIndex]?.type === "browser" &&
+        (() => {
+          const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
+          return (
+            <div className="flex-1 min-h-0">
+              <BrowserPane url={tab.url} />
+            </div>
+          );
+        })()}
 
       {/* Image paste preview dialog */}
       {pastedImage && (

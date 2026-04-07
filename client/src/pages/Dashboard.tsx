@@ -30,6 +30,7 @@ import {
 import { useIsMobile } from "@/hooks/useMobile";
 import { useSettings } from "@/hooks/useSettings";
 import { useSocket } from "@/hooks/useSocket";
+import { useViewerTabs } from "@/hooks/useViewerTabs";
 import { getBaseName } from "@/utils/pathUtils";
 import { findRepoForSession } from "@/utils/sessionUtils";
 import type { Worktree } from "../../../shared/types";
@@ -84,6 +85,8 @@ export default function Dashboard() {
     beaconClear,
     sessionPreviews,
     sessionActivityTexts,
+    readFile,
+    fileContent,
   } = useSocket({
     enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
@@ -97,6 +100,13 @@ export default function Dashboard() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
   );
+
+  const {
+    getTabsForSession,
+    getActiveTabForSession,
+    handleTabSelect,
+    handleTabClose,
+  } = useViewerTabs(selectedSessionId, sessions, readFile, fileContent);
 
   // サーバーからの設定が読み込まれたらセッションIDを復元
   const settingsInitializedRef = useRef(false);
@@ -247,6 +257,8 @@ export default function Dashboard() {
           onClearImageUploadState={clearImageUploadState}
           onCopyBuffer={copyBuffer}
           onNewSession={handleNewSession}
+          readFile={readFile}
+          fileContent={fileContent}
           beaconMessages={beaconMessages}
           beaconStreaming={beaconStreaming}
           beaconStreamText={beaconStreamText}
@@ -295,6 +307,10 @@ export default function Dashboard() {
                         session={session}
                         worktree={wt}
                         repoName={rn}
+                        tabs={getTabsForSession(session.id)}
+                        activeTabIndex={getActiveTabForSession(session.id)}
+                        onTabSelect={idx => handleTabSelect(session.id, idx)}
+                        onTabClose={idx => handleTabClose(session.id, idx)}
                         onSendMessage={msg => sendMessage(session.id, msg)}
                         onSendKey={key => sendKey(session.id, key)}
                         onStopSession={() => handleStopSession(session.id)}
