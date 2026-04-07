@@ -129,8 +129,8 @@ export function useTerminalLinkInjection(
           let touchStartY = 0;
           let touchSentLines = 0;
           let isSwiping = false;
-          const SWIPE_LINE_HEIGHT = 20;
-          const SWIPE_THRESHOLD = 5;
+          const SWIPE_LINE_HEIGHT = 8; // 8pxで1行スクロール（高感度）
+          const SWIPE_THRESHOLD = 3;
 
           iframeDoc.addEventListener(
             "touchstart",
