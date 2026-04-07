@@ -33,6 +33,23 @@ export function useTerminalLinkInjection(
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
           (iframeWindow as any).__arkLinkInjected = true;
 
+          // ttydのWebLinksAddonがlocalhost URLをwindow.openで開くのを阻止し、
+          // 代わりにpostMessageでArkのタブとして開く
+          const originalOpen = iframeWindow.open.bind(iframeWindow);
+          iframeWindow.open = (url?: string | URL, ...args: any[]) => {
+            const urlStr = String(url ?? "");
+            if (
+              /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
+            ) {
+              window.parent.postMessage(
+                { type: "ark:open-url", url: urlStr },
+                window.location.origin
+              );
+              return null;
+            }
+            return originalOpen(url, ...args);
+          };
+
           term.registerLinkProvider({
             provideLinks(
               lineNumber: number,
