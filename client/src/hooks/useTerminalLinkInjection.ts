@@ -33,46 +33,66 @@ export function useTerminalLinkInjection(
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
           (iframeWindow as any).__arkLinkInjected = true;
 
-          // ttydのWebLinksAddonがlocalhost URLを新規タブで開くのを阻止する。
-          // WebLinksAddonは初期化時にwindow.openの参照をキャプチャするため、
-          // window.openのオーバーライドでは捕捉できない。
-          // 代わりに、iframe document上でclickイベントをキャプチャフェーズで
-          // インターセプトし、localhost URLへのリンククリックをpostMessageに変換する。
-          const iframeDoc = iframeWindow.document;
-          iframeDoc.addEventListener(
-            "click",
-            (e: MouseEvent) => {
-              const anchor = (e.target as HTMLElement).closest?.("a");
-              if (!anchor) return;
-              const href = anchor.getAttribute("href") || "";
-              if (
-                /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(href)
-              ) {
-                e.preventDefault();
-                e.stopPropagation();
-                window.postMessage(
-                  { type: "ark:open-url", url: href },
-                  window.location.origin
-                );
-              }
-            },
-            true // キャプチャフェーズで先に処理
-          );
-
-          // window.openも念のためオーバーライド（一部環境でwindow.openが使われる場合）
+          // xterm.js WebLinksAddonのlocalhost URLを横取りする。
+          // WebLinksAddonは window.open() を引数なしで呼び、返されたウィンドウの
+          // location.href にURLを設定するパターン:
+          //   const newWindow = window.open();
+          //   newWindow.opener = null;
+          //   newWindow.location.href = uri;
+          // そのため、フェイクWindowオブジェクトを返してlocation.hrefのセッターで
+          // localhost URLを検出し、postMessageに変換する。
+          const arkWindow = window;
           const origOpen = iframeWindow.open;
-          iframeWindow.open = function (url?: string | URL, ...args: any[]) {
-            const urlStr = String(url ?? "");
-            if (
-              /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
-            ) {
-              window.postMessage(
-                { type: "ark:open-url", url: urlStr },
-                window.location.origin
-              );
-              return null;
+          iframeWindow.open = function (...args: any[]) {
+            // 引数ありの呼び出し（URL直接指定）
+            if (args.length > 0 && args[0]) {
+              const urlStr = String(args[0]);
+              if (
+                /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
+              ) {
+                arkWindow.postMessage(
+                  { type: "ark:open-url", url: urlStr },
+                  arkWindow.location.origin
+                );
+                return null;
+              }
+              return origOpen.apply(iframeWindow, args);
             }
-            return origOpen.apply(iframeWindow, [url, ...args] as any);
+
+            // 引数なしの呼び出し（WebLinksAddonパターン）
+            // フェイクWindowを返し、location.hrefセッターでURLを横取り
+            let intercepted = false;
+            const fakeWindow = {
+              opener: null,
+              location: {
+                _href: "",
+                set href(url: string) {
+                  if (
+                    /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(url)
+                  ) {
+                    intercepted = true;
+                    arkWindow.postMessage(
+                      { type: "ark:open-url", url },
+                      arkWindow.location.origin
+                    );
+                  } else {
+                    // localhost以外は実際に新しいウィンドウで開く
+                    const real = origOpen.apply(iframeWindow, args);
+                    if (real) {
+                      try {
+                        real.opener = null;
+                      } catch {}
+                      real.location.href = url;
+                    }
+                  }
+                },
+                get href() {
+                  return this._href;
+                },
+              },
+              close() {},
+            };
+            return fakeWindow;
           };
 
           term.registerLinkProvider({
