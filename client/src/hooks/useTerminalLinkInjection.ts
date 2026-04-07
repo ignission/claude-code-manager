@@ -109,18 +109,67 @@ export function useTerminalLinkInjection(
             return fakeWindow as any;
           };
 
-          // モバイルタッチスクロール有効化
-          // xterm.jsのViewportクラスはタッチスクロールを内蔵しているが、
-          // .xterm-viewportのoverflow設定によっては無効になる。
-          // CSSで強制的にスクロール可能にし、touch-actionも設定する。
+          // モバイルスワイプスクロール
+          // xterm.jsのネイティブタッチスクロールが動作しない環境向けに、
+          // iframe document全体のtouchイベントをキャプチャフェーズで捕捉し、
+          // term.scrollLines()で直接スクロールする。
+          // passive: falseでpreventDefaultを呼び、ページ全体のスクロールを防ぐ。
           const iframeDoc = iframeWindow.document;
-          const viewport = iframeDoc.querySelector(
-            ".xterm-viewport"
-          ) as HTMLElement | null;
-          if (viewport) {
-            viewport.style.overflowY = "auto";
-            viewport.style.touchAction = "pan-y";
-          }
+          let touchStartY = 0;
+          let touchSentLines = 0;
+          let isSwiping = false;
+          const SWIPE_LINE_HEIGHT = 20;
+          const SWIPE_THRESHOLD = 5; // px: スワイプ判定閾値
+
+          iframeDoc.addEventListener(
+            "touchstart",
+            (e: Event) => {
+              const te = e as TouchEvent;
+              touchStartY = te.touches[0].clientY;
+              touchSentLines = 0;
+              isSwiping = false;
+            },
+            { capture: true, passive: true }
+          );
+
+          iframeDoc.addEventListener(
+            "touchmove",
+            (e: Event) => {
+              const te = e as TouchEvent;
+              const deltaY = touchStartY - te.touches[0].clientY;
+
+              // スワイプ閾値を超えたらスクロール開始
+              if (!isSwiping && Math.abs(deltaY) > SWIPE_THRESHOLD) {
+                isSwiping = true;
+              }
+
+              if (!isSwiping) return;
+
+              // ページスクロールを防止
+              e.preventDefault();
+
+              const totalLines = Math.floor(
+                Math.abs(deltaY) / SWIPE_LINE_HEIGHT
+              );
+              const newLines = totalLines - touchSentLines;
+              if (newLines > 0) {
+                // 上にスワイプ = 過去を見る = scrollLines(-n)
+                // 下にスワイプ = 最新へ = scrollLines(n)
+                term.scrollLines(deltaY > 0 ? -newLines : newLines);
+                touchSentLines = totalLines;
+              }
+            },
+            { capture: true, passive: false }
+          );
+
+          iframeDoc.addEventListener(
+            "touchend",
+            () => {
+              touchSentLines = 0;
+              isSwiping = false;
+            },
+            { capture: true, passive: true }
+          );
 
           term.registerLinkProvider({
             provideLinks(
