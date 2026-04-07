@@ -1,6 +1,6 @@
 import { AlertCircle, Copy, Loader2, Terminal } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { MobileChatView } from "@/components/MobileChatView";
@@ -9,6 +9,7 @@ import { RepoSelectDialog } from "@/components/RepoSelectDialog";
 import { SessionSidebar } from "@/components/SessionSidebar";
 import { SidebarMainLayout } from "@/components/SidebarMainLayout";
 import { TerminalPane } from "@/components/TerminalPane";
+import type { ViewerTab } from "@/components/TerminalPane";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -84,6 +85,8 @@ export default function Dashboard() {
     beaconClear,
     sessionPreviews,
     sessionActivityTexts,
+    readFile,
+    fileContent,
   } = useSocket({
     enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
@@ -97,6 +100,13 @@ export default function Dashboard() {
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
   );
+
+  const [sessionTabs, setSessionTabs] = useState<Record<string, ViewerTab[]>>(
+    {}
+  );
+  const [sessionActiveTab, setSessionActiveTab] = useState<
+    Record<string, number>
+  >({});
 
   // サーバーからの設定が読み込まれたらセッションIDを復元
   const settingsInitializedRef = useRef(false);
@@ -227,6 +237,137 @@ export default function Dashboard() {
     setIsSelectRepoOpen(true);
   };
 
+  // タブ操作ヘルパー関数
+  const getTabsForSession = useCallback(
+    (sessionId: string): ViewerTab[] => {
+      return sessionTabs[sessionId] ?? [{ type: "terminal" }];
+    },
+    [sessionTabs]
+  );
+
+  const getActiveTabForSession = useCallback(
+    (sessionId: string): number => {
+      return sessionActiveTab[sessionId] ?? 0;
+    },
+    [sessionActiveTab]
+  );
+
+  const handleTabSelect = useCallback((sessionId: string, index: number) => {
+    setSessionActiveTab(prev => ({ ...prev, [sessionId]: index }));
+  }, []);
+
+  const handleTabClose = useCallback((sessionId: string, index: number) => {
+    setSessionTabs(prev => {
+      const tabs = [...(prev[sessionId] ?? [{ type: "terminal" as const }])];
+      tabs.splice(index, 1);
+      return { ...prev, [sessionId]: tabs };
+    });
+    setSessionActiveTab(prev => {
+      const current = prev[sessionId] ?? 0;
+      if (current >= index && current > 0) {
+        return { ...prev, [sessionId]: current - 1 };
+      }
+      return prev;
+    });
+  }, []);
+
+  const openFileTab = useCallback(
+    (sessionId: string, filePath: string, targetLine?: number | null) => {
+      setSessionTabs(prev => {
+        const tabs = [...(prev[sessionId] ?? [{ type: "terminal" as const }])];
+        const existing = tabs.findIndex(
+          t => t.type === "file" && t.filePath === filePath
+        );
+        if (existing >= 0) {
+          const tab = tabs[existing];
+          if (tab.type === "file") {
+            tabs[existing] = { ...tab, targetLine };
+          }
+          setSessionActiveTab(p => ({ ...p, [sessionId]: existing }));
+          return { ...prev, [sessionId]: tabs };
+        }
+        tabs.push({
+          type: "file",
+          filePath,
+          content: "",
+          mimeType: "text/plain",
+          size: 0,
+          targetLine,
+        });
+        setSessionActiveTab(p => ({ ...p, [sessionId]: tabs.length - 1 }));
+        return { ...prev, [sessionId]: tabs };
+      });
+    },
+    []
+  );
+
+  const openBrowserTab = useCallback((sessionId: string, url: string) => {
+    setSessionTabs(prev => {
+      const tabs = [...(prev[sessionId] ?? [{ type: "terminal" as const }])];
+      const existing = tabs.findIndex(
+        t => t.type === "browser" && t.url === url
+      );
+      if (existing >= 0) {
+        setSessionActiveTab(p => ({ ...p, [sessionId]: existing }));
+        return prev;
+      }
+      tabs.push({ type: "browser", url });
+      setSessionActiveTab(p => ({ ...p, [sessionId]: tabs.length - 1 }));
+      return { ...prev, [sessionId]: tabs };
+    });
+  }, []);
+
+  // postMessageリスナー（ttyd iframe内のリンククリックを受信）
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const { type } = event.data ?? {};
+      if (!selectedSessionId) return;
+      const session = sessions.get(selectedSessionId);
+      if (!session) return;
+
+      if (type === "ark:open-file") {
+        const { path: filePath, line } = event.data;
+        openFileTab(selectedSessionId, filePath, line);
+        readFile(session.worktreePath, filePath);
+      } else if (type === "ark:open-url") {
+        const { url } = event.data;
+        openBrowserTab(selectedSessionId, url);
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [selectedSessionId, sessions, openFileTab, openBrowserTab, readFile]);
+
+  // fileContent受信時にタブを更新
+  useEffect(() => {
+    if (!fileContent || !selectedSessionId) return;
+    setSessionTabs(prev => {
+      const tabs = [
+        ...(prev[selectedSessionId] ?? [{ type: "terminal" as const }]),
+      ];
+      const idx = tabs.findIndex(
+        t => t.type === "file" && t.filePath === fileContent.filePath
+      );
+      if (idx >= 0) {
+        const existingTab = tabs[idx];
+        tabs[idx] = {
+          type: "file",
+          filePath: fileContent.filePath,
+          content: fileContent.content,
+          mimeType: fileContent.mimeType,
+          size: fileContent.size,
+          targetLine:
+            existingTab.type === "file" ? existingTab.targetLine : undefined,
+          error: fileContent.error,
+        };
+        return { ...prev, [selectedSessionId]: tabs };
+      }
+      return prev;
+    });
+  }, [fileContent, selectedSessionId]);
+
   return (
     <>
       {isMobile ? (
@@ -295,6 +436,10 @@ export default function Dashboard() {
                         session={session}
                         worktree={wt}
                         repoName={rn}
+                        tabs={getTabsForSession(session.id)}
+                        activeTabIndex={getActiveTabForSession(session.id)}
+                        onTabSelect={idx => handleTabSelect(session.id, idx)}
+                        onTabClose={idx => handleTabClose(session.id, idx)}
                         onSendMessage={msg => sendMessage(session.id, msg)}
                         onSendKey={key => sendKey(session.id, key)}
                         onStopSession={() => handleStopSession(session.id)}
