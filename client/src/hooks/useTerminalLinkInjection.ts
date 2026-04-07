@@ -43,6 +43,18 @@ export function useTerminalLinkInjection(
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
           (iframeWindow as any).__arkLinkInjected = true;
 
+          // モバイルでターミナルタップ時の仮想キーボードを防止
+          // 入力は専用の入力バーで行うため、xterm.jsの入力用textareaは不要
+          const xtermTextarea = iframeWindow.document.querySelector(
+            ".xterm-helper-textarea"
+          );
+          if (xtermTextarea) {
+            (xtermTextarea as HTMLTextAreaElement).setAttribute(
+              "inputmode",
+              "none"
+            );
+          }
+
           // xterm.js WebLinksAddonのlocalhost URLを横取りする。
           // WebLinksAddonは window.open() を引数なしで呼び、返されたウィンドウの
           // location.href にURLを設定するパターン:
