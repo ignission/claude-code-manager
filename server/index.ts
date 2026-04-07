@@ -41,6 +41,7 @@ import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { sessionOrchestrator } from "./lib/session-orchestrator.js";
 import { tmuxManager } from "./lib/tmux-manager.js";
 import { TunnelManager } from "./lib/tunnel.js";
+import { TTYD_PORT_START, TTYD_PORT_END } from "./lib/constants.js";
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -482,6 +483,18 @@ async function startServer() {
     const port = parseInt(req.params.port, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
       res.status(400).json({ error: "Invalid port" });
+      return;
+    }
+
+    // Ark自体のポートとttydポート範囲をブロック（SSRF対策）
+    const serverPort = parseInt(process.env.PORT || "3001", 10);
+    if (port === serverPort) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
+      return;
+    }
+    // ttydポート範囲(TTYD_PORT_START〜TTYD_PORT_END)もブロック
+    if (port >= TTYD_PORT_START && port <= TTYD_PORT_END) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
       return;
     }
 
@@ -940,6 +953,21 @@ async function startServer() {
     // ===== File Viewer =====
     socket.on("file:read", async ({ worktreePath, filePath }) => {
       try {
+        // worktreePathが既知のセッションに属するか検証
+        const knownSessions = sessionOrchestrator.getAllSessions();
+        const isKnownWorktree = knownSessions.some(
+          s => s.worktreePath === worktreePath
+        );
+        if (!isKnownWorktree) {
+          socket.emit("file:content", {
+            filePath,
+            content: "",
+            mimeType: "application/octet-stream",
+            size: 0,
+            error: "不明なworktreeパスです",
+          });
+          return;
+        }
         const result = await readFileFromWorktree(worktreePath, filePath);
         socket.emit("file:content", result);
       } catch (error) {

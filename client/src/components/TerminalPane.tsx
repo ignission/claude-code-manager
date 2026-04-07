@@ -32,13 +32,16 @@ import type {
   Worktree,
 } from "../../../shared/types";
 import { useIsMobile } from "../hooks/useMobile";
-import { FileViewerPane } from "./FileViewerPane";
+import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import { BrowserPane } from "./BrowserPane";
+import { FileViewerPane } from "./FileViewerPane";
+import { ViewerTabBar } from "./ViewerTabBar";
 
 export type ViewerTab =
-  | { type: "terminal" }
+  | { type: "terminal"; id: string }
   | {
       type: "file";
+      id: string;
       filePath: string;
       content: string;
       mimeType: string;
@@ -46,7 +49,7 @@ export type ViewerTab =
       targetLine?: number | null;
       error?: string;
     }
-  | { type: "browser"; url: string };
+  | { type: "browser"; id: string; url: string };
 
 interface TerminalPaneProps {
   session: ManagedSession;
@@ -98,113 +101,8 @@ export function TerminalPane({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = useState(0);
 
-  // ttyd iframe内のxterm.jsにリンク検出をインジェクト
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    const injectLinkProvider = () => {
-      try {
-        const iframeWindow = iframe.contentWindow;
-        if (!iframeWindow) return;
-
-        const checkTerm = setInterval(() => {
-          // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内のxterm.jsオブジェクトにアクセスするため
-          const term = (iframeWindow as any).term;
-          if (!term || !term.registerLinkProvider) return;
-          clearInterval(checkTerm);
-
-          // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
-          if ((iframeWindow as any).__arkLinkInjected) return;
-          // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
-          (iframeWindow as any).__arkLinkInjected = true;
-
-          term.registerLinkProvider({
-            // biome-ignore lint/suspicious/noExplicitAny: xterm.js link provider API
-            provideLinks(
-              lineNumber: number,
-              callback: (links: any[] | undefined) => void
-            ) {
-              const line = term.buffer.active.getLine(lineNumber - 1);
-              if (!line) {
-                callback(undefined);
-                return;
-              }
-              const text = line.translateToString();
-              // biome-ignore lint/suspicious/noExplicitAny: xterm.js link objects
-              const links: any[] = [];
-
-              // ファイルパス検出
-              const fileRegex =
-                /(?:file:)?([a-zA-Z0-9_.\-/]+\.[a-zA-Z0-9]+)(?::(\d+))?/g;
-              let match: RegExpExecArray | null;
-              while ((match = fileRegex.exec(text)) !== null) {
-                const fullMatch = match[0];
-                const filePath = match[1];
-                const lineNum = match[2] ? Number.parseInt(match[2]) : null;
-                if (!filePath.includes("/") && !fullMatch.startsWith("file:"))
-                  continue;
-                links.push({
-                  range: {
-                    start: { x: match.index + 1, y: lineNumber },
-                    end: {
-                      x: match.index + fullMatch.length + 1,
-                      y: lineNumber,
-                    },
-                  },
-                  text: fullMatch,
-                  activate() {
-                    window.parent.postMessage(
-                      { type: "ark:open-file", path: filePath, line: lineNum },
-                      window.location.origin
-                    );
-                  },
-                });
-              }
-
-              // localhost URL検出
-              const urlRegex =
-                /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?[/\w.\-?&=%#]*/g;
-              while ((match = urlRegex.exec(text)) !== null) {
-                const matchedUrl = match[0];
-                links.push({
-                  range: {
-                    start: { x: match.index + 1, y: lineNumber },
-                    end: {
-                      x: match.index + matchedUrl.length + 1,
-                      y: lineNumber,
-                    },
-                  },
-                  text: matchedUrl,
-                  activate() {
-                    window.parent.postMessage(
-                      { type: "ark:open-url", url: matchedUrl },
-                      window.location.origin
-                    );
-                  },
-                });
-              }
-
-              callback(links.length > 0 ? links : undefined);
-            },
-          });
-        }, 500);
-
-        setTimeout(() => clearInterval(checkTerm), 10000);
-      } catch {
-        // クロスオリジンエラー等は無視
-      }
-    };
-
-    iframe.addEventListener("load", injectLinkProvider);
-    if (iframe.contentDocument?.readyState === "complete") {
-      injectLinkProvider();
-    }
-
-    return () => {
-      iframe.removeEventListener("load", injectLinkProvider);
-    };
-  }, [iframeKey]);
+  // ttyd iframe内のxterm.jsにリンク検出をインジェクト（共通フック）
+  useTerminalLinkInjection(iframeRef, iframeKey);
 
   const [pastedImage, setPastedImage] = useState<{
     base64: string;
@@ -452,44 +350,13 @@ export function TerminalPane({
         </div>
       </header>
 
-      {/* タブバー */}
-      {tabs.length > 1 && (
-        <div className="flex items-center border-b border-border bg-muted/30 overflow-x-auto shrink-0">
-          {tabs.map((tab, i) => {
-            const isActive = i === activeTabIndex;
-            const label =
-              tab.type === "terminal"
-                ? "Terminal"
-                : tab.type === "file"
-                  ? (tab.filePath.split("/").pop() ?? "File")
-                  : new URL(tab.url).host;
-            return (
-              <div
-                key={`${tab.type}-${i}`}
-                className={`flex items-center gap-1 px-3 py-1.5 text-xs cursor-pointer border-r border-border whitespace-nowrap ${
-                  isActive
-                    ? "bg-background text-foreground"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                }`}
-                onClick={() => onTabSelect(i)}
-              >
-                <span>{label}</span>
-                {tab.type !== "terminal" && (
-                  <button
-                    className="ml-1 hover:text-destructive"
-                    onClick={e => {
-                      e.stopPropagation();
-                      onTabClose(i);
-                    }}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* タブバー（共通コンポーネント） */}
+      <ViewerTabBar
+        tabs={tabs}
+        activeTabIndex={activeTabIndex}
+        onTabSelect={onTabSelect}
+        onTabClose={onTabClose}
+      />
 
       {/* ttyd iframe */}
       <div

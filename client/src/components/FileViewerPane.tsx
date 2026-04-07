@@ -83,12 +83,16 @@ function ImageRenderer({
   filePath: string;
 }) {
   if (mimeType === "image/svg+xml") {
-    // SVGコンテンツはサーバーから提供された信頼できるファイルの内容
+    // SVGは<img>タグでdata URLとして表示し、スクリプト実行をブロック
+    const dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(content)))}`;
     return (
-      <div
-        className="p-4 flex items-center justify-center h-full"
-        dangerouslySetInnerHTML={{ __html: content }}
-      />
+      <div className="p-4 flex items-center justify-center h-full">
+        <img
+          src={dataUrl}
+          alt={filePath.split("/").pop()}
+          className="max-w-full max-h-full object-contain"
+        />
+      </div>
     );
   }
   return (
