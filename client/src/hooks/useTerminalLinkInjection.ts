@@ -62,14 +62,19 @@ export function useTerminalLinkInjection(
             }
           }
 
-          // xterm.js WebLinksAddonのlocalhost URLを横取りする。
+          // URL拡張マップ: 折り返しで切れた1行目URL → 複数行結合後の完全URL
+          // provideLinksで構築し、fakeWindowのURL横取り処理で参照する。
+          // WebLinksAddonが優先的にactivateされても、ここで完全URLに復元できる。
+          const urlExtensionMap = new Map<string, string>();
+
+          // xterm.js WebLinksAddonのURLを横取りする。
           // WebLinksAddonは window.open() を引数なしで呼び、返されたウィンドウの
           // location.href にURLを設定するパターン:
           //   const newWindow = window.open();
           //   newWindow.opener = null;
           //   newWindow.location.href = uri;
           // そのため、フェイクWindowオブジェクトを返してlocation.hrefのセッターで
-          // localhost URLを検出し、postMessageに変換する。
+          // URLを検出し、postMessageに変換する。
           const arkWindow = window;
           const origOpen = iframeWindow.open.bind(iframeWindow);
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内のwindow.openをオーバーライドするため型を緩める
@@ -80,7 +85,7 @@ export function useTerminalLinkInjection(
           ): Window | null => {
             // 引数ありの呼び出し（URL直接指定）
             if (url) {
-              const urlStr = String(url);
+              const urlStr = urlExtensionMap.get(String(url)) || String(url);
               if (
                 /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
               ) {
@@ -90,7 +95,7 @@ export function useTerminalLinkInjection(
                 );
                 return null;
               }
-              return origOpen(url, target, features);
+              return origOpen(urlStr, target, features);
             }
 
             // 引数なしの呼び出し（WebLinksAddonパターン）
@@ -100,11 +105,15 @@ export function useTerminalLinkInjection(
               location: {
                 _href: "",
                 set href(u: string) {
+                  // URL拡張マップで折り返しURLを完全URLに復元
+                  const resolved = urlExtensionMap.get(u) || u;
                   if (
-                    /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(u)
+                    /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(
+                      resolved
+                    )
                   ) {
                     arkWindow.postMessage(
-                      { type: "ark:open-url", url: u },
+                      { type: "ark:open-url", url: resolved },
                       arkWindow.location.origin
                     );
                   } else {
@@ -114,7 +123,7 @@ export function useTerminalLinkInjection(
                       try {
                         real.opener = null;
                       } catch {}
-                      real.location.href = u;
+                      real.location.href = resolved;
                     }
                   }
                 },
@@ -212,16 +221,16 @@ export function useTerminalLinkInjection(
               const text = line.translateToString();
               // biome-ignore lint/suspicious/noExplicitAny: xterm.js link objects
               const links: any[] = [];
+              let match: RegExpExecArray | null;
 
               // ファイルパス検出
               // 1. file:プレフィックス付き（拡張子不問）: file:Dockerfile, file:src/main.rs:42
               // 2. パス区切り+拡張子付き: src/App.tsx:10
               const fileRegex =
                 /(?:file:([a-zA-Z0-9_.\-/]+)|([a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+))(?::(\d+))?/g;
-              let match: RegExpExecArray | null;
               while ((match = fileRegex.exec(text)) !== null) {
                 const fullMatch = match[0];
-                const filePath = match[1] || match[2]; // group1: file:付き, group2: パス付き
+                const filePath = match[1] || match[2];
                 const lineNum = match[3] ? Number.parseInt(match[3], 10) : null;
                 if (!filePath) continue;
                 links.push({
@@ -242,23 +251,80 @@ export function useTerminalLinkInjection(
                 });
               }
 
-              // localhost URL検出
-              const urlRegex =
-                /https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?[/\w.\-?&=%#]*/g;
+              // URL検出 + 複数行にまたがるURL延長
+              // Claude Codeは長いURLを折り返す際、次行の先頭に空白を入れる。
+              // URLの直後が行末（空白のみ）の場合、次行以降を先頭空白除去して結合する。
+              // Mapサイズ上限（メモリリーク防止。clearはprovideLinksが行ごとに
+              // 呼ばれるためクリック時にマッピングが消失する問題がある）
+              if (urlExtensionMap.size > 100) {
+                const firstKey = urlExtensionMap.keys().next().value;
+                if (firstKey !== undefined) urlExtensionMap.delete(firstKey);
+              }
+
+              const urlRegex = /https?:\/\/[^\s<>"'()]+/g;
               while ((match = urlRegex.exec(text)) !== null) {
-                const matchedUrl = match[0];
+                let matchedUrl = match[0];
+                const originalUrl = match[0];
+                let endY = lineNumber;
+                let endX = match.index + matchedUrl.length + 1;
+
+                // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
+                const afterUrl = text.substring(
+                  match.index + matchedUrl.length
+                );
+                if (/^\s*$/.test(afterUrl)) {
+                  // 次行以降からURL継続部分を取得（最大10行まで）
+                  const maxExtensionLines = 10;
+                  for (
+                    let nextIdx = lineNumber;
+                    nextIdx < lineNumber + maxExtensionLines;
+                    nextIdx++
+                  ) {
+                    const nextLine = term.buffer.active.getLine(nextIdx);
+                    if (!nextLine) break;
+                    const nextText = nextLine.translateToString();
+                    const trimmedNext = nextText.trimStart();
+                    if (trimmedNext.length === 0) break;
+                    const contMatch = trimmedNext.match(/^[^\s<>"'()]+/);
+                    if (!contMatch) break;
+
+                    matchedUrl += contMatch[0];
+                    const leadingSpaces = nextText.length - trimmedNext.length;
+                    endY = nextIdx + 1;
+                    endX = leadingSpaces + contMatch[0].length + 1;
+
+                    // 継続部分の直後が行末でなければ終了
+                    const afterCont = nextText.substring(
+                      leadingSpaces + contMatch[0].length
+                    );
+                    if (!/^\s*$/.test(afterCont)) break;
+                  }
+                }
+
+                // 末尾の句読点を除去（文中のURL: "See https://example.com." 等）
+                const beforeTrim = matchedUrl.length;
+                matchedUrl = matchedUrl.replace(/[.,;:!?]+$/, "");
+                const trimmed = beforeTrim - matchedUrl.length;
+                if (trimmed > 0) {
+                  endX -= trimmed;
+                }
+
+                // 拡張された場合、元URL→完全URLの対応をMapに記録
+                // WebLinksAddonが優先activateされた場合にfakeWindowで復元する
+                if (matchedUrl !== originalUrl) {
+                  urlExtensionMap.set(originalUrl, matchedUrl);
+                }
+
+                const finalUrl = matchedUrl;
                 links.push({
                   range: {
                     start: { x: match.index + 1, y: lineNumber },
-                    end: {
-                      x: match.index + matchedUrl.length + 1,
-                      y: lineNumber,
-                    },
+                    end: { x: endX, y: endY },
                   },
-                  text: matchedUrl,
+                  text: finalUrl,
                   activate() {
                     arkWindow.postMessage(
-                      { type: "ark:open-url", url: matchedUrl },
+                      { type: "ark:open-url", url: finalUrl },
                       arkWindow.location.origin
                     );
                   },
