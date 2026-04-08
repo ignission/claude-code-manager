@@ -283,6 +283,8 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
 
     socket.on("repo:error", err => {
       setError(err);
+      // 楽観的更新のロールバック（selectRepoで先行設定したrepoPathを戻す）
+      setRepoPath(null);
     });
 
     // Repository scanning events
@@ -516,6 +518,7 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
 
   // Repository actions
   const selectRepo = useCallback((path: string) => {
+    setRepoPath(path);
     socketRef.current?.emit("repo:select", path);
   }, []);
 
