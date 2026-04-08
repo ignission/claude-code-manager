@@ -1,5 +1,12 @@
 import { execSync } from "node:child_process";
-import { TTYD_PORT_END, TTYD_PORT_START } from "./constants.js";
+import {
+  TTYD_PORT_END,
+  TTYD_PORT_START,
+  VNC_PORT_END,
+  VNC_PORT_START,
+  WS_PORT_END,
+  WS_PORT_START,
+} from "./constants.js";
 
 export interface ListeningPort {
   port: number;
