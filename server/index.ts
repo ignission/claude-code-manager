@@ -652,6 +652,23 @@ async function startServer() {
       });
     }
 
+    // 保存済みbasePathがあれば自動スキャン（リロード時のリポジトリ一覧復元）
+    if (allowedRepos.length === 0) {
+      const savedBasePath = db.getSetting("scanBasePath") as string | undefined;
+      if (savedBasePath) {
+        scanRepositories(savedBasePath)
+          .then(repos => {
+            for (const repo of repos) {
+              knownRepos.add(repo.path);
+            }
+            socket.emit("repos:scanned", repos);
+          })
+          .catch(err => {
+            console.error("[Socket] 自動スキャン失敗:", getErrorMessage(err));
+          });
+      }
+    }
+
     // ===== Repository Commands =====
 
     socket.on("repo:scan", async basePath => {
@@ -662,6 +679,8 @@ async function startServer() {
         for (const repo of repos) {
           knownRepos.add(repo.path);
         }
+        // スキャン成功時にbasePathを永続化（リロード時の自動スキャン用）
+        db.setSetting("scanBasePath", basePath);
         socket.emit("repos:scanned", repos);
         socket.emit("repos:scanning", { basePath, status: "complete" });
       } catch (error) {

@@ -193,8 +193,10 @@ export default function Dashboard() {
   const handleSelectRepo = (path: string) => {
     selectRepo(path);
     setIsSelectRepoOpen(false);
-    // リポジトリ選択後にWorktree作成ダイアログを開く
-    setIsCreateWorktreeOpen(true);
+    // Drawer閉じアニメーション完了後にWorktree作成ダイアログを開く
+    setTimeout(() => {
+      setIsCreateWorktreeOpen(true);
+    }, 350);
   };
 
   const handleCreateWorktree = (branchName: string, baseBranch?: string) => {
