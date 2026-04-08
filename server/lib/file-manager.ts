@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 
-const MAX_FILE_SIZE = 1024 * 1024; // 1MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 // 拡張子→MIMEタイプのマッピング
 const EXTENSION_MIME_MAP: Record<string, string> = {
@@ -108,13 +108,30 @@ async function resolveSafePath(
   worktreePath: string,
   filePath: string
 ): Promise<string> {
-  if (path.isAbsolute(filePath)) {
-    throw new Error("ファイルへのアクセスが拒否されました");
-  }
   if (filePath.includes("..")) {
     throw new Error("ファイルへのアクセスが拒否されました");
   }
 
+  // /tmp配下のファイルは直接アクセスを許可
+  if (path.isAbsolute(filePath)) {
+    const resolved = path.resolve(filePath);
+    let realResolved: string;
+    try {
+      realResolved = await realpath(resolved);
+    } catch {
+      throw new Error(`ファイルが見つかりません: ${filePath}`);
+    }
+    // macOSでは realpath("/tmp/...") が "/private/tmp/..." になるため両方チェック
+    if (
+      !realResolved.startsWith("/tmp/") &&
+      !realResolved.startsWith("/private/tmp/")
+    ) {
+      throw new Error("ファイルへのアクセスが拒否されました");
+    }
+    return realResolved;
+  }
+
+  // worktree内の相対パスは従来通り
   const resolvedWorktree = await realpath(worktreePath);
   const resolved = path.resolve(resolvedWorktree, filePath);
 
@@ -162,6 +179,17 @@ export async function readFileFromWorktree(
   const mimeType = detectMimeType(filePath);
 
   if (!isTextMimeType(mimeType)) {
+    // 画像ファイルはBase64エンコードしてdata URLで返す
+    if (mimeType.startsWith("image/")) {
+      const buffer = await readFile(safePath);
+      const base64 = buffer.toString("base64");
+      return {
+        filePath,
+        content: `data:${mimeType};base64,${base64}`,
+        mimeType,
+        size: fileStat.size,
+      };
+    }
     return {
       filePath,
       content: "",

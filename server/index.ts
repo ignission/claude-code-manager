@@ -1021,6 +1021,35 @@ async function startServer() {
       lastFileReadTime = now;
 
       try {
+        // /tmp配下のファイルはsessionに依存せず直接読み取り
+        // sessionIdの存在チェック（認証済みソケットであることを確認）
+        if (filePath.startsWith("/tmp/")) {
+          if (!sessionId || !sessionOrchestrator.getSession(sessionId)) {
+            socket.emit("file:content", {
+              filePath,
+              content: "",
+              mimeType: "application/octet-stream",
+              size: 0,
+              error: "有効なセッションが必要です",
+            });
+            return;
+          }
+          const normalizedPath = path.resolve(filePath);
+          if (!normalizedPath.startsWith("/tmp/")) {
+            socket.emit("file:content", {
+              filePath,
+              content: "",
+              mimeType: "application/octet-stream",
+              size: 0,
+              error: "不正なパスです",
+            });
+            return;
+          }
+          const result = await readFileFromWorktree("", normalizedPath);
+          socket.emit("file:content", result);
+          return;
+        }
+
         // sessionIdからworktreePathをサーバー側で解決
         const session = sessionOrchestrator.getSession(sessionId);
         if (!session?.worktreePath) {
