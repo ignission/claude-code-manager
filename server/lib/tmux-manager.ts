@@ -148,9 +148,23 @@ export class TmuxManager extends EventEmitter {
 
     try {
       // tmuxセッションを作成（detached mode）- シェルだけを起動
+      // -e で環境変数をシェルに直接渡す（set-environmentと異なり即座に反映）
+      // CLAUDECODE を空にしてネストされたセッション検出を回避
+      // CLAUDE_CODE_NO_FLICKER=1 でttydフリッカー抑制
       const newSessionResult = spawnSync(
         "tmux",
-        ["new-session", "-d", "-s", tmuxSessionName, "-c", worktreePath],
+        [
+          "new-session",
+          "-d",
+          "-s",
+          tmuxSessionName,
+          "-c",
+          worktreePath,
+          "-e",
+          "CLAUDECODE=",
+          "-e",
+          "CLAUDE_CODE_NO_FLICKER=1",
+        ],
         { stdio: "pipe" }
       );
       if (newSessionResult.error) throw newSessionResult.error;
@@ -173,10 +187,9 @@ export class TmuxManager extends EventEmitter {
         );
 
       // claudeコマンドを送信（終了後もシェルが残るのでvimなども使える）
-      // CLAUDECODE環境変数をunsetしてからclaudeを起動（ネストされたセッション検出を回避）
       const claudeCmd = this.skipPermissions
-        ? "unset CLAUDECODE && claude --dangerously-skip-permissions"
-        : "unset CLAUDECODE && claude";
+        ? "claude --dangerously-skip-permissions"
+        : "claude";
       const sendKeysResult = spawnSync(
         "tmux",
         ["send-keys", "-t", tmuxSessionName, claudeCmd, "Enter"],
