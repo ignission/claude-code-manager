@@ -100,7 +100,6 @@ export function BrowserPane({ url }: BrowserPaneProps) {
           src={resolvedUrl}
           className="w-full h-full border-0"
           title={`Browser - ${url}`}
-          sandbox="allow-scripts allow-same-origin allow-forms"
         />
       </div>
     </div>
