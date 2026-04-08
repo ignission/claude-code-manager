@@ -121,7 +121,11 @@ async function resolveSafePath(
     } catch {
       throw new Error(`ファイルが見つかりません: ${filePath}`);
     }
-    if (!realResolved.startsWith("/tmp/")) {
+    // macOSでは realpath("/tmp/...") が "/private/tmp/..." になるため両方チェック
+    if (
+      !realResolved.startsWith("/tmp/") &&
+      !realResolved.startsWith("/private/tmp/")
+    ) {
       throw new Error("ファイルへのアクセスが拒否されました");
     }
     return realResolved;
