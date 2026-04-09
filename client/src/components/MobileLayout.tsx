@@ -296,11 +296,7 @@ export function MobileLayout({
           {isRemote && (
             <button
               type="button"
-              className={`flex-1 py-3 text-center text-sm font-medium ${
-                activeView === "browser"
-                  ? "text-primary border-t-2 border-primary"
-                  : "text-muted-foreground"
-              }`}
+              className="flex-1 py-3 text-center text-sm font-medium text-muted-foreground"
               onClick={handleOpenBrowser}
             >
               ブラウザ

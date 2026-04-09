@@ -1,8 +1,8 @@
 import { AlertCircle, Copy, Loader2, Terminal } from "lucide-react";
-import { BrowserPane } from "@/components/BrowserPane";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BrowserPane } from "@/components/BrowserPane";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { MobileChatView } from "@/components/MobileChatView";
 import { MobileLayout } from "@/components/MobileLayout";
@@ -91,7 +91,6 @@ export default function Dashboard() {
     fileContent,
     browserSessions,
     startBrowser,
-    stopBrowser,
     navigateBrowser,
   } = useSocket({
     enabled: !isSettingsLoading,

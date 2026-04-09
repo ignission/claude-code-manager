@@ -288,16 +288,16 @@ export function useTerminalLinkInjection(
                     const contMatch = trimmedNext.match(/^[^\s<>"'()]+/);
                     if (!contMatch) break;
 
-                    matchedUrl += contMatch[0];
+                    // 継続部分の直後が行末でなければ、この行はURL継続ではない
                     const leadingSpaces = nextText.length - trimmedNext.length;
-                    endY = nextIdx + 1;
-                    endX = leadingSpaces + contMatch[0].length + 1;
-
-                    // 継続部分の直後が行末でなければ終了
                     const afterCont = nextText.substring(
                       leadingSpaces + contMatch[0].length
                     );
                     if (!/^\s*$/.test(afterCont)) break;
+
+                    matchedUrl += contMatch[0];
+                    endY = nextIdx + 1;
+                    endX = leadingSpaces + contMatch[0].length + 1;
                   }
                 }
 
