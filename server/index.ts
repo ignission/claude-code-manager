@@ -155,6 +155,13 @@ async function startServer() {
     }
   });
 
+  // プロキシ経由のレスポンスに強制的にクリックジャッキング対策ヘッダを付与する。
+  // ttyd/noVNCはiframe埋め込みで使うため、SAMEORIGINまで許可する。
+  ttydProxy.on("proxyRes", proxyRes => {
+    proxyRes.headers["x-frame-options"] = "SAMEORIGIN";
+    proxyRes.headers["content-security-policy"] = "frame-ancestors 'self'";
+  });
+
   if (enableRemote) {
     console.log(
       "Remote access mode enabled - using Cloudflare Access for authentication"
@@ -554,15 +561,47 @@ async function startServer() {
 
   // ===== WebSocket Upgrade Handler =====
 
+  /**
+   * WebSocket upgradeリクエストの認証を検証する
+   * authManagerが有効な場合、Quick Tunnel経由のアクセスのみトークン認証を要求する。
+   * ローカル/プライベートIPは認証スキップ。
+   * @returns 認証OKならtrue、失敗時はfalse（呼び出し側でsocket.destroy()する）
+   */
+  function authorizeWebSocketUpgrade(
+    req: import("node:http").IncomingMessage,
+    url: URL
+  ): boolean {
+    if (!authManager.isEnabled()) {
+      return true;
+    }
+
+    // Quick Tunnel以外（ローカル等）はスキップ
+    const host =
+      (req.headers["x-forwarded-host"] as string | undefined) ||
+      req.headers.host;
+    const hostname = host?.split(":")[0] ?? "";
+    const isQuickTunnel = hostname.endsWith(".trycloudflare.com");
+    if (!isQuickTunnel) {
+      return true;
+    }
+
+    const token = url.searchParams.get("token") ?? undefined;
+    return authManager.validateToken(token);
+  }
+
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const pathname = url.pathname;
 
-    // ttyd WebSocket接続は内部プロキシ（ws://127.0.0.1）経由のため認証不要
-
     // Handle ttyd WebSocket connections
     const ttydMatch = pathname.match(/^\/ttyd\/([^/]+)/);
     if (ttydMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
       const sessionId = ttydMatch[1];
       const session = sessionOrchestrator.getSession(sessionId);
 
@@ -574,15 +613,20 @@ async function startServer() {
           target: `ws://127.0.0.1:${session.ttydPort}`,
         });
         return;
-      } else {
-        socket.destroy();
-        return;
       }
+      socket.destroy();
+      return;
     }
 
     // Handle browser (noVNC) WebSocket connections
     const browserMatch = pathname.match(/^\/browser\/([^/]+)(\/.*)?$/);
     if (browserMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
       const browserId = browserMatch[1];
       const session = browserManager.getSession(browserId);
       if (session) {
@@ -600,6 +644,12 @@ async function startServer() {
     // Handle proxy WebSocket connections（ローカルポートプロキシ用）
     const proxyMatch = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
     if (proxyMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
       const proxyPort = parseInt(proxyMatch[1], 10);
       if (proxyPort >= 1 && proxyPort <= 65535) {
         // SSRF対策: Ark自体のポート、ttydポート範囲、VNC/WSポート範囲をブロック
@@ -1130,9 +1180,12 @@ async function startServer() {
     });
 
     // ===== Browser Session Commands (noVNC) =====
-
-    // ソケットごとのブラウザセッション追跡（disconnect時のクリーンアップ用）
-    const socketBrowserSessions = new Set<string>();
+    //
+    // 設計: ブラウザセッションはシングルトンのため、
+    // 特定のクライアントの切断で停止させると他クライアントの画面が消える。
+    // そのため明示的な`browser:stop`のみで停止する方針を取り、
+    // disconnect時の自動停止は行わない。
+    // 最終的なプロセス掃除はSIGTERM/SIGINT時の`browserManager.cleanup()`で行う。
 
     socket.on("browser:start", async () => {
       try {
@@ -1145,7 +1198,6 @@ async function startServer() {
         }
 
         const session = await browserManager.start();
-        socketBrowserSessions.add(session.id);
         socket.emit("browser:started", session);
       } catch (error) {
         socket.emit("browser:error", { message: getErrorMessage(error) });
@@ -1155,7 +1207,6 @@ async function startServer() {
     socket.on("browser:stop", async data => {
       try {
         await browserManager.stop(data.browserId);
-        socketBrowserSessions.delete(data.browserId);
         socket.emit("browser:stopped", { browserId: data.browserId });
       } catch (error) {
         socket.emit("browser:error", { message: getErrorMessage(error) });
@@ -1165,11 +1216,9 @@ async function startServer() {
     socket.on("browser:navigate", async data => {
       try {
         const session = await browserManager.navigate(data.url);
-        // セッションが新規起動された場合（クライアントがまだ知らない場合）はbrowser:startedも発火
-        if (!socketBrowserSessions.has(session.id)) {
-          socketBrowserSessions.add(session.id);
-          socket.emit("browser:started", session);
-        }
+        // 呼び出し元のクライアントには常にbrowser:startedを通知する
+        // （当該クライアントがまだセッションを知らない場合の初期同期）
+        socket.emit("browser:started", session);
       } catch (error) {
         socket.emit("browser:error", { message: getErrorMessage(error) });
       }
@@ -1238,11 +1287,8 @@ async function startServer() {
         sessionOrchestrator.off(event, handler);
       });
 
-      // Socket切断時に全ブラウザセッションをクリーンアップ
-      Array.from(socketBrowserSessions).forEach(browserId => {
-        browserManager.stop(browserId);
-      });
-      socketBrowserSessions.clear();
+      // ブラウザセッションはシングルトンのため、socket切断では停止しない。
+      // 明示的なbrowser:stopまたはSIGTERM/SIGINT時のcleanup()で停止する。
     });
   });
 

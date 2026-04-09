@@ -55,8 +55,10 @@ function collectPorts(
 
       const { port, processName, pid } = parsed;
 
-      // ttydポートを除外
+      // ttyd/VNC/WebSocketポートを除外（内部用ポートのため表示しない）
       if (port >= TTYD_PORT_START && port <= TTYD_PORT_END) continue;
+      if (port >= VNC_PORT_START && port <= VNC_PORT_END) continue;
+      if (port >= WS_PORT_START && port <= WS_PORT_END) continue;
 
       if (!seen.has(port)) {
         seen.add(port);
