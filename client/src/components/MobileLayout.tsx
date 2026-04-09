@@ -104,12 +104,16 @@ export function MobileLayout({
     null
   );
   const [openedSessions, setOpenedSessions] = useState<Set<string>>(new Set());
+  // ブラウザビューを一度でも開いたかどうかのフラグ
+  // 一度開いたらdisplay:hiddenで切り替え、BrowserPaneの再マウント（WebSocket再接続）を防ぐ
+  const [hasBrowserOpened, setHasBrowserOpened] = useState(false);
 
   const handleOpenUrl = useCallback(
     (url: string) => {
       if (isRemote) {
         onSelectBrowser();
         setActiveView("browser");
+        setHasBrowserOpened(true);
         navigateBrowser(url);
       } else {
         window.open(url, "_blank");
