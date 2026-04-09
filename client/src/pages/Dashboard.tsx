@@ -207,6 +207,8 @@ export default function Dashboard() {
 
   // セッション自動選択
   useEffect(() => {
+    // ブラウザ選択中はリセットしない
+    if (selectedSessionId === "browser") return;
     if (!selectedSessionId && sessions.size > 0) {
       const first = Array.from(sessions.values())[0];
       setSelectedSessionId(first.id);
