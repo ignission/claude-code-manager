@@ -24,10 +24,10 @@ interface SessionSidebarProps {
   onStopSession: (sessionId: string) => void;
   onStartSession: (worktree: Worktree) => void;
   onNewSession: () => void;
-  /** ブラウザ起動/停止コールバック（リモートアクセス時のみ使用） */
-  onToggleBrowser?: () => void;
-  /** ブラウザセッションがアクティブか */
-  isBrowserActive?: boolean;
+  /** ブラウザ選択コールバック（リモートアクセス時のみ使用） */
+  onSelectBrowser?: () => void;
+  /** ブラウザが選択中か */
+  isBrowserSelected?: boolean;
   /** リモートアクセス中か */
   isRemote?: boolean;
 }
@@ -43,8 +43,8 @@ export function SessionSidebar({
   onStopSession,
   onStartSession,
   onNewSession,
-  onToggleBrowser,
-  isBrowserActive = false,
+  onSelectBrowser,
+  isBrowserSelected = false,
   isRemote = false,
 }: SessionSidebarProps) {
   const { groupedItems } = useGroupedWorktreeItems(
@@ -62,13 +62,13 @@ export function SessionSidebar({
           <h1 className="font-semibold text-sm text-sidebar-foreground">Ark</h1>
         </div>
         <div className="flex items-center gap-1">
-          {isRemote && onToggleBrowser && (
+          {isRemote && onSelectBrowser && (
             <Button
-              variant={isBrowserActive ? "default" : "ghost"}
+              variant={isBrowserSelected ? "default" : "ghost"}
               size="icon"
               className="h-8 w-8"
-              onClick={onToggleBrowser}
-              title={isBrowserActive ? "ブラウザを閉じる" : "ブラウザを開く"}
+              onClick={onSelectBrowser}
+              title="ブラウザ"
             >
               <Globe className="w-4 h-4" />
             </Button>
