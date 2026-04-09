@@ -24,10 +24,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { Socket } from "socket.io-client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type {
+  ClientToServerEvents,
   ManagedSession,
+  ServerToClientEvents,
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
@@ -51,10 +54,24 @@ export type ViewerTab =
     }
   | { type: "browser"; id: string; url: string };
 
+/** URLからポート番号を抽出 */
+function extractPort(url: string): number {
+  try {
+    const parsed = new URL(url);
+    return Number.parseInt(
+      parsed.port || (parsed.protocol === "https:" ? "443" : "80"),
+      10
+    );
+  } catch {
+    return 80;
+  }
+}
+
 interface TerminalPaneProps {
   session: ManagedSession;
   worktree: Worktree | undefined;
   repoName?: string;
+  socket: Socket<ServerToClientEvents, ClientToServerEvents> | null;
   onSendMessage: (message: string) => void;
   onSendKey: (key: SpecialKey) => void;
   onStopSession: () => void;
@@ -73,6 +90,7 @@ export function TerminalPane({
   session,
   worktree,
   repoName,
+  socket,
   onSendMessage,
   onSendKey,
   onStopSession,
@@ -401,7 +419,11 @@ export function TerminalPane({
           const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
           return (
             <div className="flex-1 min-h-0">
-              <BrowserPane url={tab.url} />
+              <BrowserPane
+                url={tab.url}
+                port={extractPort(tab.url)}
+                socket={socket}
+              />
             </div>
           );
         })()}

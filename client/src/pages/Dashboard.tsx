@@ -311,6 +311,7 @@ export default function Dashboard() {
                         session={session}
                         worktree={wt}
                         repoName={rn}
+                        socket={socket}
                         tabs={getTabsForSession(session.id)}
                         activeTabIndex={getActiveTabForSession(session.id)}
                         onTabSelect={idx => handleTabSelect(session.id, idx)}

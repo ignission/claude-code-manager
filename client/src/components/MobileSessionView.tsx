@@ -42,6 +42,19 @@ import { FileViewerPane } from "./FileViewerPane";
 import type { ViewerTab } from "./TerminalPane";
 import { ViewerTabBar } from "./ViewerTabBar";
 
+/** URLからポート番号を抽出 */
+function extractPort(url: string): number {
+  try {
+    const parsed = new URL(url);
+    return Number.parseInt(
+      parsed.port || (parsed.protocol === "https:" ? "443" : "80"),
+      10
+    );
+  } catch {
+    return 80;
+  }
+}
+
 interface MobileSessionViewProps {
   session: ManagedSession;
   worktree: Worktree | undefined;
@@ -370,7 +383,11 @@ export function MobileSessionView({
           const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
           return (
             <div className="flex-1 min-h-0">
-              <BrowserPane url={tab.url} />
+              <BrowserPane
+                url={tab.url}
+                port={extractPort(tab.url)}
+                socket={socket}
+              />
             </div>
           );
         })()}
