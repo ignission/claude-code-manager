@@ -8,10 +8,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
+import { BrowserPane } from "@/components/BrowserPane";
 import { MobileChatView } from "@/components/MobileChatView";
 import { MobileSessionList } from "@/components/MobileSessionList";
 import { MobileSessionView } from "@/components/MobileSessionView";
 import type {
+  BrowserSession,
   ChatMessage,
   ClientToServerEvents,
   ManagedSession,
@@ -58,6 +60,10 @@ interface MobileLayoutProps {
   beaconStreamText: string;
   onBeaconSend: (message: string) => void;
   onBeaconClear?: () => void;
+  // ブラウザ（noVNC）
+  activeBrowserSession: BrowserSession | null;
+  onSelectBrowser: () => void;
+  isRemote: boolean;
 }
 
 export function MobileLayout({
@@ -85,10 +91,13 @@ export function MobileLayout({
   beaconStreamText,
   onBeaconSend,
   onBeaconClear,
+  activeBrowserSession,
+  onSelectBrowser,
+  isRemote,
 }: MobileLayoutProps) {
-  const [activeView, setActiveView] = useState<"list" | "detail" | "beacon">(
-    "list"
-  );
+  const [activeView, setActiveView] = useState<
+    "list" | "detail" | "beacon" | "browser"
+  >("list");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
   );
@@ -136,8 +145,14 @@ export function MobileLayout({
     return worktrees.find(w => w.id === session.worktreeId);
   };
 
-  // ボトムナビゲーションの表示判定（セッション詳細画面以外で表示）
-  const showBottomNav = activeView !== "detail";
+  // ブラウザを選択して画面遷移
+  const handleOpenBrowser = useCallback(() => {
+    onSelectBrowser();
+    setActiveView("browser");
+  }, [onSelectBrowser]);
+
+  // ボトムナビゲーションの表示判定（セッション詳細画面・ブラウザ画面以外で表示）
+  const showBottomNav = activeView !== "detail" && activeView !== "browser";
 
   return (
     <div className="h-full flex flex-col min-h-0 overflow-hidden">
@@ -218,13 +233,38 @@ export function MobileLayout({
         />
       </div>
 
-      {/* ボトムナビゲーション（セッション詳細画面以外で表示） */}
+      {/* ブラウザビュー（noVNC） */}
+      {activeView === "browser" && (
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="h-12 border-b border-border flex items-center px-4 shrink-0">
+            <button
+              type="button"
+              className="text-sm text-muted-foreground mr-3"
+              onClick={handleBack}
+            >
+              ← 戻る
+            </button>
+            <span className="text-sm font-medium">ブラウザ</span>
+          </div>
+          <div className="flex-1 min-h-0">
+            {activeBrowserSession ? (
+              <BrowserPane browserSession={activeBrowserSession} />
+            ) : (
+              <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                ブラウザを起動中...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ボトムナビゲーション（セッション詳細画面・ブラウザ画面以外で表示） */}
       {showBottomNav && (
         <nav className="fixed bottom-0 left-0 right-0 border-t border-border bg-background z-50 flex">
           <button
             type="button"
             className={`flex-1 py-3 text-center text-sm font-medium ${
-              activeView !== "beacon"
+              activeView === "list"
                 ? "text-primary border-t-2 border-primary"
                 : "text-muted-foreground"
             }`}
@@ -232,6 +272,19 @@ export function MobileLayout({
           >
             セッション
           </button>
+          {isRemote && (
+            <button
+              type="button"
+              className={`flex-1 py-3 text-center text-sm font-medium ${
+                activeView === "browser"
+                  ? "text-primary border-t-2 border-primary"
+                  : "text-muted-foreground"
+              }`}
+              onClick={handleOpenBrowser}
+            >
+              ブラウザ
+            </button>
+          )}
           <button
             type="button"
             className={`flex-1 py-3 text-center text-sm font-medium ${

@@ -287,6 +287,9 @@ export default function Dashboard() {
           beaconStreamText={beaconStreamText}
           onBeaconSend={beaconSend}
           onBeaconClear={beaconClear}
+          activeBrowserSession={activeBrowserSession}
+          onSelectBrowser={handleSelectBrowser}
+          isRemote={isRemote}
         />
       ) : (
         <SidebarMainLayout
