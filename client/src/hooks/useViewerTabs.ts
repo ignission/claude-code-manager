@@ -15,7 +15,8 @@ export function useViewerTabs(
     mimeType: string;
     size: number;
     error?: string;
-  } | null
+  } | null,
+  onOpenUrl?: (url: string) => void
 ) {
   const [sessionTabs, setSessionTabs] = useState<Record<string, ViewerTab[]>>(
     {}
@@ -99,34 +100,31 @@ export function useViewerTabs(
     []
   );
 
-  const openBrowserTab = useCallback((sessionId: string, url: string) => {
-    let newActiveIndex: number | null = null;
-    setSessionTabs(prev => {
-      const tabs = [
-        ...(prev[sessionId] ?? [{ type: "terminal" as const, id: "terminal" }]),
-      ];
-      const existing = tabs.findIndex(
-        t => t.type === "browser" && t.url === url
-      );
-      if (existing >= 0) {
-        newActiveIndex = existing;
-        return prev;
-      }
-      tabs.push({ type: "browser", id: `browser-${Date.now()}`, url });
-      newActiveIndex = tabs.length - 1;
-      return { ...prev, [sessionId]: tabs };
-    });
-    if (newActiveIndex !== null) {
-      const idx = newActiveIndex;
-      setSessionActiveTab(p => ({ ...p, [sessionId]: idx }));
-    }
-  }, []);
-
   // postMessageリスナー（ttyd iframe内のリンククリックを受信）
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const { type } = event.data ?? {};
+
+      if (type === "ark:open-url") {
+        const { url } = event.data;
+        if (typeof url !== "string" || !url) return;
+        try {
+          const parsed = new URL(url);
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+            return;
+        } catch {
+          return;
+        }
+        if (onOpenUrl) {
+          onOpenUrl(url);
+        } else {
+          window.open(url, "_blank", "noopener");
+        }
+        return;
+      }
+
+      // 以下はセッション選択中のみ有効（ファイルビューワー）
       if (!selectedSessionId) return;
       const session = sessions.get(selectedSessionId);
       if (!session) return;
@@ -140,23 +138,12 @@ export function useViewerTabs(
           typeof line === "number" ? line : undefined
         );
         readFile(selectedSessionId, filePath);
-      } else if (type === "ark:open-url") {
-        const { url } = event.data;
-        if (typeof url !== "string" || !url) return;
-        try {
-          const parsed = new URL(url);
-          if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
-            return;
-        } catch {
-          return;
-        }
-        openBrowserTab(selectedSessionId, url);
       }
     };
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [selectedSessionId, sessions, openFileTab, openBrowserTab, readFile]);
+  }, [selectedSessionId, sessions, openFileTab, readFile, onOpenUrl]);
 
   // fileContent受信時にタブを更新（全セッションを検索してレースコンディション対策）
   useEffect(() => {
@@ -199,6 +186,5 @@ export function useViewerTabs(
     handleTabSelect,
     handleTabClose,
     openFileTab,
-    openBrowserTab,
   };
 }

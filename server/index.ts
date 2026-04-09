@@ -25,7 +25,16 @@ import type {
 } from "../shared/types.js";
 import { authManager } from "./lib/auth.js";
 import { beaconManager } from "./lib/beacon-manager.js";
-import { TTYD_PORT_END, TTYD_PORT_START } from "./lib/constants.js";
+import { browserManager } from "./lib/browser-manager.js";
+import {
+  CDP_PORT,
+  TTYD_PORT_END,
+  TTYD_PORT_START,
+  VNC_PORT_END,
+  VNC_PORT_START,
+  WS_PORT_END,
+  WS_PORT_START,
+} from "./lib/constants.js";
 import { db } from "./lib/database.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { readFileFromWorktree } from "./lib/file-manager.js";
@@ -145,6 +154,13 @@ async function startServer() {
       res.writeHead(502, { "Content-Type": "text/plain" });
       res.end("Bad Gateway - ttyd connection failed");
     }
+  });
+
+  // プロキシ経由のレスポンスに強制的にクリックジャッキング対策ヘッダを付与する。
+  // ttyd/noVNCはiframe埋め込みで使うため、SAMEORIGINまで許可する。
+  ttydProxy.on("proxyRes", proxyRes => {
+    proxyRes.headers["x-frame-options"] = "SAMEORIGIN";
+    proxyRes.headers["content-security-policy"] = "frame-ancestors 'self'";
   });
 
   if (enableRemote) {
@@ -477,6 +493,21 @@ async function startServer() {
     });
   });
 
+  // ===== noVNC Browser Proxy Routes =====
+
+  app.use("/browser/:browserId", (req, res) => {
+    const { browserId } = req.params;
+    const session = browserManager.getSession(browserId);
+    if (!session) {
+      res.status(404).json({ error: "Browser session not found" });
+      return;
+    }
+    // http-proxyインスタンスはttydProxyを共用する
+    const subPath = req.url || "/";
+    req.url = subPath;
+    ttydProxy.web(req, res, { target: `http://127.0.0.1:${session.wsPort}` });
+  });
+
   // ===== ローカルポートプロキシ（リモートアクセス時にlocalhost URLを表示するため） =====
 
   app.all("/proxy/:port/*", (req, res) => {
@@ -486,14 +517,23 @@ async function startServer() {
       return;
     }
 
-    // Ark自体のポートとttydポート範囲をブロック（SSRF対策）
+    // Ark自体のポート・CDPポート・ttydポート範囲をブロック（SSRF対策）
     const serverPort = parseInt(process.env.PORT || "3001", 10);
-    if (port === serverPort) {
+    if (port === serverPort || port === CDP_PORT) {
       res.status(403).json({ error: "This port is not accessible via proxy" });
       return;
     }
     // ttydポート範囲(TTYD_PORT_START〜TTYD_PORT_END)もブロック
     if (port >= TTYD_PORT_START && port <= TTYD_PORT_END) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
+      return;
+    }
+    // VNC/WSポート範囲もブロック（noVNCブラウザセッション用）
+    if (port >= VNC_PORT_START && port <= VNC_PORT_END) {
+      res.status(403).json({ error: "This port is not accessible via proxy" });
+      return;
+    }
+    if (port >= WS_PORT_START && port <= WS_PORT_END) {
       res.status(403).json({ error: "This port is not accessible via proxy" });
       return;
     }
@@ -514,23 +554,55 @@ async function startServer() {
     app.use(express.static(staticPath));
 
     // Handle client-side routing - serve index.html for all routes
-    // Exclude ttyd and proxy routes
-    app.get(/^(?!\/ttyd\/|\/proxy\/).*$/, (_req, res) => {
+    // Exclude ttyd, proxy, and browser routes
+    app.get(/^(?!\/ttyd\/|\/proxy\/|\/browser\/).*$/, (_req, res) => {
       res.sendFile(path.join(staticPath, "index.html"));
     });
   }
 
   // ===== WebSocket Upgrade Handler =====
 
+  /**
+   * WebSocket upgradeリクエストの認証を検証する
+   * authManagerが有効な場合、Quick Tunnel経由のアクセスのみトークン認証を要求する。
+   * ローカル/プライベートIPは認証スキップ。
+   * @returns 認証OKならtrue、失敗時はfalse（呼び出し側でsocket.destroy()する）
+   */
+  function authorizeWebSocketUpgrade(
+    req: import("node:http").IncomingMessage,
+    url: URL
+  ): boolean {
+    if (!authManager.isEnabled()) {
+      return true;
+    }
+
+    // Quick Tunnel以外（ローカル等）はスキップ
+    const host =
+      (req.headers["x-forwarded-host"] as string | undefined) ||
+      req.headers.host;
+    const hostname = host?.split(":")[0] ?? "";
+    const isQuickTunnel = hostname.endsWith(".trycloudflare.com");
+    if (!isQuickTunnel) {
+      return true;
+    }
+
+    const token = url.searchParams.get("token") ?? undefined;
+    return authManager.validateToken(token);
+  }
+
   server.on("upgrade", (req, socket, head) => {
     const url = new URL(req.url || "", `http://${req.headers.host}`);
     const pathname = url.pathname;
 
-    // ttyd WebSocket接続は内部プロキシ（ws://127.0.0.1）経由のため認証不要
-
     // Handle ttyd WebSocket connections
     const ttydMatch = pathname.match(/^\/ttyd\/([^/]+)/);
     if (ttydMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
       const sessionId = ttydMatch[1];
       const session = sessionOrchestrator.getSession(sessionId);
 
@@ -542,22 +614,53 @@ async function startServer() {
           target: `ws://127.0.0.1:${session.ttydPort}`,
         });
         return;
-      } else {
+      }
+      socket.destroy();
+      return;
+    }
+
+    // Handle browser (noVNC) WebSocket connections
+    const browserMatch = pathname.match(/^\/browser\/([^/]+)(\/.*)?$/);
+    if (browserMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
         socket.destroy();
         return;
       }
+
+      const browserId = browserMatch[1];
+      const session = browserManager.getSession(browserId);
+      if (session) {
+        const targetPath = browserMatch[2] || "/";
+        req.url = targetPath;
+        ttydProxy.ws(req, socket, head, {
+          target: `ws://127.0.0.1:${session.wsPort}`,
+        });
+        return;
+      }
+      socket.destroy();
+      return;
     }
 
     // Handle proxy WebSocket connections（ローカルポートプロキシ用）
     const proxyMatch = pathname.match(/^\/proxy\/(\d+)(\/.*)?$/);
     if (proxyMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
       const proxyPort = parseInt(proxyMatch[1], 10);
       if (proxyPort >= 1 && proxyPort <= 65535) {
-        // SSRF対策: Ark自体のポートとttydポート範囲をブロック
+        // SSRF対策: Ark自体のポート、CDPポート、ttydポート範囲、VNC/WSポート範囲をブロック
         const serverPort = parseInt(process.env.PORT || "3001", 10);
         if (
           proxyPort === serverPort ||
-          (proxyPort >= TTYD_PORT_START && proxyPort <= TTYD_PORT_END)
+          proxyPort === CDP_PORT ||
+          (proxyPort >= TTYD_PORT_START && proxyPort <= TTYD_PORT_END) ||
+          (proxyPort >= VNC_PORT_START && proxyPort <= VNC_PORT_END) ||
+          (proxyPort >= WS_PORT_START && proxyPort <= WS_PORT_END)
         ) {
           socket.destroy();
           return;
@@ -1078,6 +1181,55 @@ async function startServer() {
       }
     });
 
+    // ===== Browser Session Commands (noVNC) =====
+    //
+    // 設計: ブラウザセッションはシングルトンのため、
+    // 特定のクライアントの切断で停止させると他クライアントの画面が消える。
+    // そのため明示的な`browser:stop`のみで停止する方針を取り、
+    // disconnect時の自動停止は行わない。
+    // 最終的なプロセス掃除はSIGTERM/SIGINT時の`browserManager.cleanup()`で行う。
+
+    socket.on("browser:start", async () => {
+      try {
+        if (!browserManager.isAvailable()) {
+          socket.emit("browser:error", {
+            message:
+              "ブラウザタブ機能は無効です。依存パッケージをインストールしてください。",
+          });
+          return;
+        }
+
+        const session = await browserManager.start();
+        // シングルトンブラウザは全クライアントで共有されるため、
+        // 他の接続クライアントにも同期する。
+        io.emit("browser:started", session);
+      } catch (error) {
+        socket.emit("browser:error", { message: getErrorMessage(error) });
+      }
+    });
+
+    socket.on("browser:stop", async data => {
+      try {
+        await browserManager.stop(data.browserId);
+        // 全クライアントにブラウザ停止を通知
+        io.emit("browser:stopped", { browserId: data.browserId });
+      } catch (error) {
+        socket.emit("browser:error", { message: getErrorMessage(error) });
+      }
+    });
+
+    socket.on("browser:navigate", async data => {
+      try {
+        const session = await browserManager.navigate(data.url);
+        // 全クライアントに通知
+        // （セッションを知らないクライアントの初期同期、および
+        //  他クライアントにもナビゲーション結果を共有する）
+        io.emit("browser:started", session);
+      } catch (error) {
+        socket.emit("browser:error", { message: getErrorMessage(error) });
+      }
+    });
+
     // ===== Beacon Commands =====
 
     // Beaconメッセージ送信
@@ -1140,6 +1292,9 @@ async function startServer() {
       forwardHandlers.forEach((handler, event) => {
         sessionOrchestrator.off(event, handler);
       });
+
+      // ブラウザセッションはシングルトンのため、socket切断では停止しない。
+      // 明示的なbrowser:stopまたはSIGTERM/SIGINT時のcleanup()で停止する。
     });
   });
 
@@ -1236,6 +1391,7 @@ async function startServer() {
     console.log("Shutting down...");
     sessionOrchestrator.cleanup();
     beaconManager.cleanup();
+    browserManager.cleanup();
     server.close(() => {
       process.exit(0);
     });

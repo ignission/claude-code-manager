@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { browserManager } from "./browser-manager.js";
 import { TTYD_PORT_END, TTYD_PORT_START } from "./constants.js";
 
 export interface ListeningPort {
@@ -42,14 +43,20 @@ function collectPorts(
     const ports: ListeningPort[] = [];
     const seen = new Set<number>();
 
+    // 実際にBrowserManagerが使用中のポート（VNC/WS/CDP）のみ除外。
+    // VNC/WS範囲を一括除外するとユーザーアプリのポートも隠れてしまうため、
+    // 動的に使用中のポートだけをフィルタリングする。
+    const browserUsedPorts = new Set(browserManager.getUsedPorts());
+
     for (const line of output.trim().split("\n")) {
       const parsed = parseLine(line);
       if (!parsed) continue;
 
       const { port, processName, pid } = parsed;
 
-      // ttydポートを除外
+      // ttydポート範囲（固定）とBrowserManager使用中ポート（動的）を除外
       if (port >= TTYD_PORT_START && port <= TTYD_PORT_END) continue;
+      if (browserUsedPorts.has(port)) continue;
 
       if (!seen.has(port)) {
         seen.add(port);

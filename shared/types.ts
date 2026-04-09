@@ -49,6 +49,17 @@ export interface ManagedSession extends Session {
 
 export type SessionStatus = "active" | "idle" | "error" | "stopped";
 
+export interface BrowserSession {
+  id: string;
+  targetPort: number;
+  targetUrl: string;
+  wsPort: number;
+  vncPort: number;
+  displayNum: number;
+  devtools: boolean;
+  createdAt: Date;
+}
+
 export interface Message {
   id: string;
   sessionId: string;
@@ -174,6 +185,11 @@ export interface ServerToClientEvents {
     size: number;
     error?: string;
   }) => void;
+
+  // ブラウザセッション（noVNC）
+  "browser:started": (session: BrowserSession) => void;
+  "browser:stopped": (data: { browserId: string }) => void;
+  "browser:error": (data: { message: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -228,6 +244,11 @@ export interface ClientToServerEvents {
 
   // ファイルビューワー
   "file:read": (data: { sessionId: string; filePath: string }) => void;
+
+  // ブラウザセッション（noVNC）
+  "browser:start": () => void;
+  "browser:stop": (data: { browserId: string }) => void;
+  "browser:navigate": (data: { url: string }) => void;
 }
 
 /** Beaconチャットのメッセージ */

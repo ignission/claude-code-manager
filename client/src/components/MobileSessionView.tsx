@@ -37,7 +37,6 @@ import type {
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import { useTerminalSwipeScroll } from "../hooks/useTerminalSwipeScroll";
 import { useVisualViewport } from "../hooks/useVisualViewport";
-import { BrowserPane } from "./BrowserPane";
 import { FileViewerPane } from "./FileViewerPane";
 import type { ViewerTab } from "./TerminalPane";
 import { ViewerTabBar } from "./ViewerTabBar";
@@ -362,15 +361,6 @@ export function MobileSessionView({
                 targetLine={tab.targetLine}
                 error={tab.error}
               />
-            </div>
-          );
-        })()}
-      {tabs[activeTabIndex]?.type === "browser" &&
-        (() => {
-          const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
-          return (
-            <div className="flex-1 min-h-0">
-              <BrowserPane url={tab.url} />
             </div>
           );
         })()}

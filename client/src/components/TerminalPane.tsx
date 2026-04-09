@@ -33,7 +33,6 @@ import type {
 } from "../../../shared/types";
 import { useIsMobile } from "../hooks/useMobile";
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
-import { BrowserPane } from "./BrowserPane";
 import { FileViewerPane } from "./FileViewerPane";
 import { ViewerTabBar } from "./ViewerTabBar";
 
@@ -48,8 +47,7 @@ export type ViewerTab =
       size: number;
       targetLine?: number | null;
       error?: string;
-    }
-  | { type: "browser"; id: string; url: string };
+    };
 
 interface TerminalPaneProps {
   session: ManagedSession;
@@ -396,16 +394,6 @@ export function TerminalPane({
             </div>
           );
         })()}
-      {tabs[activeTabIndex]?.type === "browser" &&
-        (() => {
-          const tab = tabs[activeTabIndex] as ViewerTab & { type: "browser" };
-          return (
-            <div className="flex-1 min-h-0">
-              <BrowserPane url={tab.url} />
-            </div>
-          );
-        })()}
-
       {/* Image paste preview dialog */}
       {pastedImage && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50">

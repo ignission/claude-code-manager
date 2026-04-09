@@ -1,7 +1,8 @@
 import { AlertCircle, Copy, Loader2, Terminal } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BrowserPane } from "@/components/BrowserPane";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { MobileChatView } from "@/components/MobileChatView";
 import { MobileLayout } from "@/components/MobileLayout";
@@ -88,6 +89,9 @@ export default function Dashboard() {
     sessionActivityTexts,
     readFile,
     fileContent,
+    browserSessions,
+    startBrowser,
+    navigateBrowser,
   } = useSocket({
     enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
@@ -98,8 +102,41 @@ export default function Dashboard() {
 
   const isMobile = useIsMobile();
 
+  const isRemote =
+    typeof window !== "undefined" &&
+    window.location.hostname !== "localhost" &&
+    window.location.hostname !== "127.0.0.1";
+
+  const activeBrowserSession = Array.from(browserSessions.values())[0] ?? null;
+
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
+  );
+  // ブラウザビューを一度でも開いたかどうかのフラグ
+  // 一度開いたら常に描画してdisplay:hiddenで切り替え、BrowserPaneの再マウント（VNC再接続）を防ぐ
+  const [hasBrowserOpened, setHasBrowserOpened] = useState(false);
+
+  /** ブラウザを選択（未起動なら起動） */
+  const handleSelectBrowser = useCallback(() => {
+    if (!activeBrowserSession) {
+      startBrowser();
+    }
+    setSelectedSessionId("browser");
+    setHasBrowserOpened(true);
+  }, [activeBrowserSession, startBrowser]);
+
+  /** localhost URLクリック時: ブラウザに遷移して選択 */
+  const handleOpenUrl = useCallback(
+    (url: string) => {
+      if (isRemote) {
+        navigateBrowser(url);
+        setSelectedSessionId("browser");
+        setHasBrowserOpened(true);
+      } else {
+        window.open(url, "_blank", "noopener");
+      }
+    },
+    [isRemote, navigateBrowser]
   );
 
   const {
@@ -107,7 +144,13 @@ export default function Dashboard() {
     getActiveTabForSession,
     handleTabSelect,
     handleTabClose,
-  } = useViewerTabs(selectedSessionId, sessions, readFile, fileContent);
+  } = useViewerTabs(
+    selectedSessionId,
+    sessions,
+    readFile,
+    fileContent,
+    handleOpenUrl
+  );
 
   // サーバーからの設定が読み込まれたらセッションIDを復元
   const settingsInitializedRef = useRef(false);
@@ -136,6 +179,16 @@ export default function Dashboard() {
       setSetting("selectedSessionId", selectedSessionId);
     }
   }, [selectedSessionId, setSetting]);
+
+  // リロード時にブラウザ選択状態を維持:
+  // selectedSessionIdが"browser"のまま復元された場合、
+  // browserSessionがまだなければ自動的に起動する。
+  useEffect(() => {
+    if (selectedSessionId === "browser" && !activeBrowserSession && isRemote) {
+      startBrowser();
+      setHasBrowserOpened(true);
+    }
+  }, [selectedSessionId, activeBrowserSession, isRemote, startBrowser]);
 
   const [isCreateWorktreeOpen, setIsCreateWorktreeOpen] = useState(false);
   const [isSelectRepoOpen, setIsSelectRepoOpen] = useState(false);
@@ -169,6 +222,8 @@ export default function Dashboard() {
 
   // セッション自動選択
   useEffect(() => {
+    // ブラウザ選択中はリセットしない
+    if (selectedSessionId === "browser") return;
     if (!selectedSessionId && sessions.size > 0) {
       const first = Array.from(sessions.values())[0];
       setSelectedSessionId(first.id);
@@ -268,6 +323,10 @@ export default function Dashboard() {
           beaconStreamText={beaconStreamText}
           onBeaconSend={beaconSend}
           onBeaconClear={beaconClear}
+          activeBrowserSession={activeBrowserSession}
+          onSelectBrowser={handleSelectBrowser}
+          navigateBrowser={navigateBrowser}
+          isRemote={isRemote}
         />
       ) : (
         <SidebarMainLayout
@@ -283,6 +342,9 @@ export default function Dashboard() {
               onStopSession={handleStopSession}
               onStartSession={handleStartSession}
               onNewSession={handleNewSession}
+              onSelectBrowser={handleSelectBrowser}
+              isBrowserSelected={selectedSessionId === "browser"}
+              isRemote={isRemote}
             />
           }
           main={
@@ -294,6 +356,24 @@ export default function Dashboard() {
                 </div>
               )}
               <div className="flex-1 overflow-hidden relative">
+                {/* ブラウザビュー: 一度開いたら常に描画してdisplay:hiddenで切り替え。
+                    BrowserPaneの再マウント（VNC再接続）を防ぐ */}
+                {hasBrowserOpened && (
+                  <div
+                    className={
+                      selectedSessionId === "browser" ? "h-full" : "hidden"
+                    }
+                  >
+                    {activeBrowserSession ? (
+                      <BrowserPane browserSession={activeBrowserSession} />
+                    ) : (
+                      <div className="h-full flex items-center justify-center text-muted-foreground">
+                        <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                        ブラウザを起動中...
+                      </div>
+                    )}
+                  </div>
+                )}
                 {Array.from(sessions.values()).map(session => {
                   const isActive = selectedSessionId === session.id;
                   const wt = worktrees.find(w => w.id === session.worktreeId);

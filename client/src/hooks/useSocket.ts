@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   BeaconStreamChunk,
+  BrowserSession,
   ChatMessage,
   ClientToServerEvents,
   ManagedSession,
@@ -123,6 +124,13 @@ interface UseSocketReturn {
   beaconLoadHistory: () => void;
   beaconClose: () => void;
   beaconClear: () => void;
+
+  // Browser sessions
+  browserSessions: Map<string, BrowserSession>;
+  browserError: string | null;
+  startBrowser: () => void;
+  stopBrowser: (browserId: string) => void;
+  navigateBrowser: (url: string) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
@@ -187,6 +195,12 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   const [sessionActivityTexts, setSessionActivityTexts] = useState<
     Map<string, string>
   >(new Map());
+
+  // Browser session state
+  const [browserSessions, setBrowserSessions] = useState<
+    Map<string, BrowserSession>
+  >(new Map());
+  const [browserError, setBrowserError] = useState<string | null>(null);
 
   // Beacon状態
   const [beaconMessages, setBeaconMessages] = useState<ChatMessage[]>([]);
@@ -501,6 +515,28 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       });
     });
 
+    // Browser session events (noVNC)
+    socket.on("browser:started", (session: BrowserSession) => {
+      setBrowserSessions(prev => {
+        const next = new Map(prev);
+        next.set(session.id, session);
+        return next;
+      });
+      setBrowserError(null);
+    });
+
+    socket.on("browser:stopped", ({ browserId }: { browserId: string }) => {
+      setBrowserSessions(prev => {
+        const next = new Map(prev);
+        next.delete(browserId);
+        return next;
+      });
+    });
+
+    socket.on("browser:error", ({ message }: { message: string }) => {
+      setBrowserError(message);
+    });
+
     // Cleanup on unmount
     return () => {
       socket.off("ports:list");
@@ -512,6 +548,9 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       socket.off("beacon:history");
       socket.off("beacon:error");
       socket.off("session:previews");
+      socket.off("browser:started");
+      socket.off("browser:stopped");
+      socket.off("browser:error");
       socket.disconnect();
     };
   }, [enabled]);
@@ -691,6 +730,19 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     []
   );
 
+  // Browser session actions
+  const startBrowser = useCallback(() => {
+    socketRef.current?.emit("browser:start");
+  }, []);
+
+  const stopBrowser = useCallback((browserId: string) => {
+    socketRef.current?.emit("browser:stop", { browserId });
+  }, []);
+
+  const navigateBrowser = useCallback((url: string) => {
+    socketRef.current?.emit("browser:navigate", { url });
+  }, []);
+
   return {
     socket: socketRef.current,
     isConnected,
@@ -747,5 +799,11 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     beaconLoadHistory,
     beaconClose,
     beaconClear,
+    // Browser sessions
+    browserSessions,
+    browserError,
+    startBrowser,
+    stopBrowser,
+    navigateBrowser,
   };
 }
