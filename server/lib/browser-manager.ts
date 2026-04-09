@@ -444,16 +444,19 @@ export class BrowserManager extends EventEmitter {
           reject(new Error("x11vnc起動タイムアウト"));
         }, X11VNC_TIMEOUT);
 
-        let stderrData = "";
+        let outputData = "";
 
-        x11vnc.stderr?.on("data", (data: Buffer) => {
-          stderrData += data.toString();
-          // x11vncは起動時に "PORT=XXXX" を stderr に出力する
-          if (stderrData.includes("PORT=")) {
+        const onData = (data: Buffer) => {
+          outputData += data.toString();
+          // x11vncは起動時に "PORT=XXXX" を stdout に出力する
+          if (outputData.includes("PORT=")) {
             clearTimeout(timeout);
             resolve();
           }
-        });
+        };
+
+        x11vnc.stdout?.on("data", onData);
+        x11vnc.stderr?.on("data", onData);
 
         x11vnc.on("error", error => {
           clearTimeout(timeout);
@@ -464,7 +467,7 @@ export class BrowserManager extends EventEmitter {
           if (code !== 0 && code !== null) {
             clearTimeout(timeout);
             reject(
-              new Error(`x11vncが終了しました (code: ${code}): ${stderrData}`)
+              new Error(`x11vncが終了しました (code: ${code}): ${outputData}`)
             );
           }
         });
