@@ -511,8 +511,13 @@ async function startServer() {
   // ===== ローカルポートプロキシ（リモートアクセス時にlocalhost URLを表示するため） =====
 
   app.all("/proxy/:port/*", (req, res) => {
-    const port = parseInt(req.params.port, 10);
-    if (Number.isNaN(port) || port < 1 || port > 65535) {
+    const rawPort = req.params.port;
+    if (!/^\d+$/.test(rawPort)) {
+      res.status(400).json({ error: "Invalid port" });
+      return;
+    }
+    const port = Number(rawPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
       res.status(400).json({ error: "Invalid port" });
       return;
     }
