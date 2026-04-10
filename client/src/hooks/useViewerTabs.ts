@@ -109,6 +109,7 @@ export function useViewerTabs(
       if (type === "ark:open-url") {
         const { url } = event.data;
         if (typeof url !== "string" || !url) return;
+
         try {
           const parsed = new URL(url);
           if (parsed.protocol !== "http:" && parsed.protocol !== "https:")
