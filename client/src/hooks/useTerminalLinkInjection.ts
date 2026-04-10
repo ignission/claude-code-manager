@@ -76,7 +76,6 @@ export function useTerminalLinkInjection(
           // そのため、フェイクWindowオブジェクトを返してlocation.hrefのセッターで
           // URLを検出し、postMessageに変換する。
           const arkWindow = window;
-          const origOpen = iframeWindow.open.bind(iframeWindow);
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内のwindow.openをオーバーライドするため型を緩める
           (iframeWindow as any).open = (
             url?: string | URL,
@@ -84,18 +83,14 @@ export function useTerminalLinkInjection(
             features?: string
           ): Window | null => {
             // 引数ありの呼び出し（URL直接指定）
+            // 全URLをpostMessage経由で親ウィンドウに委譲（二重タブ防止）
             if (url) {
               const urlStr = urlExtensionMap.get(String(url)) || String(url);
-              if (
-                /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
-              ) {
-                arkWindow.postMessage(
-                  { type: "ark:open-url", url: urlStr },
-                  arkWindow.location.origin
-                );
-                return null;
-              }
-              return origOpen(urlStr, target, features);
+              arkWindow.postMessage(
+                { type: "ark:open-url", url: urlStr },
+                arkWindow.location.origin
+              );
+              return null;
             }
 
             // 引数なしの呼び出し（WebLinksAddonパターン）
@@ -105,27 +100,12 @@ export function useTerminalLinkInjection(
               location: {
                 _href: "",
                 set href(u: string) {
-                  // URL拡張マップで折り返しURLを完全URLに復元
+                  // 全URLをpostMessage経由で親ウィンドウに委譲（二重タブ防止）
                   const resolved = urlExtensionMap.get(u) || u;
-                  if (
-                    /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(
-                      resolved
-                    )
-                  ) {
-                    arkWindow.postMessage(
-                      { type: "ark:open-url", url: resolved },
-                      arkWindow.location.origin
-                    );
-                  } else {
-                    // localhost以外は実際に新しいウィンドウで開く
-                    const real = origOpen();
-                    if (real) {
-                      try {
-                        real.opener = null;
-                      } catch {}
-                      real.location.href = resolved;
-                    }
-                  }
+                  arkWindow.postMessage(
+                    { type: "ark:open-url", url: resolved },
+                    arkWindow.location.origin
+                  );
                 },
                 get href() {
                   return this._href;
