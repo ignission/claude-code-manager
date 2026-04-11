@@ -47,6 +47,11 @@ export type ViewerTab =
       size: number;
       targetLine?: number | null;
       error?: string;
+    }
+  | {
+      type: "html";
+      id: string;
+      filePath: string;
     };
 
 interface TerminalPaneProps {
