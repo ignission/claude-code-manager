@@ -395,28 +395,39 @@ async function startServer() {
     }
 
     // 許可ディレクトリの制限（/tmp と ホームディレクトリ配下のみ）
+    // macOSでは /tmp → /private/tmp に解決されるため、許可ルートもrealpath解決する
     const homeDir = os.homedir();
-    const allowedPrefixes = ["/tmp/", `${homeDir}/`];
+    const rawPrefixes = ["/tmp", homeDir];
+    const allowedPrefixes: string[] = [];
+    for (const p of rawPrefixes) {
+      try {
+        allowedPrefixes.push(`${await fs.promises.realpath(p)}/`);
+      } catch {
+        allowedPrefixes.push(`${p}/`);
+      }
+    }
     if (!allowedPrefixes.some(prefix => normalized.startsWith(prefix))) {
       res.status(403).json({ error: "Access to this path is not allowed" });
       return;
     }
 
+    let fd: import("node:fs/promises").FileHandle | null = null;
     try {
-      // symlink経由のパス制限回避を防止: 実体パスを解決して再チェック
+      // TOCTOU防止: openでfdを取得し、実体パスを検証してからfdで読み取り
+      fd = await fs.promises.open(normalized, fs.constants.O_RDONLY);
       const realPath = await fs.promises.realpath(normalized);
       if (!allowedPrefixes.some(prefix => realPath.startsWith(prefix))) {
         res.status(403).json({ error: "Access to this path is not allowed" });
         return;
       }
-
-      await fs.promises.access(realPath, fs.constants.R_OK);
-      const content = await fs.promises.readFile(realPath, "utf-8");
+      const content = await fd.readFile("utf-8");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
       res.send(content);
     } catch {
       res.status(404).json({ error: "File not found" });
+    } finally {
+      await fd?.close();
     }
   });
 
