@@ -371,6 +371,39 @@ async function startServer() {
     return tunnelUrl;
   }
 
+  // ===== HTML ファイル配信API =====
+
+  app.get("/api/html-file", async (req, res) => {
+    const filePath = req.query.path;
+    if (typeof filePath !== "string" || !filePath) {
+      res.status(400).json({ error: "path query parameter is required" });
+      return;
+    }
+
+    // セキュリティ: 絶対パスのみ許可、パストラバーサル防止
+    const normalized = path.resolve(filePath);
+    if (normalized !== filePath || filePath.includes("..")) {
+      res.status(400).json({ error: "Invalid file path" });
+      return;
+    }
+
+    // .html / .htm 拡張子のみ許可
+    const ext = path.extname(normalized).toLowerCase();
+    if (ext !== ".html" && ext !== ".htm") {
+      res.status(400).json({ error: "Only HTML files are allowed" });
+      return;
+    }
+
+    try {
+      await fs.promises.access(normalized, fs.constants.R_OK);
+      const content = await fs.promises.readFile(normalized, "utf-8");
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.send(content);
+    } catch {
+      res.status(404).json({ error: "File not found" });
+    }
+  });
+
   // ===== Settings API =====
 
   // Settings APIのキー名バリデーション
