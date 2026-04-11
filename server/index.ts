@@ -394,10 +394,19 @@ async function startServer() {
       return;
     }
 
+    // 許可ディレクトリの制限（/tmp と ホームディレクトリ配下のみ）
+    const homeDir = os.homedir();
+    const allowedPrefixes = ["/tmp/", `${homeDir}/`];
+    if (!allowedPrefixes.some(prefix => normalized.startsWith(prefix))) {
+      res.status(403).json({ error: "Access to this path is not allowed" });
+      return;
+    }
+
     try {
       await fs.promises.access(normalized, fs.constants.R_OK);
       const content = await fs.promises.readFile(normalized, "utf-8");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Content-Security-Policy", "sandbox allow-scripts");
       res.send(content);
     } catch {
       res.status(404).json({ error: "File not found" });

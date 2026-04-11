@@ -1,27 +1,53 @@
+import { useEffect, useState } from "react";
+
 interface HtmlViewerPaneProps {
   filePath: string;
 }
 
-function getUrlToken(): string | null {
-  return new URLSearchParams(window.location.search).get("token");
-}
-
 /**
  * 絶対パスのHTMLファイルをiframeで表示するコンポーネント。
- * 注意: HTMLファイルと同ディレクトリの相対リソース（CSS/JS/画像）は
- * ブラウザのセキュリティ制約により正しく読み込まれない場合がある。
+ * fetch→srcdoc方式でHTMLを表示し、認証トークンがiframe内に露出しない。
  * self-contained（全リソースインライン）なHTMLファイルを対象とする。
  */
 export function HtmlViewerPane({ filePath }: HtmlViewerPaneProps) {
-  const token = getUrlToken();
-  let src = `/api/html-file?path=${encodeURIComponent(filePath)}`;
-  if (token) {
-    src += `&token=${encodeURIComponent(token)}`;
+  const [htmlContent, setHtmlContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("token");
+    let url = `/api/html-file?path=${encodeURIComponent(filePath)}`;
+    if (token) {
+      url += `&token=${encodeURIComponent(token)}`;
+    }
+
+    fetch(url)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })
+      .then(setHtmlContent)
+      .catch(e => setError(e.message));
+  }, [filePath]);
+
+  if (error) {
+    return (
+      <div className="flex items-center justify-center h-full text-destructive">
+        <p>HTMLファイルの読み込みに失敗しました: {error}</p>
+      </div>
+    );
+  }
+
+  if (htmlContent === null) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <p>読み込み中...</p>
+      </div>
+    );
   }
 
   return (
     <iframe
-      src={src}
+      srcDoc={htmlContent}
       className="w-full h-full border-0"
       sandbox="allow-scripts"
       title={filePath.split("/").pop() || "HTML"}
