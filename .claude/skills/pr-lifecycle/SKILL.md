@@ -41,13 +41,16 @@ PRのレビューコメントを確認する:
 
 ```bash
 # 未解決スレッドをGraphQLで取得（既存ヘルパー使用）
-bash "$CLAUDE_PROJECT_DIR/.claude/hooks/fetch-unresolved-threads.sh"
+source "$CLAUDE_PROJECT_DIR/.claude/hooks/fetch-unresolved-threads.sh"
+fetch_unresolved_threads
 ```
 
 また、REST APIでCodeRabbitのレビュー本体も確認する:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id, state, body}'
+REPO=$(gh repo view --json nameWithOwner -q '.nameWithOwner')
+gh api "repos/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id, state, body}'
 ```
 
 未解決のCodeRabbitコメントがある場合:
@@ -73,7 +76,7 @@ gh api repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.lo
 
 `/merge-and-cleanup` スキルを実行する:
 
-```
+```text
 /merge-and-cleanup <PR番号>
 ```
 
