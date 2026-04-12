@@ -40,6 +40,7 @@ export function SidebarMainLayout({
   );
   const [isResizing, setIsResizing] = useState(false);
   const widthRef = useRef(sidebarWidth);
+  const cleanupRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const clamped = Math.min(
@@ -50,40 +51,50 @@ export function SidebarMainLayout({
     widthRef.current = clamped;
   }, [initialSidebarWidth]);
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      setIsResizing(true);
+
+      const handleMouseMove = (e: MouseEvent) => {
+        const newWidth = Math.min(
+          SIDEBAR_MAX_WIDTH,
+          Math.max(SIDEBAR_MIN_WIDTH, e.clientX)
+        );
+        widthRef.current = newWidth;
+        setSidebarWidth(newWidth);
+      };
+
+      const handleMouseUp = () => {
+        setIsResizing(false);
+        onSidebarWidthChange?.(widthRef.current);
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        cleanupRef.current = null;
+      };
+
+      cleanupRef.current = () => {
+        document.removeEventListener("mousemove", handleMouseMove);
+        document.removeEventListener("mouseup", handleMouseUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.addEventListener("mousemove", handleMouseMove);
+      document.addEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+    },
+    [onSidebarWidthChange]
+  );
 
   useEffect(() => {
-    if (!isResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = Math.min(
-        SIDEBAR_MAX_WIDTH,
-        Math.max(SIDEBAR_MIN_WIDTH, e.clientX)
-      );
-      widthRef.current = newWidth;
-      setSidebarWidth(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      onSidebarWidthChange?.(widthRef.current);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-
     return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
+      cleanupRef.current?.();
     };
-  }, [isResizing, onSidebarWidthChange]);
+  }, []);
 
   return (
     <div className="h-[100dvh] flex relative">
