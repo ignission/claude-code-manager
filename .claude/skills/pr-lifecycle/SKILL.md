@@ -40,10 +40,11 @@ gh run list --branch $(git branch --show-current) --limit 5 --json status,conclu
 PRのレビューコメントを確認する:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/$PR_NUMBER/comments --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id, body, path, line, created_at, in_reply_to_id}'
+# 未解決スレッドをGraphQLで取得（既存ヘルパー使用）
+bash "$CLAUDE_PROJECT_DIR/.claude/hooks/fetch-unresolved-threads.sh"
 ```
 
-また、PRのレビュー本体も確認する:
+また、REST APIでCodeRabbitのレビュー本体も確認する:
 
 ```bash
 gh api repos/{owner}/{repo}/pulls/$PR_NUMBER/reviews --jq '.[] | select(.user.login == "coderabbitai[bot]") | {id, state, body}'

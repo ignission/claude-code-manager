@@ -47,7 +47,7 @@ AVAIL_KB=$(df -k / | tail -1 | awk '{print $4}')
 AVAIL_GB=$((AVAIL_KB / 1048576))
 if [ "$AVAIL_GB" -lt 5 ] 2>/dev/null; then
   WARNINGS="${WARNINGS}WARNING: ディスク残容量: ${AVAIL_GB}GB（5GB未満）\n"
-  WARNINGS="${WARNINGS}  → /garbage-collect でクリーンアップを推奨\n"
+  WARNINGS="${WARNINGS}  → docker system prune / pnpm store prune / /garbage-collect でクリーンアップを推奨\n"
 fi
 
 # 結果をstdoutに出力（Claudeのコンテキストに追加される）
