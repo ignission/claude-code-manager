@@ -230,7 +230,9 @@ export function useTerminalLinkInjection(
                 /(?:file:([a-zA-Z0-9_.\-/]+)|([a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+))(?::(\d+))?/g;
               while ((match = fileRegex.exec(text)) !== null) {
                 const fullMatch = match[0];
-                const filePath = match[1] || match[2];
+                // file:///path の場合、先頭の余分なスラッシュを除去して /path にする
+                const rawPath = match[1] || match[2];
+                const filePath = rawPath?.replace(/^\/{2,}/, "/");
                 const lineNum = match[3] ? Number.parseInt(match[3], 10) : null;
                 if (!filePath) continue;
                 links.push({
