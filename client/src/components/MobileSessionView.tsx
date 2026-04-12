@@ -16,7 +16,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Socket } from "socket.io-client";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,14 +37,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type {
-  ClientToServerEvents,
   ManagedSession,
-  ServerToClientEvents,
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
-import { useTerminalSwipeScroll } from "../hooks/useTerminalSwipeScroll";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 import { FileViewerPane } from "./FileViewerPane";
 import type { ViewerTab } from "./TerminalPane";
@@ -54,7 +50,6 @@ import { ViewerTabBar } from "./ViewerTabBar";
 interface MobileSessionViewProps {
   session: ManagedSession;
   worktree: Worktree | undefined;
-  socket: Socket<ServerToClientEvents, ClientToServerEvents> | null;
   onBack: () => void;
   onSendMessage: (message: string) => void;
   onSendKey: (key: SpecialKey) => void;
@@ -74,7 +69,6 @@ interface MobileSessionViewProps {
 export function MobileSessionView({
   session,
   worktree,
-  socket,
   onBack,
   onSendMessage,
   onSendKey,
@@ -232,9 +226,6 @@ export function MobileSessionView({
 
   // ttyd iframe内のxterm.jsにリンク検出をインジェクト（共通フック）
   useTerminalLinkInjection(iframeRef, iframeKey);
-
-  // モバイル用スワイプスクロール（iframe内のpostMessageを受けてtmux copy-modeスクロール）
-  useTerminalSwipeScroll(socket, session.id);
 
   // スラッシュコマンド
   const slashCommands = [

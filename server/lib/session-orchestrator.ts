@@ -274,17 +274,6 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
-   * tmux copy-modeでスクロール
-   */
-  scrollSession(
-    sessionId: string,
-    direction: "up" | "down",
-    lines: number
-  ): void {
-    tmuxManager.scrollInCopyMode(sessionId, direction, lines);
-  }
-
-  /**
    * セッションを削除（tmux/ttyd停止 + DB削除）
    * worktreeの削除はserver/index.tsのハンドラ側で行う
    */

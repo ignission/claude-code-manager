@@ -218,7 +218,6 @@ export function MobileLayout({
             <MobileSessionView
               session={session}
               worktree={getWorktreeForSession(session)}
-              socket={socket}
               onBack={handleBack}
               onSendMessage={message => onSendMessage(sessionId, message)}
               onSendKey={key => onSendKey(sessionId, key)}
