@@ -302,13 +302,9 @@ export default function Dashboard() {
   ) => {
     stopSession(sessionId);
     // server側の session:stop ハンドラが !isMain のworktreeを自動削除するため、
-    // クライアント側で deleteWorktree を呼ぶと重複リクエストになる
-    if (selectedSessionId === sessionId) {
-      const remaining = Array.from(sessions.values()).filter(
-        s => s.id !== sessionId
-      );
-      setSelectedSessionId(remaining.length > 0 ? remaining[0].id : null);
-    }
+    // クライアント側で deleteWorktree を呼ぶと重複リクエストになる。
+    // 選択セッションの切り替えは sessions 変化を検出する useEffect に任せる
+    // （削除失敗時に optimistic update で別セッションへ誤遷移するのを防ぐため）。
     if (worktree && !worktree.isMain) {
       toast.success("セッションを削除しました");
     } else {
