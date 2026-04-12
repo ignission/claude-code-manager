@@ -290,6 +290,34 @@ export default function Dashboard() {
     toast.info("Session stopped");
   };
 
+  /**
+   * セッションを削除（統合アクション）
+   * - セッションを停止
+   * - 関連Worktreeがメイン以外なら削除
+   * - 選択中セッションなら残りのセッションへフォーカスを移す
+   */
+  const handleDeleteSession = (
+    sessionId: string,
+    worktree: Worktree | undefined
+  ) => {
+    stopSession(sessionId);
+    const shouldDeleteWorktree = worktree && !worktree.isMain;
+    if (shouldDeleteWorktree) {
+      deleteWorktree(worktree.path);
+    }
+    if (selectedSessionId === sessionId) {
+      const remaining = Array.from(sessions.values()).filter(
+        s => s.id !== sessionId
+      );
+      setSelectedSessionId(remaining.length > 0 ? remaining[0].id : null);
+    }
+    if (shouldDeleteWorktree) {
+      toast.success("セッションを削除しました");
+    } else {
+      toast.info("セッションを停止しました");
+    }
+  };
+
   const handleNewSession = () => {
     // まずリポジトリ選択（なければスキャン、あれば選択→worktree作成へ）
     setIsSelectRepoOpen(true);
@@ -305,7 +333,7 @@ export default function Dashboard() {
           repoList={repoList}
           repoPath={repoPath}
           onStartSession={handleStartSession}
-          onStopSession={handleStopSession}
+          onDeleteSession={handleDeleteSession}
           onDeleteWorktree={handleDeleteWorktree}
           onSendMessage={sendMessage}
           onSendKey={sendKey}
@@ -339,7 +367,7 @@ export default function Dashboard() {
               sessionPreviews={sessionPreviews}
               sessionActivityTexts={sessionActivityTexts}
               onSelectSession={setSelectedSessionId}
-              onStopSession={handleStopSession}
+              onDeleteSession={handleDeleteSession}
               onStartSession={handleStartSession}
               onNewSession={handleNewSession}
               onSelectBrowser={handleSelectBrowser}
@@ -397,7 +425,9 @@ export default function Dashboard() {
                         onTabClose={idx => handleTabClose(session.id, idx)}
                         onSendMessage={msg => sendMessage(session.id, msg)}
                         onSendKey={key => sendKey(session.id, key)}
-                        onStopSession={() => handleStopSession(session.id)}
+                        onDeleteSession={() =>
+                          handleDeleteSession(session.id, wt)
+                        }
                         onUploadImage={(base64, mimeType) =>
                           uploadImage(session.id, base64, mimeType)
                         }

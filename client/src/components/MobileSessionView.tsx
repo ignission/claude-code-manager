@@ -48,7 +48,8 @@ interface MobileSessionViewProps {
   onBack: () => void;
   onSendMessage: (message: string) => void;
   onSendKey: (key: SpecialKey) => void;
-  onStopSession: () => void;
+  /** セッション削除（停止 + メイン以外のWorktree削除） */
+  onDeleteSession: () => void;
   onUploadImage?: (base64Data: string, mimeType: string) => void;
   imageUploadResult?: { path: string; filename: string } | null;
   imageUploadError?: string | null;
@@ -67,7 +68,7 @@ export function MobileSessionView({
   onBack,
   onSendMessage,
   onSendKey,
-  onStopSession,
+  onDeleteSession,
   onUploadImage,
   imageUploadResult,
   imageUploadError,
@@ -299,12 +300,12 @@ export function MobileSessionView({
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-          {/* 削除ボタン */}
+          {/* 削除ボタン（セッション停止 + メイン以外のWorktree削除） */}
           <Button
             variant="ghost"
             size="icon"
             className="h-10 w-10 text-destructive hover:text-destructive"
-            onClick={onStopSession}
+            onClick={onDeleteSession}
             title="セッションを削除"
           >
             <Trash2 className="w-5 h-5" />

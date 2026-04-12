@@ -61,7 +61,8 @@ interface TerminalPaneProps {
   repoName?: string;
   onSendMessage: (message: string) => void;
   onSendKey: (key: SpecialKey) => void;
-  onStopSession: () => void;
+  /** セッション削除（停止 + メイン以外のWorktree削除） */
+  onDeleteSession: () => void;
   onUploadImage?: (base64Data: string, mimeType: string) => void;
   imageUploadResult?: { path: string; filename: string } | null;
   imageUploadError?: string | null;
@@ -79,7 +80,7 @@ export function TerminalPane({
   repoName,
   onSendMessage,
   onSendKey,
-  onStopSession,
+  onDeleteSession,
   onUploadImage,
   imageUploadResult,
   imageUploadError,
@@ -340,8 +341,8 @@ export function TerminalPane({
             variant="ghost"
             size="icon"
             className="h-10 w-10 md:h-6 md:w-6 text-destructive hover:text-destructive"
-            onClick={onStopSession}
-            title="Delete session"
+            onClick={onDeleteSession}
+            title="セッションを削除"
           >
             <Trash2 className="w-5 h-5 md:w-3 md:h-3" />
           </Button>
