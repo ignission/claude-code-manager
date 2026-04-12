@@ -138,9 +138,9 @@ export function useTerminalLinkInjection(
           };
 
           // モバイルスワイプスクロール
-          // iframe内のtouchイベントを検知し、postMessageで親ウィンドウに通知する。
-          // 親側でSocket.IO経由のtmux copy-modeスクロールに変換する。
-          // オーバーレイ不要のため、リンクタップもそのまま動作する。
+          // iframe内のtouchイベントを検知し、xterm.jsのバッファを直接スクロールする。
+          // Claude CLIは代替スクリーンバッファ（smcup/rmcup）を使うため tmux copy-mode は
+          // 使えないが、xterm.js側には出力がそのままあるためそちらをスクロールする。
           if (isMobile) {
             const iframeDoc = iframeWindow.document;
             let touchStartY = 0;
@@ -148,14 +148,6 @@ export function useTerminalLinkInjection(
             let isSwiping = false;
             const SWIPE_LINE_HEIGHT = 8; // 8pxで1行スクロール（高感度）
             const SWIPE_THRESHOLD = 3;
-
-            // parentOriginの取得（修正5で定義済み）
-            let parentOrigin = "*";
-            try {
-              parentOrigin = iframeWindow.parent.location.origin;
-            } catch {
-              // cross-originの場合はフォールバック
-            }
 
             iframeDoc.addEventListener(
               "touchstart",
@@ -186,11 +178,27 @@ export function useTerminalLinkInjection(
                 );
                 const newLines = totalLines - touchSentLines;
                 if (newLines > 0) {
-                  const direction = deltaY > 0 ? "up" : "down";
-                  iframeWindow.parent.postMessage(
-                    { type: "ark:scroll", direction, lines: newLines },
-                    parentOrigin
-                  );
+                  // 指を上にスワイプ (deltaY > 0) → 過去の出力を見たい → ホイールを上回転 → deltaY負。
+                  // xterm.jsのwheelハンドラに渡すため、xterm要素にWheelEventをdispatchする。
+                  // term.scrollLines() はttyd環境では viewport に反映されないケースがあり、
+                  // PC のマウスホイールと同じ経路（tmux mouse protocol → copy-mode、または
+                  // xterm.js内部scrollback）を通すためwheel dispatchを使う。
+                  const wheelDeltaY =
+                    deltaY > 0 ? -newLines * 16 : newLines * 16; // 1行≈16px
+                  const xtermEl =
+                    iframeDoc.querySelector(".xterm-viewport") ||
+                    iframeDoc.querySelector(".xterm-screen") ||
+                    iframeDoc.querySelector(".xterm");
+                  if (xtermEl) {
+                    xtermEl.dispatchEvent(
+                      new WheelEvent("wheel", {
+                        deltaY: wheelDeltaY,
+                        deltaMode: 0, // DOM_DELTA_PIXEL
+                        bubbles: true,
+                        cancelable: true,
+                      })
+                    );
+                  }
                   touchSentLines = totalLines;
                 }
               },
