@@ -135,6 +135,24 @@ export function SessionCard({
   const idle = session.status === "idle" || isIdle;
   const displayText = idle && activityText ? activityText : previewText;
 
+  // ペットの吹き出し: セッション状態に応じたメッセージ
+  const petBubble = pet
+    ? (() => {
+        // 確認待ち（パーミッション・ユーザー入力）
+        if (/bypass permissions|Allow|Deny|press Enter/i.test(previewText))
+          return "❓";
+        // エラー状態
+        if (dotColor === "bg-red-500" && idle) return "💤";
+        // 作業中
+        if (dotColor === "bg-green-500") return null; // アニメーションで表現
+        // 起動直後
+        if (dotColor === "bg-blue-500") return "✨";
+        // その他アイドル
+        if (idle) return "💤";
+        return null;
+      })()
+    : null;
+
   return (
     <>
       <ContextMenu>
@@ -150,12 +168,19 @@ export function SessionCard({
           >
             <div className="flex items-center gap-2 min-w-0">
               {pet ? (
-                <PetSprite
-                  species={pet.species}
-                  mood={pet.mood}
-                  isActive={dotColor === "bg-green-500"}
-                  size={16}
-                />
+                <div className="relative shrink-0">
+                  <PetSprite
+                    species={pet.species}
+                    mood={pet.mood}
+                    isActive={dotColor === "bg-green-500"}
+                    size={16}
+                  />
+                  {petBubble && (
+                    <span className="absolute -top-2.5 -right-1.5 text-[9px] leading-none">
+                      {petBubble}
+                    </span>
+                  )}
+                </div>
               ) : (
                 <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
               )}
