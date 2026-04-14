@@ -366,11 +366,19 @@ export function useTerminalLinkInjection(
                     }
 
                     if (urlStartLine >= 0) {
-                      // 前方向に再走査してフルURLを構築し、当該継続行が
-                      // 本当にこのURLの延長線上にあるか検証する
+                      // 前方向に再走査してフルURLを構築する。
+                      // 1. まず現在の継続行(lineNumber-1)まで到達するか検証する
+                      // 2. 到達後も継続行がある限り最後まで辿り切って完全URLを得る
+                      //    (3行以上にまたがるURLで途中行のリンクが前方部分しか
+                      //     保持しない問題を防ぐ)
                       let fullUrl = urlStartMatch;
                       let reached = false;
-                      for (let j = urlStartLine + 1; j <= lineNumber - 1; j++) {
+                      const maxForwardScan = 20; // 念のため上限
+                      for (
+                        let j = urlStartLine + 1;
+                        j < urlStartLine + 1 + maxForwardScan;
+                        j++
+                      ) {
                         const contLine = term.buffer.active.getLine(j);
                         if (!contLine) break;
                         const contText = contLine.translateToString();
@@ -393,9 +401,18 @@ export function useTerminalLinkInjection(
 
                       if (reached) {
                         // 末尾句読点除去 + URL拡張マップ登録
+                        // 1行目処理時に既にmapが登録済みの可能性があるため、
+                        // 上書きする前に既存値と整合しているか確認する
+                        // (他の継続行からの呼び出しで同じmatchedUrlを計算済)
                         const originalUrl = urlStartMatch;
                         fullUrl = fullUrl.replace(/[.,;:!?]+$/, "");
-                        if (fullUrl !== originalUrl) {
+                        const existingMapped = urlExtensionMap.get(originalUrl);
+                        if (
+                          fullUrl !== originalUrl &&
+                          (existingMapped === undefined ||
+                            existingMapped.length <= fullUrl.length)
+                        ) {
+                          // より長い(完全な)URLがあれば上書き、短いprefixは書き込まない
                           urlExtensionMap.set(originalUrl, fullUrl);
                         }
                         const finalUrl = fullUrl;
