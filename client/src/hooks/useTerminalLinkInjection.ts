@@ -67,15 +67,6 @@ export function useTerminalLinkInjection(
           // WebLinksAddonが優先的にactivateされても、ここで完全URLに復元できる。
           const urlExtensionMap = new Map<string, string>();
 
-          // 同一URLの重複open抑制用（WebLinksAddonと独自provider両発火対策）
-          // 1クリックで両経路が発火するため、先に処理した方がマーク、後発はskipする
-          const handledUrls = new Set<string>();
-          const markHandled = (u: string) => {
-            handledUrls.add(u);
-            // 同期的に発火した2経路をカバーしつつ、連続クリックは妨げない
-            setTimeout(() => handledUrls.delete(u), 200);
-          };
-
           // xterm.js WebLinksAddonのURLを横取りする。
           // WebLinksAddonは window.open() を引数なしで呼び、返されたウィンドウの
           // location.href にURLを設定するパターン:
@@ -95,8 +86,6 @@ export function useTerminalLinkInjection(
             // 引数ありの呼び出し（URL直接指定）
             if (url) {
               const urlStr = urlExtensionMap.get(String(url)) || String(url);
-              if (handledUrls.has(urlStr)) return null;
-              markHandled(urlStr);
               if (
                 /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(urlStr)
               ) {
@@ -118,8 +107,6 @@ export function useTerminalLinkInjection(
                 set href(u: string) {
                   // URL拡張マップで折り返しURLを完全URLに復元
                   const resolved = urlExtensionMap.get(u) || u;
-                  if (handledUrls.has(resolved)) return;
-                  markHandled(resolved);
                   if (
                     /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?/.test(
                       resolved
@@ -251,35 +238,11 @@ export function useTerminalLinkInjection(
               const links: any[] = [];
               let match: RegExpExecArray | null;
 
-              // ファイルパス検出
-              // 1. file:プレフィックス付き（拡張子不問）: file:Dockerfile, file:src/main.rs:42
-              // 2. パス区切り+拡張子付き: src/App.tsx:10
-              const fileRegex =
-                /(?:file:([a-zA-Z0-9_.\-/]+)|([a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+))(?::(\d+))?/g;
-              while ((match = fileRegex.exec(text)) !== null) {
-                const fullMatch = match[0];
-                // file:///path の場合、先頭の余分なスラッシュを除去して /path にする
-                const rawPath = match[1] || match[2];
-                const filePath = rawPath?.replace(/^\/{2,}/, "/");
-                const lineNum = match[3] ? Number.parseInt(match[3], 10) : null;
-                if (!filePath) continue;
-                links.push({
-                  range: {
-                    start: { x: match.index + 1, y: lineNumber },
-                    end: {
-                      x: match.index + fullMatch.length + 1,
-                      y: lineNumber,
-                    },
-                  },
-                  text: fullMatch,
-                  activate() {
-                    arkWindow.postMessage(
-                      { type: "ark:open-file", path: filePath, line: lineNum },
-                      arkWindow.location.origin
-                    );
-                  },
-                });
-              }
+              // URL範囲を記録する配列。ファイルパス検出時にURL内部の部分文字列が
+              // 誤マッチするのを防ぐため、URL検出を先に走らせて範囲を収集しておく。
+              const urlRanges: Array<[number, number]> = [];
+              const inUrlRange = (idx: number) =>
+                urlRanges.some(([s, e]) => idx >= s && idx < e);
 
               // URL検出 + 複数行にまたがるURL延長
               // Claude Codeは長いURLを折り返す際、次行の先頭に空白を入れる。
@@ -295,8 +258,9 @@ export function useTerminalLinkInjection(
               while ((match = urlRegex.exec(text)) !== null) {
                 let matchedUrl = match[0];
                 const originalUrl = match[0];
-                let endY = lineNumber;
-                let endX = match.index + matchedUrl.length + 1;
+
+                // 1行目のURL範囲を記録（ファイルパス検出時の除外判定に使用）
+                urlRanges.push([match.index, match.index + originalUrl.length]);
 
                 // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
                 const afterUrl = text.substring(
@@ -326,37 +290,49 @@ export function useTerminalLinkInjection(
                     if (!/^\s*$/.test(afterCont)) break;
 
                     matchedUrl += contMatch[0];
-                    endY = nextIdx + 1;
-                    endX = leadingSpaces + contMatch[0].length + 1;
                   }
                 }
 
                 // 末尾の句読点を除去（文中のURL: "See https://example.com." 等）
-                const beforeTrim = matchedUrl.length;
                 matchedUrl = matchedUrl.replace(/[.,;:!?]+$/, "");
-                const trimmed = beforeTrim - matchedUrl.length;
-                if (trimmed > 0) {
-                  endX -= trimmed;
-                }
 
                 // 拡張された場合、元URL→完全URLの対応をMapに記録
-                // WebLinksAddonが優先activateされた場合にfakeWindowで復元する
+                // WebLinksAddonのactivate時にfakeWindowで完全URLに復元する
                 if (matchedUrl !== originalUrl) {
                   urlExtensionMap.set(originalUrl, matchedUrl);
                 }
+              }
 
-                const finalUrl = matchedUrl;
+              // ファイルパス検出
+              // 1. file:プレフィックス付き（拡張子不問）: file:Dockerfile, file:src/main.rs:42
+              // 2. パス区切り+拡張子付き: src/App.tsx:10
+              // URL内部の部分文字列にマッチしないよう urlRanges で除外する
+              const fileRegex =
+                /(?:file:([a-zA-Z0-9_.\-/]+)|([a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+))(?::(\d+))?/g;
+              while ((match = fileRegex.exec(text)) !== null) {
+                // マッチ先頭がURL範囲内ならスキップ（URL内部の誤検出を防ぐ）
+                if (inUrlRange(match.index)) continue;
+
+                const fullMatch = match[0];
+                // file:///path の場合、先頭の余分なスラッシュを除去して /path にする
+                const rawPath = match[1] || match[2];
+                const filePath = rawPath?.replace(/^\/{2,}/, "/");
+                const lineNum = match[3] ? Number.parseInt(match[3], 10) : null;
+                if (!filePath) continue;
                 links.push({
                   range: {
                     start: { x: match.index + 1, y: lineNumber },
-                    end: { x: endX, y: endY },
+                    end: {
+                      x: match.index + fullMatch.length + 1,
+                      y: lineNumber,
+                    },
                   },
-                  text: finalUrl,
+                  text: fullMatch,
                   activate() {
-                    // iframeWindow.open override にURL種別判定とdedupを委譲。
-                    // 非localhost URLは override 内で origOpen() 経由で実ウィンドウに開かれる。
-                    // biome-ignore lint/suspicious/noExplicitAny: overrideされたopenを呼ぶため型を緩める
-                    (iframeWindow as any).open(finalUrl, "_blank");
+                    arkWindow.postMessage(
+                      { type: "ark:open-file", path: filePath, line: lineNum },
+                      arkWindow.location.origin
+                    );
                   },
                 });
               }
