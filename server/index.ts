@@ -42,6 +42,7 @@ import {
   FileUploadManagerError,
   fileUploadManager,
 } from "./lib/file-upload-manager.js";
+import { frontlineManager } from "./lib/frontline-manager.js";
 import {
   createWorktree,
   deleteWorktree,
@@ -49,7 +50,6 @@ import {
   listWorktrees,
   scanRepositories,
 } from "./lib/git.js";
-import { frontlineManager } from "./lib/frontline-manager.js";
 import { petManager } from "./lib/pet-manager.js";
 import { getListeningPorts } from "./lib/port-scanner.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
