@@ -653,30 +653,35 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
           reject(new Error("ソケットが切断されています"));
           return;
         }
+        // 複数アップロードの同時実行で誤った Promise が解決されないよう requestId で紐付ける
+        const requestId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const timeoutId = window.setTimeout(() => {
           socket.off("file-upload:uploaded", onUploaded);
           socket.off("file-upload:error", onError);
           reject(new Error("アップロードがタイムアウトしました"));
         }, 30000);
         const onUploaded = (result: {
+          requestId: string;
           path: string;
           filename: string;
           originalFilename?: string;
         }) => {
-          // 送信ファイルと異なる結果（他ユーザのuploadedや競合）を除外
-          if (
-            data.originalFilename &&
-            result.originalFilename &&
-            data.originalFilename !== result.originalFilename
-          ) {
-            return;
-          }
+          if (result.requestId !== requestId) return;
           window.clearTimeout(timeoutId);
           socket.off("file-upload:uploaded", onUploaded);
           socket.off("file-upload:error", onError);
-          resolve(result);
+          const { requestId: _omitted, ...rest } = result;
+          resolve(rest);
         };
-        const onError = (err: { message: string; code?: string }) => {
+        const onError = (err: {
+          requestId: string;
+          message: string;
+          code?: string;
+        }) => {
+          if (err.requestId !== requestId) return;
           window.clearTimeout(timeoutId);
           socket.off("file-upload:uploaded", onUploaded);
           socket.off("file-upload:error", onError);
@@ -684,7 +689,7 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
         };
         socket.on("file-upload:uploaded", onUploaded);
         socket.on("file-upload:error", onError);
-        socket.emit("file-upload:upload", data);
+        socket.emit("file-upload:upload", { ...data, requestId });
       });
     },
     []

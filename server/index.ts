@@ -1135,7 +1135,13 @@ async function startServer() {
 
     socket.on(
       "file-upload:upload",
-      async ({ sessionId, base64Data, mimeType, originalFilename }) => {
+      async ({
+        sessionId,
+        base64Data,
+        mimeType,
+        originalFilename,
+        requestId,
+      }) => {
         try {
           const result = await fileUploadManager.saveFile(
             sessionId,
@@ -1143,11 +1149,12 @@ async function startServer() {
             mimeType,
             originalFilename
           );
-          socket.emit("file-upload:uploaded", result);
+          socket.emit("file-upload:uploaded", { requestId, ...result });
         } catch (error) {
           const code =
             error instanceof FileUploadManagerError ? error.code : undefined;
           socket.emit("file-upload:error", {
+            requestId,
             message:
               error instanceof FileUploadManagerError
                 ? error.message

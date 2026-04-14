@@ -169,11 +169,16 @@ export interface ServerToClientEvents {
 
   // File upload events
   "file-upload:uploaded": (data: {
+    requestId: string;
     path: string;
     filename: string;
     originalFilename?: string;
   }) => void;
-  "file-upload:error": (data: { message: string; code?: string }) => void;
+  "file-upload:error": (data: {
+    requestId: string;
+    message: string;
+    code?: string;
+  }) => void;
 
   // Beacon events
   "beacon:message": (message: ChatMessage) => void;
@@ -235,6 +240,7 @@ export interface ClientToServerEvents {
     base64Data: string;
     mimeType: string;
     originalFilename?: string;
+    requestId: string;
   }) => void;
 
   // Beacon commands
