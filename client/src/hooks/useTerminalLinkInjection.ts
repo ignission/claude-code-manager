@@ -299,15 +299,17 @@ export function useTerminalLinkInjection(
                 // 1行目のURL範囲を記録（ファイルパス検出時の除外判定に使用）
                 urlRanges.push([match.index, match.index + originalUrl.length]);
 
+                // main既存仕様に合わせ、折り返しURLは multi-line range で
+                // リンクを登録する。endY/endX を継続行まで拡張する。
+                let endY = lineNumber;
+                let endX = match.index + matchedUrl.length + 1;
+
                 // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
                 const afterUrl = text.substring(
                   match.index + matchedUrl.length
                 );
                 if (/^\s*$/.test(afterUrl)) {
-                  // 次行以降からURL継続部分を取得（最大10行まで）。
-                  // ここでは urlExtensionMap 構築のみ行い、継続行のリンク登録は
-                  // 行わない（provideLinksは行ごとに呼ばれるため、継続行の
-                  // リンク登録は別のprovideLinks呼び出しで行う必要がある）。
+                  // 次行以降からURL継続部分を取得（最大10行まで）
                   const maxExtensionLines = 10;
                   for (
                     let nextIdx = lineNumber;
@@ -330,18 +332,18 @@ export function useTerminalLinkInjection(
                     if (!/^\s*$/.test(afterCont)) break;
 
                     matchedUrl += contMatch[0];
+                    endY = nextIdx + 1;
+                    endX = leadingSpaces + contMatch[0].length + 1;
                   }
                 }
 
                 // 末尾の句読点を除去（文中のURL: "See https://example.com." 等）
-                // 1行目固有の trailing 句読点長も計算してリンク範囲調整に使う。
-                const trimmed = matchedUrl.replace(/[.,;:!?]+$/, "");
-                // 1行目内のtrailing句読点長（拡張行の有無に関わらず、1行目に
-                // 句読点があればその分だけ範囲を縮める）
-                const firstLineTrimChars =
-                  originalUrl.length -
-                  originalUrl.replace(/[.,;:!?]+$/, "").length;
-                matchedUrl = trimmed;
+                const beforeTrim = matchedUrl.length;
+                matchedUrl = matchedUrl.replace(/[.,;:!?]+$/, "");
+                const trimmedChars = beforeTrim - matchedUrl.length;
+                if (trimmedChars > 0) {
+                  endX -= trimmedChars;
+                }
 
                 // 拡張された場合、元URL→完全URLの対応をMapに記録
                 // WebLinksAddonのactivate時にfakeWindowで完全URLに復元する
@@ -353,17 +355,11 @@ export function useTerminalLinkInjection(
                 // 経由し、recentlyOpened による dedup で WebLinksAddon の両発火を
                 // 防ぐ。finalUrl を直接渡すため urlExtensionMap 依存はなく、
                 // prefix衝突や100件制限によるprefix退避の影響も受けない。
-                // 範囲は trailing句読点を除いた長さで算出（クリック誤判定防止）
                 const finalUrl = matchedUrl;
-                const firstLineEndIdx =
-                  match.index + originalUrl.length - firstLineTrimChars;
                 links.push({
                   range: {
                     start: { x: match.index + 1, y: lineNumber },
-                    end: {
-                      x: firstLineEndIdx + 1,
-                      y: lineNumber,
-                    },
+                    end: { x: endX, y: endY },
                   },
                   text: finalUrl,
                   activate() {
