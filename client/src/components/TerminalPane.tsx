@@ -432,27 +432,22 @@ export function TerminalPane({
           >
             <ImageIcon className="w-5 h-5 md:w-3 md:h-3" />
           </Button>
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 md:h-6 md:w-6"
+          <label
+            className="h-10 w-10 md:h-6 md:w-6 inline-flex items-center justify-center rounded-md cursor-pointer hover:bg-accent hover:text-accent-foreground"
             title="ファイルを添付"
           >
-            <label className="cursor-pointer">
-              <input
-                type="file"
-                multiple
-                className="hidden"
-                onChange={e => {
-                  const files = Array.from(e.target.files ?? []);
-                  if (files.length > 0) handleFilesSelected(files);
-                  e.target.value = "";
-                }}
-              />
-              <Paperclip className="w-5 h-5 md:w-3 md:h-3" />
-            </label>
-          </Button>
+            <input
+              type="file"
+              multiple
+              className="hidden"
+              onChange={e => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length > 0) handleFilesSelected(files);
+                e.target.value = "";
+              }}
+            />
+            <Paperclip className="w-5 h-5 md:w-3 md:h-3" />
+          </label>
           <Button
             variant="ghost"
             size="icon"
