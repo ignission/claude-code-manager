@@ -262,21 +262,15 @@ export function useTerminalLinkInjection(
                 // 1行目のURL範囲を記録（ファイルパス検出時の除外判定に使用）
                 urlRanges.push([match.index, match.index + originalUrl.length]);
 
-                // 折り返し継続行のリンク範囲を記録する配列
-                // [{ y: 物理行number(1-based), startX, endX, urlPart }]
-                // 1行目はWebLinksAddonに任せるため記録しない（2タブ防止）
-                const continuationRanges: Array<{
-                  y: number;
-                  startX: number;
-                  endX: number;
-                }> = [];
-
                 // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
                 const afterUrl = text.substring(
                   match.index + matchedUrl.length
                 );
                 if (/^\s*$/.test(afterUrl)) {
-                  // 次行以降からURL継続部分を取得（最大10行まで）
+                  // 次行以降からURL継続部分を取得（最大10行まで）。
+                  // ここでは urlExtensionMap 構築のみ行い、継続行のリンク登録は
+                  // 行わない（provideLinksは行ごとに呼ばれるため、継続行の
+                  // リンク登録は別のprovideLinks呼び出しで行う必要がある）。
                   const maxExtensionLines = 10;
                   for (
                     let nextIdx = lineNumber;
@@ -299,11 +293,6 @@ export function useTerminalLinkInjection(
                     if (!/^\s*$/.test(afterCont)) break;
 
                     matchedUrl += contMatch[0];
-                    continuationRanges.push({
-                      y: nextIdx + 1, // 1-based行番号
-                      startX: leadingSpaces + 1,
-                      endX: leadingSpaces + contMatch[0].length + 1,
-                    });
                   }
                 }
 
@@ -316,24 +305,117 @@ export function useTerminalLinkInjection(
                   urlExtensionMap.set(originalUrl, matchedUrl);
                 }
 
-                // 折り返し継続行が存在する場合、各継続行に独立したリンクを登録する。
-                // 1行目はWebLinksAddon任せ、2行目以降のみ独自provider側で拾う。
-                // これにより同一クリックで2経路発火する2タブ問題を構造的に回避できる。
-                if (continuationRanges.length > 0) {
-                  const finalUrl = matchedUrl;
-                  for (const cr of continuationRanges) {
-                    links.push({
-                      range: {
-                        start: { x: cr.startX, y: cr.y },
-                        end: { x: cr.endX, y: cr.y },
-                      },
-                      text: finalUrl,
-                      activate() {
-                        // fakeWindow override 経由でlocalhost/非localhost振り分け
-                        // biome-ignore lint/suspicious/noExplicitAny: overrideされたopenを呼ぶため型を緩める
-                        (iframeWindow as any).open(finalUrl, "_blank");
-                      },
-                    });
+                // 1行目（このprovideLinks呼び出し）はWebLinksAddon任せのため
+                // ここではlinks.pushしない（2タブ防止）。継続行のリンク登録は
+                // 後段の「継続行スキャン」ブロックで行う。
+              }
+
+              // 継続行検出: この行(lineNumber)にURLが見つからなかった場合でも、
+              // 前行から続く折り返しURLの継続部分かもしれない。逆方向に最大10行
+              // スキャンしてURL開始行を探し、見つかれば当該継続行のリンクを登録する。
+              // provideLinksは行ごとに呼ばれるため、継続行のクリック検出には
+              // この行単位の逆方向走査が必須。
+              if (urlRanges.length === 0) {
+                const trimmedCurrent = text.trimStart();
+                if (trimmedCurrent.length > 0) {
+                  const leadingSpaces = text.length - trimmedCurrent.length;
+                  const tokenMatch = trimmedCurrent.match(/^[^\s<>"'()]+/);
+                  const afterToken = tokenMatch
+                    ? text.substring(leadingSpaces + tokenMatch[0].length)
+                    : "";
+                  // 継続行の条件: 先頭にURL不可文字なし + トークンの直後が行末（空白のみ）
+                  if (tokenMatch && /^\s*$/.test(afterToken)) {
+                    const maxLookback = 10;
+                    let urlStartLine = -1;
+                    let urlStartMatch = "";
+                    // 逆方向スキャン: URLを含む行を探す
+                    for (let i = 1; i <= maxLookback; i++) {
+                      const prevIdx = lineNumber - 1 - i;
+                      if (prevIdx < 0) break;
+                      const prevLine = term.buffer.active.getLine(prevIdx);
+                      if (!prevLine) break;
+                      const prevText = prevLine.translateToString();
+                      const prevTrimmed = prevText.trimStart();
+                      if (prevTrimmed.length === 0) break; // 空行で打ち切り
+                      const urlSearch = /https?:\/\/[^\s<>"'()]+/g;
+                      let lastUrlMatch: RegExpExecArray | null = null;
+                      let m: RegExpExecArray | null;
+                      while ((m = urlSearch.exec(prevText)) !== null) {
+                        lastUrlMatch = m;
+                      }
+                      if (lastUrlMatch) {
+                        // URL直後が行末（空白のみ）かチェック
+                        const afterPrevUrl = prevText.substring(
+                          lastUrlMatch.index + lastUrlMatch[0].length
+                        );
+                        if (/^\s*$/.test(afterPrevUrl)) {
+                          urlStartLine = prevIdx;
+                          urlStartMatch = lastUrlMatch[0];
+                        }
+                        break; // URLが見つかれば、継続か否かに関わらず探索終了
+                      }
+                      // URLなし行: 継続行候補かチェック（先頭トークン + 行末空白）
+                      const prevTokenMatch = prevTrimmed.match(/^[^\s<>"'()]+/);
+                      if (!prevTokenMatch) break;
+                      const prevLeading = prevText.length - prevTrimmed.length;
+                      const afterPrevToken = prevText.substring(
+                        prevLeading + prevTokenMatch[0].length
+                      );
+                      if (!/^\s*$/.test(afterPrevToken)) break;
+                      // さらに遡る
+                    }
+
+                    if (urlStartLine >= 0) {
+                      // 前方向に再走査してフルURLを構築し、当該継続行が
+                      // 本当にこのURLの延長線上にあるか検証する
+                      let fullUrl = urlStartMatch;
+                      let reached = false;
+                      for (let j = urlStartLine + 1; j <= lineNumber - 1; j++) {
+                        const contLine = term.buffer.active.getLine(j);
+                        if (!contLine) break;
+                        const contText = contLine.translateToString();
+                        const contTrimmed = contText.trimStart();
+                        if (contTrimmed.length === 0) break;
+                        const contTokenMatch =
+                          contTrimmed.match(/^[^\s<>"'()]+/);
+                        if (!contTokenMatch) break;
+                        const contLeading =
+                          contText.length - contTrimmed.length;
+                        const afterContToken = contText.substring(
+                          contLeading + contTokenMatch[0].length
+                        );
+                        if (!/^\s*$/.test(afterContToken)) break;
+                        fullUrl += contTokenMatch[0];
+                        if (j === lineNumber - 1) {
+                          reached = true;
+                        }
+                      }
+
+                      if (reached) {
+                        // 末尾句読点除去 + URL拡張マップ登録
+                        const originalUrl = urlStartMatch;
+                        fullUrl = fullUrl.replace(/[.,;:!?]+$/, "");
+                        if (fullUrl !== originalUrl) {
+                          urlExtensionMap.set(originalUrl, fullUrl);
+                        }
+                        const finalUrl = fullUrl;
+                        links.push({
+                          range: {
+                            start: { x: leadingSpaces + 1, y: lineNumber },
+                            end: {
+                              x: leadingSpaces + tokenMatch[0].length + 1,
+                              y: lineNumber,
+                            },
+                          },
+                          text: finalUrl,
+                          activate() {
+                            // fakeWindow override 経由でlocalhost/非localhost振り分け
+                            // biome-ignore lint/suspicious/noExplicitAny: overrideされたopenを呼ぶため型を緩める
+                            (iframeWindow as any).open(finalUrl, "_blank");
+                          },
+                        });
+                      }
+                    }
                   }
                 }
               }
