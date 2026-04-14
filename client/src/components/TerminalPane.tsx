@@ -341,23 +341,34 @@ export function TerminalPane({
     };
   }, [handleFilesSelected]);
 
-  // file-upload 成功時: 入力欄のカーソル位置に @path を挿入（画像貼り付け経路とは別）
+  // file-upload 成功時: 入力バーを開き、カーソル位置に @path を挿入してフォーカス
+  // （画像貼り付け経路とは別）
   useEffect(() => {
     if (fileUploadResult && !pastedImage) {
       const insert = ` @${fileUploadResult.path} `;
-      const textarea = textareaRef.current;
-      if (textarea) {
-        const start = textarea.selectionStart ?? inputValue.length;
-        const end = textarea.selectionEnd ?? inputValue.length;
-        const next =
-          inputValue.slice(0, start) + insert + inputValue.slice(end);
-        setInputValue(next);
-      } else {
-        setInputValue(prev => prev + insert);
-      }
+      // 入力バーを開く（PCでは初期非表示のため）
+      setShowInput(true);
+      setInputValue(prev => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+          const start = textarea.selectionStart ?? prev.length;
+          const end = textarea.selectionEnd ?? prev.length;
+          return prev.slice(0, start) + insert + prev.slice(end);
+        }
+        return prev + insert;
+      });
+      // textarea マウント後にフォーカス + カーソル末尾に移動
+      requestAnimationFrame(() => {
+        const textarea = textareaRef.current;
+        if (textarea) {
+          textarea.focus();
+          const pos = textarea.value.length;
+          textarea.setSelectionRange(pos, pos);
+        }
+      });
       onClearFileUploadState?.();
     }
-  }, [fileUploadResult, pastedImage, inputValue, onClearFileUploadState]);
+  }, [fileUploadResult, pastedImage, onClearFileUploadState]);
 
   // Construct ttyd iframe URL
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
