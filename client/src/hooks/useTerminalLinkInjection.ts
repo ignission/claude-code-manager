@@ -1,11 +1,5 @@
 import { type RefObject, useEffect } from "react";
 
-// トークン全体がファイルパスらしいか判定する正規表現。
-// 使用箇所: URL継続行判定の除外条件（status行やファイルパス行を
-// URL継続と誤認するのを防ぐ）。fileRegex本体とは異なり完全一致 (^$) にする。
-const FILE_PATH_TOKEN_REGEX =
-  /^(?:file:[a-zA-Z0-9_.\-/]+|[a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+)(?::\d+)?$/;
-
 /**
  * ttyd iframe内のxterm.jsにリンク検出プロバイダーをインジェクトするカスタムフック。
  * TerminalPane.tsx と MobileSessionView.tsx で共通利用する。
@@ -330,15 +324,15 @@ export function useTerminalLinkInjection(
 
                     // 継続部分の直後が行末でなければ、この行はURL継続ではない
                     const leadingSpaces = nextText.length - trimmedNext.length;
+                    // Claude CLIの折り返しURLは必ず継続行の先頭に空白(インデント)が
+                    // 入る。先頭にインデントがない行は通常のstatus行/出力行と
+                    // 見なしてURL継続扱いしない（"Done" "OK" "src/App.tsx:10" 等
+                    // の単独tokenが誤結合されて壊れたURLが生成されるのを防ぐ）。
+                    if (leadingSpaces === 0) break;
                     const afterCont = nextText.substring(
                       leadingSpaces + contMatch[0].length
                     );
                     if (!/^\s*$/.test(afterCont)) break;
-
-                    // トークンがファイルパスパターンに一致する場合はURL継続と
-                    // みなさず打ち切る（"src/App.tsx:10" のような status行の
-                    // 誤結合で壊れたURL生成を防ぐ）
-                    if (FILE_PATH_TOKEN_REGEX.test(contMatch[0])) break;
 
                     matchedUrl += contMatch[0];
                   }
@@ -399,14 +393,12 @@ export function useTerminalLinkInjection(
                     : "";
                   // 継続行の条件:
                   //   1. 先頭にURL不可文字なし + トークンの直後が行末（空白のみ）
-                  //   2. トークンがファイルパスパターンに一致しない
-                  //      (例: "src/App.tsx:10" のようなstatus行を誤ってURL継続と
-                  //      判定してしまう問題への対策)
-                  const looksLikeFilePath =
-                    tokenMatch && FILE_PATH_TOKEN_REGEX.test(tokenMatch[0]);
+                  //   2. 先頭に空白(インデント)がある = Claude CLI の折り返しマーカー
+                  //      (leadingSpaces === 0 の行は通常のstatus行/出力行なので
+                  //      URL継続扱いしない。例: "Done" "OK" "src/App.tsx:10")
                   if (
                     tokenMatch &&
-                    !looksLikeFilePath &&
+                    leadingSpaces > 0 &&
                     /^\s*$/.test(afterToken)
                   ) {
                     const maxLookback = 10;
@@ -438,10 +430,13 @@ export function useTerminalLinkInjection(
                         }
                         break; // URLが見つかれば、継続か否かに関わらず探索終了
                       }
-                      // URLなし行: 継続行候補かチェック（先頭トークン + 行末空白）
+                      // URLなし行: 継続行候補かチェック
+                      // 条件: 先頭にインデント(空白)あり + 先頭トークン + 行末空白
+                      // インデントなしの行はURL継続とみなさない
                       const prevTokenMatch = prevTrimmed.match(/^[^\s<>"'()]+/);
                       if (!prevTokenMatch) break;
                       const prevLeading = prevText.length - prevTrimmed.length;
+                      if (prevLeading === 0) break;
                       const afterPrevToken = prevText.substring(
                         prevLeading + prevTokenMatch[0].length
                       );
@@ -478,9 +473,9 @@ export function useTerminalLinkInjection(
                           contLeading + contTokenMatch[0].length
                         );
                         if (!/^\s*$/.test(afterContToken)) break;
-                        // ファイルパスパターンに一致するtokenは継続扱いしない
-                        if (FILE_PATH_TOKEN_REGEX.test(contTokenMatch[0]))
-                          break;
+                        // 先頭にインデントがない行はURL継続扱いしない
+                        // (Claude CLIの折り返しURLは継続行の先頭に必ず空白が入る)
+                        if (contLeading === 0) break;
                         fullUrl += contTokenMatch[0];
                         lastJ = j;
                         if (j === lineNumber - 1) {
