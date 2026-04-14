@@ -73,9 +73,6 @@ export default function Dashboard() {
     clearTunnelJustStarted,
     listeningPorts,
     uploadFile,
-    fileUploadResult,
-    fileUploadError,
-    clearFileUploadState,
     copyBuffer,
     deletedWorktreeId,
     clearDeletedWorktreeId,
@@ -333,9 +330,6 @@ export default function Dashboard() {
           onSendKey={sendKey}
           onSelectSession={sessionId => setSelectedSessionId(sessionId)}
           onUploadFile={uploadFile}
-          fileUploadResult={fileUploadResult}
-          fileUploadError={fileUploadError}
-          onClearFileUploadState={clearFileUploadState}
           onCopyBuffer={copyBuffer}
           onNewSession={handleNewSession}
           readFile={readFile}
@@ -425,9 +419,6 @@ export default function Dashboard() {
                         onUploadFile={data =>
                           uploadFile({ sessionId: session.id, ...data })
                         }
-                        fileUploadResult={fileUploadResult}
-                        fileUploadError={fileUploadError}
-                        onClearFileUploadState={clearFileUploadState}
                         onCopyBuffer={
                           copyBuffer ? () => copyBuffer(session.id) : undefined
                         }

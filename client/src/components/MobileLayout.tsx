@@ -41,14 +41,11 @@ interface MobileLayoutProps {
     base64Data: string;
     mimeType: string;
     originalFilename?: string;
-  }) => void;
-  fileUploadResult?: {
+  }) => Promise<{
     path: string;
     filename: string;
     originalFilename?: string;
-  } | null;
-  fileUploadError?: string | null;
-  onClearFileUploadState?: () => void;
+  }>;
   onCopyBuffer?: (sessionId: string) => Promise<string | null>;
   onNewSession: () => void;
   // ファイルビューワー
@@ -86,9 +83,6 @@ export function MobileLayout({
   onSendKey,
   onSelectSession,
   onUploadFile,
-  fileUploadResult,
-  fileUploadError,
-  onClearFileUploadState,
   onCopyBuffer,
   onNewSession,
   readFile,
@@ -234,9 +228,6 @@ export function MobileLayout({
                   ? data => onUploadFile({ sessionId, ...data })
                   : undefined
               }
-              fileUploadResult={fileUploadResult}
-              fileUploadError={fileUploadError}
-              onClearFileUploadState={onClearFileUploadState}
               onCopyBuffer={
                 onCopyBuffer ? () => onCopyBuffer(sessionId) : undefined
               }
