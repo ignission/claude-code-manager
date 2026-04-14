@@ -142,13 +142,15 @@ export function MobileSessionView({
   };
 
   // 受け取ったFileをpendingFilesへ追加（画像/非画像共通）
+  // 部分失敗の場合でもエラーを握りつぶさず、まとめて表示する
   const addPendingFiles = useCallback(async (files: File[]) => {
     const next: PendingFile[] = [];
+    const errors: string[] = [];
     for (const file of files) {
       const v = validateFile(file);
       if (!v.ok) {
         console.warn(v.reason);
-        setUploadError(v.reason ?? "未対応のファイルです");
+        errors.push(`${file.name}: ${v.reason ?? "未対応のファイルです"}`);
         continue;
       }
       try {
@@ -158,11 +160,15 @@ export function MobileSessionView({
         next.push({ base64, mimeType, filename, preview, size: file.size });
       } catch (err) {
         console.error("ファイル読み込みに失敗:", err);
-        setUploadError("ファイル読み込みに失敗しました");
+        errors.push(`${file.name}: 読み込みに失敗しました`);
       }
     }
     if (next.length > 0) {
       setPendingFiles(prev => [...prev, ...next]);
+    }
+    if (errors.length > 0) {
+      setUploadError(errors.join("\n"));
+    } else {
       setUploadError(null);
     }
   }, []);
@@ -520,6 +526,20 @@ export function MobileSessionView({
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 添付ファイル エラートースト（モーダル未表示時の全件失敗や検証失敗を表示） */}
+      {uploadError && pendingFiles.length === 0 && (
+        <div className="px-3 py-2 bg-destructive/10 text-destructive text-sm border-t border-destructive/20 whitespace-pre-line flex items-start justify-between gap-2">
+          <span className="flex-1">{uploadError}</span>
+          <button
+            type="button"
+            className="text-xs underline shrink-0"
+            onClick={() => setUploadError(null)}
+          >
+            閉じる
+          </button>
         </div>
       )}
 

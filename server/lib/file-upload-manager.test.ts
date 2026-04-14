@@ -129,14 +129,22 @@ describe("FileUploadManager", () => {
       ).rejects.toMatchObject({ code: "INVALID_SESSION_ID" });
     });
 
-    it("sessionId のパストラバーサルをサニタイズする", async () => {
-      const result = await manager.saveFile(
-        "../../etc",
-        makeBase64(10),
-        "image/png"
-      );
-      expect(result.path).not.toContain("..");
-      expect(result.path).toContain(path.join(tmpDir, "etc"));
+    it("'../../etc' のようなパス区切りを含むsessionIdはrejectされる", async () => {
+      await expect(
+        manager.saveFile("../../etc", makeBase64(10), "image/png")
+      ).rejects.toMatchObject({ code: "INVALID_SESSION_ID" });
+    });
+
+    it("'.' のみのsessionIdはrejectされる", async () => {
+      await expect(
+        manager.saveFile(".", makeBase64(10), "image/png")
+      ).rejects.toMatchObject({ code: "INVALID_SESSION_ID" });
+    });
+
+    it("'..' のみのsessionIdはrejectされる", async () => {
+      await expect(
+        manager.saveFile("..", makeBase64(10), "image/png")
+      ).rejects.toMatchObject({ code: "INVALID_SESSION_ID" });
     });
 
     it("ファイル名生成が一意（衝突しない）", async () => {

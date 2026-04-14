@@ -188,14 +188,20 @@ export class FileUploadManager {
   }
 
   private sanitizeSessionId(sessionId: string): string | null {
-    if (!sessionId || typeof sessionId !== "string") return null;
-    const sanitized = sessionId
-      .replace(/[/\\]/g, "")
-      .replace(/\.\./g, "")
-      .replace(/[<>:"|?*\x00-\x1f]/g, "")
-      .trim();
-    if (!sanitized || sanitized.length === 0) return null;
-    return sanitized.substring(0, 256);
+    // サニタイズ方式（危険文字を除去）では "." や ".." が空文字/そのままベースディレクトリ直下を指す
+    // 危険があるため、検証方式（不正な入力は null を返す）に変更している
+    if (typeof sessionId !== "string") return null;
+    const trimmed = sessionId.trim();
+    if (
+      trimmed.length === 0 ||
+      trimmed.length > 256 ||
+      trimmed === "." ||
+      trimmed === ".." ||
+      /[/\\<>:"|?*\x00-\x1f]/.test(trimmed)
+    ) {
+      return null;
+    }
+    return trimmed;
   }
 
   private resolveExtension(

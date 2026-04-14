@@ -189,13 +189,15 @@ export function TerminalPane({
   };
 
   // 受け取ったFileをpendingFilesへ追加（画像/非画像共通）
+  // 部分失敗の場合でもエラーを握りつぶさず、まとめて表示する
   const addPendingFiles = useCallback(async (files: File[]) => {
     const next: PendingFile[] = [];
+    const errors: string[] = [];
     for (const file of files) {
       const v = validateFile(file);
       if (!v.ok) {
         console.warn(v.reason);
-        setUploadError(v.reason ?? "未対応のファイルです");
+        errors.push(`${file.name}: ${v.reason ?? "未対応のファイルです"}`);
         continue;
       }
       try {
@@ -205,11 +207,15 @@ export function TerminalPane({
         next.push({ base64, mimeType, filename, preview, size: file.size });
       } catch (err) {
         console.error("ファイル読み込みに失敗:", err);
-        setUploadError("ファイル読み込みに失敗しました");
+        errors.push(`${file.name}: 読み込みに失敗しました`);
       }
     }
     if (next.length > 0) {
       setPendingFiles(prev => [...prev, ...next]);
+    }
+    if (errors.length > 0) {
+      setUploadError(errors.join("\n"));
+    } else {
       setUploadError(null);
     }
   }, []);
@@ -217,6 +223,7 @@ export function TerminalPane({
   // Handle paste event for image / file
   const handlePaste = useCallback(
     (e: React.ClipboardEvent | ClipboardEvent) => {
+      if (!onUploadFile) return;
       const items = e.clipboardData?.items;
       if (!items) return;
       const files: File[] = [];
@@ -231,7 +238,7 @@ export function TerminalPane({
         addPendingFiles(files);
       }
     },
-    [addPendingFiles]
+    [onUploadFile, addPendingFiles]
   );
 
   // Listen for paste events when textarea is focused
@@ -247,6 +254,7 @@ export function TerminalPane({
 
   // クリップボードから画像を読み取るボタン用
   const handlePasteButtonClick = useCallback(async () => {
+    if (!onUploadFile) return;
     try {
       const clipboardItems = await navigator.clipboard.read();
       const files: File[] = [];
@@ -266,14 +274,15 @@ export function TerminalPane({
     } catch (err) {
       console.error("Failed to read clipboard:", err);
     }
-  }, [addPendingFiles]);
+  }, [onUploadFile, addPendingFiles]);
 
   // ファイル選択/D&D用のハンドラ
   const handleFilesSelected = useCallback(
     async (files: File[]) => {
+      if (!onUploadFile) return;
       await addPendingFiles(files);
     },
-    [addPendingFiles]
+    [onUploadFile, addPendingFiles]
   );
 
   // 「送信」押下: 全ファイルを順次アップロードし、@path1 @path2 ... {msg} 形式で送信
@@ -317,7 +326,9 @@ export function TerminalPane({
   // ウィンドウ全体でファイルD&Dを受け付ける
   // ttyd iframe はクロスフレーム分離でドラッグイベントを親に届けないため、
   // window レベルのリスナーで検知して全画面オーバーレイを表示する
+  // onUploadFile が未定義（アップロード非対応）の場合はリスナーを登録しない
   useEffect(() => {
+    if (!onUploadFile) return;
     let dragCounter = 0;
 
     const handleDragEnter = (e: DragEvent) => {
@@ -357,7 +368,7 @@ export function TerminalPane({
       window.removeEventListener("dragleave", handleDragLeave);
       window.removeEventListener("drop", handleDrop);
     };
-  }, [handleFilesSelected]);
+  }, [onUploadFile, handleFilesSelected]);
 
   // ファイル選択/D&D後のtextarea自動挿入は廃止（プレビューダイアログ経由に統一）
 
@@ -425,31 +436,35 @@ export function TerminalPane({
               <Copy className="w-5 h-5 md:w-3 md:h-3" />
             )}
           </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-10 w-10 md:h-6 md:w-6"
-            onClick={handlePasteButtonClick}
-            title="Paste image from clipboard"
-          >
-            <ImageIcon className="w-5 h-5 md:w-3 md:h-3" />
-          </Button>
-          <label
-            className="h-10 w-10 md:h-6 md:w-6 inline-flex items-center justify-center rounded-md cursor-pointer hover:bg-accent hover:text-accent-foreground"
-            title="ファイルを添付"
-          >
-            <input
-              type="file"
-              multiple
-              className="hidden"
-              onChange={e => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length > 0) handleFilesSelected(files);
-                e.target.value = "";
-              }}
-            />
-            <Paperclip className="w-5 h-5 md:w-3 md:h-3" />
-          </label>
+          {onUploadFile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-10 w-10 md:h-6 md:w-6"
+              onClick={handlePasteButtonClick}
+              title="Paste image from clipboard"
+            >
+              <ImageIcon className="w-5 h-5 md:w-3 md:h-3" />
+            </Button>
+          )}
+          {onUploadFile && (
+            <label
+              className="h-10 w-10 md:h-6 md:w-6 inline-flex items-center justify-center rounded-md cursor-pointer hover:bg-accent hover:text-accent-foreground"
+              title="ファイルを添付"
+            >
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) handleFilesSelected(files);
+                  e.target.value = "";
+                }}
+              />
+              <Paperclip className="w-5 h-5 md:w-3 md:h-3" />
+            </label>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -620,6 +635,20 @@ export function TerminalPane({
               </Button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* 添付ファイル エラートースト（モーダル未表示時の全件失敗や検証失敗を表示） */}
+      {uploadError && pendingFiles.length === 0 && (
+        <div className="px-3 py-2 bg-destructive/10 text-destructive text-sm border-t border-destructive/20 whitespace-pre-line flex items-start justify-between gap-2">
+          <span className="flex-1">{uploadError}</span>
+          <button
+            type="button"
+            className="text-xs underline shrink-0"
+            onClick={() => setUploadError(null)}
+          >
+            閉じる
+          </button>
         </div>
       )}
 

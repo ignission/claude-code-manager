@@ -263,7 +263,7 @@ claude-code-ark/
 | `tunnel:start`    | `{ port? }`                             | Quick Tunnel起動                 |
 | `tunnel:stop`     | -                                       | トンネル停止                     |
 | `ports:scan`      | -                                       | ポートスキャン                   |
-| `file-upload:upload` | `{ sessionId, base64Data, mimeType, originalFilename? }` | ファイルアップロード |
+| `file-upload:upload` | `{ sessionId, base64Data, mimeType, originalFilename?, requestId }` | ファイルアップロード |
 
 ### サーバー → クライアント
 
@@ -290,8 +290,8 @@ claude-code-ark/
 | `tunnel:status`          | `{ active, url?, token? }`     | トンネル状態                     |
 | `tunnel:error`           | `{ message }`                  | トンネルエラー                   |
 | `ports:list`             | `{ ports }`                    | ポート一覧                       |
-| `file-upload:uploaded`   | `{ path, filename, originalFilename? }` | ファイルアップロード完了 |
-| `file-upload:error`      | `{ message, code? }`           | ファイルアップロードエラー       |
+| `file-upload:uploaded`   | `{ requestId, path, filename, originalFilename? }` | ファイルアップロード完了 |
+| `file-upload:error`      | `{ requestId, message, code? }`           | ファイルアップロードエラー       |
 
 ---
 

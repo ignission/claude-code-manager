@@ -194,6 +194,8 @@ async function startServer() {
 
   // Initialize Socket.IO
   const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
+    // 10MBファイル（base64化で約13.3MB）のアップロードに対応するためデフォルト1MBを拡張
+    maxHttpBufferSize: 15 * 1024 * 1024,
     cors: {
       origin: (origin, callback) => {
         // originがundefined = 同一オリジンリクエスト（許可）
@@ -1143,6 +1145,15 @@ async function startServer() {
         requestId,
       }) => {
         try {
+          // セッションの実在確認（未知のsessionIdで /tmp/ark-files/ 配下にゴミを作らない）
+          if (!sessionOrchestrator.getSession(sessionId)) {
+            socket.emit("file-upload:error", {
+              requestId,
+              message: "無効なセッションIDです",
+              code: "INVALID_SESSION_ID",
+            });
+            return;
+          }
           const result = await fileUploadManager.saveFile(
             sessionId,
             base64Data,
