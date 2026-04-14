@@ -262,6 +262,15 @@ export function useTerminalLinkInjection(
                 // 1行目のURL範囲を記録（ファイルパス検出時の除外判定に使用）
                 urlRanges.push([match.index, match.index + originalUrl.length]);
 
+                // 折り返し継続行のリンク範囲を記録する配列
+                // [{ y: 物理行number(1-based), startX, endX, urlPart }]
+                // 1行目はWebLinksAddonに任せるため記録しない（2タブ防止）
+                const continuationRanges: Array<{
+                  y: number;
+                  startX: number;
+                  endX: number;
+                }> = [];
+
                 // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
                 const afterUrl = text.substring(
                   match.index + matchedUrl.length
@@ -290,6 +299,11 @@ export function useTerminalLinkInjection(
                     if (!/^\s*$/.test(afterCont)) break;
 
                     matchedUrl += contMatch[0];
+                    continuationRanges.push({
+                      y: nextIdx + 1, // 1-based行番号
+                      startX: leadingSpaces + 1,
+                      endX: leadingSpaces + contMatch[0].length + 1,
+                    });
                   }
                 }
 
@@ -300,6 +314,27 @@ export function useTerminalLinkInjection(
                 // WebLinksAddonのactivate時にfakeWindowで完全URLに復元する
                 if (matchedUrl !== originalUrl) {
                   urlExtensionMap.set(originalUrl, matchedUrl);
+                }
+
+                // 折り返し継続行が存在する場合、各継続行に独立したリンクを登録する。
+                // 1行目はWebLinksAddon任せ、2行目以降のみ独自provider側で拾う。
+                // これにより同一クリックで2経路発火する2タブ問題を構造的に回避できる。
+                if (continuationRanges.length > 0) {
+                  const finalUrl = matchedUrl;
+                  for (const cr of continuationRanges) {
+                    links.push({
+                      range: {
+                        start: { x: cr.startX, y: cr.y },
+                        end: { x: cr.endX, y: cr.y },
+                      },
+                      text: finalUrl,
+                      activate() {
+                        // fakeWindow override 経由でlocalhost/非localhost振り分け
+                        // biome-ignore lint/suspicious/noExplicitAny: overrideされたopenを呼ぶため型を緩める
+                        (iframeWindow as any).open(finalUrl, "_blank");
+                      },
+                    });
+                  }
                 }
               }
 
