@@ -8,6 +8,7 @@
 import {
   ChevronLeft,
   Copy,
+  File as FileIcon,
   GitBranch,
   ImageIcon,
   MoreVertical,
@@ -41,6 +42,7 @@ import type {
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
+import { fileToBase64, validateFile } from "../hooks/useFileUpload";
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import { useVisualViewport } from "../hooks/useVisualViewport";
 import { FileViewerPane } from "./FileViewerPane";
@@ -55,10 +57,18 @@ interface MobileSessionViewProps {
   onSendKey: (key: SpecialKey) => void;
   /** セッション削除（停止 + メイン以外のWorktree削除） */
   onDeleteSession: () => void;
-  onUploadImage?: (base64Data: string, mimeType: string) => void;
-  imageUploadResult?: { path: string; filename: string } | null;
-  imageUploadError?: string | null;
-  onClearImageUploadState?: () => void;
+  onUploadFile?: (data: {
+    base64Data: string;
+    mimeType: string;
+    originalFilename?: string;
+  }) => void;
+  fileUploadResult?: {
+    path: string;
+    filename: string;
+    originalFilename?: string;
+  } | null;
+  fileUploadError?: string | null;
+  onClearFileUploadState?: () => void;
   onCopyBuffer?: () => Promise<string | null>;
   tabs: ViewerTab[];
   activeTabIndex: number;
@@ -73,10 +83,10 @@ export function MobileSessionView({
   onSendMessage,
   onSendKey,
   onDeleteSession,
-  onUploadImage,
-  imageUploadResult,
-  imageUploadError,
-  onClearImageUploadState,
+  onUploadFile,
+  fileUploadResult,
+  fileUploadError,
+  onClearFileUploadState,
   onCopyBuffer,
   tabs,
   activeTabIndex,
@@ -130,7 +140,7 @@ export function MobileSessionView({
   // クリップボードから画像を読み取り
   const handlePaste = useCallback(
     (e: React.ClipboardEvent | ClipboardEvent) => {
-      if (!onUploadImage) return;
+      if (!onUploadFile) return;
       const items = e.clipboardData?.items;
       if (!items) return;
 
@@ -153,7 +163,7 @@ export function MobileSessionView({
         }
       }
     },
-    [onUploadImage]
+    [onUploadFile]
   );
 
   // ペーストイベントのリスナー
@@ -169,7 +179,7 @@ export function MobileSessionView({
 
   // クリップボードからの画像ペーストボタン
   const handlePasteButtonClick = async () => {
-    if (!onUploadImage) return;
+    if (!onUploadFile) return;
     try {
       const clipboardItems = await navigator.clipboard.read();
       for (const item of clipboardItems) {
@@ -192,24 +202,63 @@ export function MobileSessionView({
     }
   };
 
-  // 画像アップロード成功時に自動送信
+  // 画像貼り付け経路: pastedImage + fileUploadResult が揃ったら自動送信
   useEffect(() => {
-    if (imageUploadResult && pastedImage) {
+    if (fileUploadResult && pastedImage) {
       const message = imageMessage.trim()
-        ? `@${imageUploadResult.path} ${imageMessage}`
-        : `@${imageUploadResult.path}`;
+        ? `@${fileUploadResult.path} ${imageMessage}`
+        : `@${fileUploadResult.path}`;
       onSendMessage(message);
       setPastedImage(null);
       setImageMessage("");
-      onClearImageUploadState?.();
+      onClearFileUploadState?.();
     }
   }, [
-    imageUploadResult,
+    fileUploadResult,
     pastedImage,
     imageMessage,
     onSendMessage,
-    onClearImageUploadState,
+    onClearFileUploadState,
   ]);
+
+  // ファイル選択ハンドラ
+  const handleFilesSelected = useCallback(
+    async (files: File[]) => {
+      if (!onUploadFile) return;
+      for (const file of files) {
+        const v = validateFile(file);
+        if (!v.ok) {
+          console.warn(v.reason);
+          continue;
+        }
+        const { base64, mimeType, filename } = await fileToBase64(file);
+        onUploadFile({
+          base64Data: base64,
+          mimeType,
+          originalFilename: filename,
+        });
+      }
+    },
+    [onUploadFile]
+  );
+
+  // file-upload 成功時: 入力欄のカーソル位置に @path を挿入（画像貼り付け経路とは別）
+  useEffect(() => {
+    if (fileUploadResult && !pastedImage) {
+      const insert = ` @${fileUploadResult.path} `;
+      const input = inputRef.current;
+      if (input) {
+        const start = input.selectionStart ?? inputValue.length;
+        const end = input.selectionEnd ?? inputValue.length;
+        const next =
+          inputValue.slice(0, start) + insert + inputValue.slice(end);
+        setInputValue(next);
+      } else {
+        setInputValue(prev => prev + insert);
+      }
+      onClearFileUploadState?.();
+    }
+  }, [fileUploadResult, pastedImage, inputValue, onClearFileUploadState]);
 
   // tmuxバッファコピー
   const handleCopyBuffer = async () => {
@@ -280,10 +329,28 @@ export function MobileSessionView({
                   Copy Buffer
                 </DropdownMenuItem>
               )}
-              {onUploadImage && (
+              {onUploadFile && (
                 <DropdownMenuItem onClick={handlePasteButtonClick}>
                   <ImageIcon className="w-4 h-4 mr-2" />
                   Paste Image
+                </DropdownMenuItem>
+              )}
+              {onUploadFile && (
+                <DropdownMenuItem asChild>
+                  <label className="cursor-pointer flex items-center w-full">
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={async e => {
+                        const files = Array.from(e.target.files ?? []);
+                        await handleFilesSelected(files);
+                        e.target.value = "";
+                      }}
+                    />
+                    <FileIcon className="mr-2 h-4 w-4" />
+                    ファイルを添付
+                  </label>
                 </DropdownMenuItem>
               )}
               <DropdownMenuItem onClick={handleReloadIframe}>
@@ -389,10 +456,8 @@ export function MobileSessionView({
                 rows={2}
               />
             </div>
-            {imageUploadError && (
-              <p className="text-destructive text-xs mb-3">
-                {imageUploadError}
-              </p>
+            {fileUploadError && (
+              <p className="text-destructive text-xs mb-3">{fileUploadError}</p>
             )}
             <div className="flex gap-2 justify-end">
               <Button
@@ -401,7 +466,7 @@ export function MobileSessionView({
                 onClick={() => {
                   setPastedImage(null);
                   setImageMessage("");
-                  onClearImageUploadState?.();
+                  onClearFileUploadState?.();
                 }}
               >
                 キャンセル
@@ -409,7 +474,11 @@ export function MobileSessionView({
               <Button
                 size="sm"
                 onClick={() => {
-                  onUploadImage?.(pastedImage.base64, pastedImage.mimeType);
+                  onUploadFile?.({
+                    base64Data: pastedImage.base64,
+                    mimeType: pastedImage.mimeType,
+                    originalFilename: "pasted-image",
+                  });
                 }}
               >
                 送信

@@ -17,6 +17,7 @@ import {
   GitBranch,
   ImageIcon,
   Keyboard,
+  Paperclip,
   RefreshCw,
   Send,
   StopCircle,
@@ -41,8 +42,10 @@ import type {
   SpecialKey,
   Worktree,
 } from "../../../shared/types";
+import { fileToBase64, validateFile } from "../hooks/useFileUpload";
 import { useIsMobile } from "../hooks/useMobile";
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
+import { FileDropZone } from "./FileDropZone";
 import { FileViewerPane } from "./FileViewerPane";
 import { HtmlViewerPane } from "./HtmlViewerPane";
 import { ViewerTabBar } from "./ViewerTabBar";
@@ -73,10 +76,18 @@ interface TerminalPaneProps {
   onSendKey: (key: SpecialKey) => void;
   /** セッション削除（停止 + メイン以外のWorktree削除） */
   onDeleteSession: () => void;
-  onUploadImage?: (base64Data: string, mimeType: string) => void;
-  imageUploadResult?: { path: string; filename: string } | null;
-  imageUploadError?: string | null;
-  onClearImageUploadState?: () => void;
+  onUploadFile?: (data: {
+    base64Data: string;
+    mimeType: string;
+    originalFilename?: string;
+  }) => void;
+  fileUploadResult?: {
+    path: string;
+    filename: string;
+    originalFilename?: string;
+  } | null;
+  fileUploadError?: string | null;
+  onClearFileUploadState?: () => void;
   onCopyBuffer?: () => Promise<string | null>;
   tabs: ViewerTab[];
   activeTabIndex: number;
@@ -91,10 +102,10 @@ export function TerminalPane({
   onSendMessage,
   onSendKey,
   onDeleteSession,
-  onUploadImage,
-  imageUploadResult,
-  imageUploadError,
-  onClearImageUploadState,
+  onUploadFile,
+  fileUploadResult,
+  fileUploadError,
+  onClearFileUploadState,
   onCopyBuffer,
   tabs,
   activeTabIndex,
@@ -244,25 +255,64 @@ export function TerminalPane({
     }
   };
 
-  // Handle image upload success
+  // 画像貼り付け経路: pastedImage + fileUploadResult が揃ったら自動送信
   useEffect(() => {
-    if (imageUploadResult && pastedImage) {
+    if (fileUploadResult && pastedImage) {
       // Claude Codeに@パス形式で送信
       const message = imageMessage.trim()
-        ? `@${imageUploadResult.path} ${imageMessage}`
-        : `@${imageUploadResult.path}`;
+        ? `@${fileUploadResult.path} ${imageMessage}`
+        : `@${fileUploadResult.path}`;
       onSendMessage(message);
       setPastedImage(null);
       setImageMessage("");
-      onClearImageUploadState?.();
+      onClearFileUploadState?.();
     }
   }, [
-    imageUploadResult,
+    fileUploadResult,
     pastedImage,
     imageMessage,
     onSendMessage,
-    onClearImageUploadState,
+    onClearFileUploadState,
   ]);
+
+  // ファイル選択/D&D用のハンドラ
+  const handleFilesSelected = useCallback(
+    async (files: File[]) => {
+      if (!onUploadFile) return;
+      for (const file of files) {
+        const v = validateFile(file);
+        if (!v.ok) {
+          console.warn(v.reason);
+          continue;
+        }
+        const { base64, mimeType, filename } = await fileToBase64(file);
+        onUploadFile({
+          base64Data: base64,
+          mimeType,
+          originalFilename: filename,
+        });
+      }
+    },
+    [onUploadFile]
+  );
+
+  // file-upload 成功時: 入力欄のカーソル位置に @path を挿入（画像貼り付け経路とは別）
+  useEffect(() => {
+    if (fileUploadResult && !pastedImage) {
+      const insert = ` @${fileUploadResult.path} `;
+      const textarea = textareaRef.current;
+      if (textarea) {
+        const start = textarea.selectionStart ?? inputValue.length;
+        const end = textarea.selectionEnd ?? inputValue.length;
+        const next =
+          inputValue.slice(0, start) + insert + inputValue.slice(end);
+        setInputValue(next);
+      } else {
+        setInputValue(prev => prev + insert);
+      }
+      onClearFileUploadState?.();
+    }
+  }, [fileUploadResult, pastedImage, inputValue, onClearFileUploadState]);
 
   // Construct ttyd iframe URL
   // トンネル経由のアクセス時はURLのトークンをiframeにも付与
@@ -443,10 +493,8 @@ export function TerminalPane({
                 rows={2}
               />
             </div>
-            {imageUploadError && (
-              <p className="text-destructive text-xs mb-3">
-                {imageUploadError}
-              </p>
+            {fileUploadError && (
+              <p className="text-destructive text-xs mb-3">{fileUploadError}</p>
             )}
             <div className="flex gap-2 justify-end">
               <Button
@@ -455,7 +503,7 @@ export function TerminalPane({
                 onClick={() => {
                   setPastedImage(null);
                   setImageMessage("");
-                  onClearImageUploadState?.();
+                  onClearFileUploadState?.();
                 }}
               >
                 キャンセル
@@ -463,7 +511,11 @@ export function TerminalPane({
               <Button
                 size="sm"
                 onClick={() => {
-                  onUploadImage?.(pastedImage.base64, pastedImage.mimeType);
+                  onUploadFile?.({
+                    base64Data: pastedImage.base64,
+                    mimeType: pastedImage.mimeType,
+                    originalFilename: "pasted-image",
+                  });
                 }}
               >
                 送信
@@ -566,29 +618,47 @@ export function TerminalPane({
           )}
 
           {/* Main input */}
-          <form onSubmit={handleSubmit} className="p-3 md:p-2">
-            <div className="flex gap-2 items-end">
-              <div className="flex-1">
-                <Textarea
-                  ref={textareaRef}
-                  value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type message... (Enter to send)"
-                  className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
-                  rows={1}
-                />
+          <FileDropZone onFilesSelected={handleFilesSelected}>
+            <form onSubmit={handleSubmit} className="p-3 md:p-2">
+              <div className="flex gap-2 items-end">
+                <label
+                  className="h-11 w-11 md:h-9 md:w-9 shrink-0 cursor-pointer inline-flex items-center justify-center rounded-md hover:bg-muted"
+                  title="ファイルを添付"
+                >
+                  <input
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={e => {
+                      const files = Array.from(e.target.files ?? []);
+                      if (files.length > 0) handleFilesSelected(files);
+                      e.target.value = "";
+                    }}
+                  />
+                  <Paperclip className="w-5 h-5 md:w-4 md:h-4" />
+                </label>
+                <div className="flex-1">
+                  <Textarea
+                    ref={textareaRef}
+                    value={inputValue}
+                    onChange={e => setInputValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder="Type message... (Enter to send)"
+                    className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
+                    rows={1}
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  size="icon"
+                  className="h-11 w-11 md:h-9 md:w-9 glow-green shrink-0"
+                  disabled={!inputValue.trim()}
+                >
+                  <Send className="w-5 h-5 md:w-4 md:h-4" />
+                </Button>
               </div>
-              <Button
-                type="submit"
-                size="icon"
-                className="h-11 w-11 md:h-9 md:w-9 glow-green shrink-0"
-                disabled={!inputValue.trim()}
-              >
-                <Send className="w-5 h-5 md:w-4 md:h-4" />
-              </Button>
-            </div>
-          </form>
+            </form>
+          </FileDropZone>
         </div>
       )}
 

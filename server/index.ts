@@ -39,13 +39,16 @@ import { db } from "./lib/database.js";
 import { getErrorMessage } from "./lib/errors.js";
 import { readFileFromWorktree } from "./lib/file-manager.js";
 import {
+  FileUploadManagerError,
+  fileUploadManager,
+} from "./lib/file-upload-manager.js";
+import {
   createWorktree,
   deleteWorktree,
   isGitRepository,
   listWorktrees,
   scanRepositories,
 } from "./lib/git.js";
-import { ImageManagerError, imageManager } from "./lib/image-manager.js";
 import { getListeningPorts } from "./lib/port-scanner.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { sessionOrchestrator } from "./lib/session-orchestrator.js";
@@ -1128,25 +1131,32 @@ async function startServer() {
     });
     socket.emit("tunnel:status", tunnelStatus);
 
-    // ===== Image Upload Commands =====
+    // ===== File Upload Commands =====
 
-    socket.on("image:upload", async ({ sessionId, base64Data, mimeType }) => {
-      try {
-        const result = await imageManager.saveImage(
-          sessionId,
-          base64Data,
-          mimeType
-        );
-        socket.emit("image:uploaded", result);
-      } catch (error) {
-        socket.emit("image:error", {
-          message:
-            error instanceof ImageManagerError
-              ? error.message
-              : "画像のアップロードに失敗しました",
-        });
+    socket.on(
+      "file-upload:upload",
+      async ({ sessionId, base64Data, mimeType, originalFilename }) => {
+        try {
+          const result = await fileUploadManager.saveFile(
+            sessionId,
+            base64Data,
+            mimeType,
+            originalFilename
+          );
+          socket.emit("file-upload:uploaded", result);
+        } catch (error) {
+          const code =
+            error instanceof FileUploadManagerError ? error.code : undefined;
+          socket.emit("file-upload:error", {
+            message:
+              error instanceof FileUploadManagerError
+                ? error.message
+                : "ファイルのアップロードに失敗しました",
+            code,
+          });
+        }
       }
-    });
+    );
 
     // ===== File Viewer =====
     // レート制限: ソケットごとに最後のリクエスト時間を記録

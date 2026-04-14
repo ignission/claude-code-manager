@@ -167,9 +167,13 @@ export interface ServerToClientEvents {
     ports: Array<{ port: number; process: string; pid: number }>;
   }) => void;
 
-  // Image events
-  "image:uploaded": (data: { path: string; filename: string }) => void;
-  "image:error": (data: { message: string }) => void;
+  // File upload events
+  "file-upload:uploaded": (data: {
+    path: string;
+    filename: string;
+    originalFilename?: string;
+  }) => void;
+  "file-upload:error": (data: { message: string; code?: string }) => void;
 
   // Beacon events
   "beacon:message": (message: ChatMessage) => void;
@@ -225,11 +229,12 @@ export interface ClientToServerEvents {
   // Port commands
   "ports:scan": () => void;
 
-  // Image commands
-  "image:upload": (data: {
+  // File upload commands
+  "file-upload:upload": (data: {
     sessionId: string;
     base64Data: string;
     mimeType: string;
+    originalFilename?: string;
   }) => void;
 
   // Beacon commands

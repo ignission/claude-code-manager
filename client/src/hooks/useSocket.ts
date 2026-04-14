@@ -89,15 +89,20 @@ interface UseSocketReturn {
   listeningPorts: Array<{ port: number; process: string; pid: number }>;
   scanPorts: () => void;
 
-  // Image upload
-  uploadImage: (
-    sessionId: string,
-    base64Data: string,
-    mimeType: string
-  ) => void;
-  imageUploadResult: { path: string; filename: string } | null;
-  imageUploadError: string | null;
-  clearImageUploadState: () => void;
+  // File upload
+  uploadFile: (data: {
+    sessionId: string;
+    base64Data: string;
+    mimeType: string;
+    originalFilename?: string;
+  }) => void;
+  fileUploadResult: {
+    path: string;
+    filename: string;
+    originalFilename?: string;
+  } | null;
+  fileUploadError: string | null;
+  clearFileUploadState: () => void;
 
   // File viewer
   fileContent: {
@@ -172,12 +177,13 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     Array<{ port: number; process: string; pid: number }>
   >([]);
 
-  // Image upload state
-  const [imageUploadResult, setImageUploadResult] = useState<{
+  // File upload state
+  const [fileUploadResult, setFileUploadResult] = useState<{
     path: string;
     filename: string;
+    originalFilename?: string;
   } | null>(null);
-  const [imageUploadError, setImageUploadError] = useState<string | null>(null);
+  const [fileUploadError, setFileUploadError] = useState<string | null>(null);
 
   // File viewer state
   const [fileContent, setFileContent] = useState<{
@@ -439,17 +445,17 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       setListeningPorts(ports);
     });
 
-    // Image upload events
-    socket.on("image:uploaded", data => {
-      console.log("[Socket] Image uploaded:", data.path);
-      setImageUploadResult(data);
-      setImageUploadError(null);
+    // File upload events
+    socket.on("file-upload:uploaded", data => {
+      console.log("[Socket] File uploaded:", data.path);
+      setFileUploadResult(data);
+      setFileUploadError(null);
     });
 
-    socket.on("image:error", ({ message }) => {
-      console.error("[Socket] Image upload error:", message);
-      setImageUploadError(message);
-      setImageUploadResult(null);
+    socket.on("file-upload:error", ({ message }) => {
+      console.error("[Socket] File upload error:", message);
+      setFileUploadError(message);
+      setFileUploadResult(null);
     });
 
     // File viewer events
@@ -540,8 +546,8 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     // Cleanup on unmount
     return () => {
       socket.off("ports:list");
-      socket.off("image:uploaded");
-      socket.off("image:error");
+      socket.off("file-upload:uploaded");
+      socket.off("file-upload:error");
       socket.off("file:content");
       socket.off("beacon:message");
       socket.off("beacon:stream");
@@ -653,23 +659,24 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     socketRef.current?.emit("ports:scan");
   }, []);
 
-  // Image upload actions
-  const uploadImage = useCallback(
-    (sessionId: string, base64Data: string, mimeType: string) => {
-      setImageUploadResult(null);
-      setImageUploadError(null);
-      socketRef.current?.emit("image:upload", {
-        sessionId,
-        base64Data,
-        mimeType,
-      });
+  // File upload actions
+  const uploadFile = useCallback(
+    (data: {
+      sessionId: string;
+      base64Data: string;
+      mimeType: string;
+      originalFilename?: string;
+    }) => {
+      setFileUploadResult(null);
+      setFileUploadError(null);
+      socketRef.current?.emit("file-upload:upload", data);
     },
     []
   );
 
-  const clearImageUploadState = useCallback(() => {
-    setImageUploadResult(null);
-    setImageUploadError(null);
+  const clearFileUploadState = useCallback(() => {
+    setFileUploadResult(null);
+    setFileUploadError(null);
   }, []);
 
   // File read action
@@ -778,11 +785,11 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     // Ports
     listeningPorts,
     scanPorts,
-    // Image upload
-    uploadImage,
-    imageUploadResult,
-    imageUploadError,
-    clearImageUploadState,
+    // File upload
+    uploadFile,
+    fileUploadResult,
+    fileUploadError,
+    clearFileUploadState,
     // File viewer
     fileContent,
     readFile,

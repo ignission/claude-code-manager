@@ -72,10 +72,10 @@ export default function Dashboard() {
     stopTunnel,
     clearTunnelJustStarted,
     listeningPorts,
-    uploadImage,
-    imageUploadResult,
-    imageUploadError,
-    clearImageUploadState,
+    uploadFile,
+    fileUploadResult,
+    fileUploadError,
+    clearFileUploadState,
     copyBuffer,
     deletedWorktreeId,
     clearDeletedWorktreeId,
@@ -332,10 +332,10 @@ export default function Dashboard() {
           onSendMessage={sendMessage}
           onSendKey={sendKey}
           onSelectSession={sessionId => setSelectedSessionId(sessionId)}
-          onUploadImage={uploadImage}
-          imageUploadResult={imageUploadResult}
-          imageUploadError={imageUploadError}
-          onClearImageUploadState={clearImageUploadState}
+          onUploadFile={uploadFile}
+          fileUploadResult={fileUploadResult}
+          fileUploadError={fileUploadError}
+          onClearFileUploadState={clearFileUploadState}
           onCopyBuffer={copyBuffer}
           onNewSession={handleNewSession}
           readFile={readFile}
@@ -422,12 +422,12 @@ export default function Dashboard() {
                         onDeleteSession={() =>
                           handleDeleteSession(session.id, wt)
                         }
-                        onUploadImage={(base64, mimeType) =>
-                          uploadImage(session.id, base64, mimeType)
+                        onUploadFile={data =>
+                          uploadFile({ sessionId: session.id, ...data })
                         }
-                        imageUploadResult={imageUploadResult}
-                        imageUploadError={imageUploadError}
-                        onClearImageUploadState={clearImageUploadState}
+                        fileUploadResult={fileUploadResult}
+                        fileUploadError={fileUploadError}
+                        onClearFileUploadState={clearFileUploadState}
                         onCopyBuffer={
                           copyBuffer ? () => copyBuffer(session.id) : undefined
                         }
