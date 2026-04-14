@@ -29,6 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useIsMobile } from "@/hooks/useMobile";
+import { usePets } from "@/hooks/usePets";
 import { useSettings } from "@/hooks/useSettings";
 import { useSocket } from "@/hooks/useSocket";
 import { useViewerTabs } from "@/hooks/useViewerTabs";
@@ -96,6 +97,8 @@ export default function Dashboard() {
     onRepoListChange: list => setSetting("repoList", list),
     onRepoPathChange: path => setSetting("selectedRepoPath", path),
   });
+
+  const { getPetForSession } = usePets(socket);
 
   const isMobile = useIsMobile();
 
@@ -361,6 +364,7 @@ export default function Dashboard() {
               onSelectBrowser={handleSelectBrowser}
               isBrowserSelected={selectedSessionId === "browser"}
               isRemote={isRemote}
+              getPetForSession={getPetForSession}
             />
           }
           main={

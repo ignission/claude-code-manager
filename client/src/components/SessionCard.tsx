@@ -17,7 +17,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import type { ManagedSession, Worktree } from "../../../shared/types";
+import type { ManagedSession, Pet, Worktree } from "../../../shared/types";
+import { PetSprite } from "./pets/PetSprite";
 
 /** プレビュー無変化でアイドル判定するまでの秒数 */
 const IDLE_THRESHOLD_MS = 10_000;
@@ -33,6 +34,8 @@ interface SessionCardProps {
   /** セッション削除（停止 + メイン以外のWorktree削除） */
   onDelete: () => void;
   onStart?: () => void;
+  /** セッションに紐づくペット */
+  pet?: Pet;
 }
 
 export function SessionCard({
@@ -44,6 +47,7 @@ export function SessionCard({
   onClick,
   onDelete,
   onStart,
+  pet,
 }: SessionCardProps) {
   const branch =
     worktree?.branch ||
@@ -149,8 +153,24 @@ export function SessionCard({
               <span className="text-sm font-mono truncate text-sidebar-foreground">
                 {branch}
               </span>
-              {isSelected && (
+              {pet && (
+                <div className="ml-auto flex items-center gap-1 shrink-0">
+                  <PetSprite
+                    species={pet.species}
+                    mood={pet.mood}
+                    isActive={session?.status === "active"}
+                    size={20}
+                  />
+                  <span className="text-[10px] text-muted-foreground">
+                    Lv{pet.level}
+                  </span>
+                </div>
+              )}
+              {!pet && isSelected && (
                 <span className="ml-auto text-xs text-primary shrink-0">◀</span>
+              )}
+              {pet && isSelected && (
+                <span className="text-xs text-primary shrink-0">◀</span>
               )}
             </div>
             {displayText && (
