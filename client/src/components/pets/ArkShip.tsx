@@ -3,9 +3,9 @@ import { useCallback, useEffect, useRef } from "react";
 import type { Pet } from "../../../../shared/types";
 import { getShipTier } from "../../lib/pet-constants";
 import {
-  SPRITE_GRID_SIZE,
   drawSprite,
   getSpriteState,
+  SPRITE_GRID_SIZE,
 } from "../../lib/pet-sprites";
 
 interface ArkShipProps {
