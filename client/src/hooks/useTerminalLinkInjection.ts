@@ -334,7 +334,14 @@ export function useTerminalLinkInjection(
                 }
 
                 // 末尾の句読点を除去（文中のURL: "See https://example.com." 等）
-                matchedUrl = matchedUrl.replace(/[.,;:!?]+$/, "");
+                // 1行目固有の trailing 句読点長も計算してリンク範囲調整に使う。
+                const trimmed = matchedUrl.replace(/[.,;:!?]+$/, "");
+                // 1行目内のtrailing句読点長（拡張行の有無に関わらず、1行目に
+                // 句読点があればその分だけ範囲を縮める）
+                const firstLineTrimChars =
+                  originalUrl.length -
+                  originalUrl.replace(/[.,;:!?]+$/, "").length;
+                matchedUrl = trimmed;
 
                 // 拡張された場合、元URL→完全URLの対応をMapに記録
                 // WebLinksAddonのactivate時にfakeWindowで完全URLに復元する
@@ -346,12 +353,15 @@ export function useTerminalLinkInjection(
                 // 経由し、recentlyOpened による dedup で WebLinksAddon の両発火を
                 // 防ぐ。finalUrl を直接渡すため urlExtensionMap 依存はなく、
                 // prefix衝突や100件制限によるprefix退避の影響も受けない。
+                // 範囲は trailing句読点を除いた長さで算出（クリック誤判定防止）
                 const finalUrl = matchedUrl;
+                const firstLineEndIdx =
+                  match.index + originalUrl.length - firstLineTrimChars;
                 links.push({
                   range: {
                     start: { x: match.index + 1, y: lineNumber },
                     end: {
-                      x: match.index + originalUrl.length + 1,
+                      x: firstLineEndIdx + 1,
                       y: lineNumber,
                     },
                   },
@@ -426,6 +436,7 @@ export function useTerminalLinkInjection(
                       //     保持しない問題を防ぐ)
                       let fullUrl = urlStartMatch;
                       let reached = false;
+                      let lastJ = -1; // 最終継続行のbuffer index（trailing句読点判定用）
                       const maxForwardScan = 20; // 念のため上限
                       for (
                         let j = urlStartLine + 1;
@@ -447,6 +458,7 @@ export function useTerminalLinkInjection(
                         );
                         if (!/^\s*$/.test(afterContToken)) break;
                         fullUrl += contTokenMatch[0];
+                        lastJ = j;
                         if (j === lineNumber - 1) {
                           reached = true;
                         }
@@ -458,7 +470,22 @@ export function useTerminalLinkInjection(
                         // 上書きする前に既存値と整合しているか確認する
                         // (他の継続行からの呼び出しで同じmatchedUrlを計算済)
                         const originalUrl = urlStartMatch;
-                        fullUrl = fullUrl.replace(/[.,;:!?]+$/, "");
+                        const fullUrlTrimmed = fullUrl.replace(
+                          /[.,;:!?]+$/,
+                          ""
+                        );
+                        const trimChars =
+                          fullUrl.length - fullUrlTrimmed.length;
+                        // 当該継続行(lineNumber-1)が最終行(lastJ)の場合のみ
+                        // tokenから trailing 句読点分を範囲から除外する
+                        const isCurrentLastLine = lineNumber - 1 === lastJ;
+                        const tokenTrimChars =
+                          isCurrentLastLine && trimChars > 0
+                            ? Math.min(trimChars, tokenMatch[0].length)
+                            : 0;
+                        const tokenLenForRange =
+                          tokenMatch[0].length - tokenTrimChars;
+                        fullUrl = fullUrlTrimmed;
                         const existingMapped = urlExtensionMap.get(originalUrl);
                         if (
                           fullUrl !== originalUrl &&
@@ -469,11 +496,21 @@ export function useTerminalLinkInjection(
                           urlExtensionMap.set(originalUrl, fullUrl);
                         }
                         const finalUrl = fullUrl;
+
+                        // 当該継続行のリンク範囲を urlRanges にも追加し、
+                        // 後段のファイルパス検出で同範囲が誤検出されるのを防ぐ
+                        // (例: ".../client/src/App.tsx" の継続行が fileRegex に
+                        //  ヒットして ark:open-file が誤発火する問題への対策)
+                        urlRanges.push([
+                          leadingSpaces,
+                          leadingSpaces + tokenLenForRange,
+                        ]);
+
                         links.push({
                           range: {
                             start: { x: leadingSpaces + 1, y: lineNumber },
                             end: {
-                              x: leadingSpaces + tokenMatch[0].length + 1,
+                              x: leadingSpaces + tokenLenForRange + 1,
                               y: lineNumber,
                             },
                           },
