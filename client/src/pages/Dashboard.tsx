@@ -106,7 +106,7 @@ export default function Dashboard() {
     renamePet,
     submitGameResult,
     getPetForSession,
-  } = usePets(socket);
+  } = usePets(socket, isConnected);
 
   const isMobile = useIsMobile();
 

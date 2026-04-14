@@ -11,9 +11,10 @@ import type {
 
 type ArkSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
-export function usePets(socket: ArkSocket | null) {
+export function usePets(socket: ArkSocket | null, isConnected: boolean) {
   const [pets, setPets] = useState<Pet[]>([]);
 
+  // リスナー登録（socketオブジェクトが変わった時のみ）
   useEffect(() => {
     if (!socket) return;
 
@@ -38,21 +39,6 @@ export function usePets(socket: ArkSocket | null) {
     socket.on("pet:updated", handleUpdated);
     socket.on("pet:level_up", handleLevelUp);
 
-    // 接続済みならすぐemit、未接続なら接続時にemit
-    if (socket.connected) {
-      socket.emit("pet:list");
-    } else {
-      const onConnect = () => socket.emit("pet:list");
-      socket.on("connect", onConnect);
-      return () => {
-        socket.off("pet:list", handleList);
-        socket.off("pet:created", handleCreated);
-        socket.off("pet:updated", handleUpdated);
-        socket.off("pet:level_up", handleLevelUp);
-        socket.off("connect", onConnect);
-      };
-    }
-
     return () => {
       socket.off("pet:list", handleList);
       socket.off("pet:created", handleCreated);
@@ -60,6 +46,12 @@ export function usePets(socket: ArkSocket | null) {
       socket.off("pet:level_up", handleLevelUp);
     };
   }, [socket]);
+
+  // 接続確立後にペット一覧を要求
+  useEffect(() => {
+    if (!socket || !isConnected) return;
+    socket.emit("pet:list");
+  }, [socket, isConnected]);
 
   const interactWithPet = useCallback(
     (petId: string, action: PetAction) => {
