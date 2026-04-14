@@ -112,6 +112,12 @@ export function SidebarMainLayout({
         style={{ width: `${sidebarWidth}px` }}
       >
         <div className="flex-1 min-h-0 overflow-hidden">{sidebar}</div>
+        <a
+          href="/frontline"
+          className="w-full py-2 text-sm text-muted-foreground hover:text-foreground border-t border-border transition-colors block text-center"
+        >
+          🎯 FrontLine
+        </a>
         {onTogglePets && (
           <button
             type="button"

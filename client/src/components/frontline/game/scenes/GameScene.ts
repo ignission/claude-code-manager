@@ -2,6 +2,7 @@
 
 import Phaser from "phaser";
 
+import { SoundSynth } from "../audio/sound-synth";
 import {
   ADVANCE_DISTANCE,
   ARTILLERY_DAMAGE,
@@ -98,6 +99,32 @@ export class GameScene extends Phaser.Scene {
 
     // モバイル操作イベント
     this.game.events.on("mobile:action", this.handleMobileAction, this);
+
+    // 30%の確率で雨エフェクト
+    if (Math.random() < 0.3) {
+      this.startRain();
+    }
+  }
+
+  /** 雨エフェクト — 斜めの線を描画し続ける */
+  private startRain(): void {
+    const rainGfx = this.add.graphics().setDepth(90);
+    this.time.addEvent({
+      delay: 50,
+      loop: true,
+      callback: () => {
+        rainGfx.clear();
+        rainGfx.lineStyle(1, 0x6688aa, 0.3);
+        for (let i = 0; i < 40; i++) {
+          const x = Math.random() * GAME_WIDTH;
+          const y = Math.random() * GROUND_Y;
+          rainGfx.beginPath();
+          rainGfx.moveTo(x, y);
+          rainGfx.lineTo(x - 4, y + 10);
+          rainGfx.strokePath();
+        }
+      },
+    });
   }
 
   shutdown(): void {
@@ -291,7 +318,10 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private handleMobileAction = (detail: { action: string }): void => {
+  private handleMobileAction = (detail: {
+    action: string;
+    value?: number;
+  }): void => {
     if (this.gameOver) return;
     switch (detail.action) {
       case "fire":
@@ -302,6 +332,9 @@ export class GameScene extends Phaser.Scene {
         break;
       case "defend":
         this.defend();
+        break;
+      case "weapon":
+        if (detail.value != null) this.switchWeapon(detail.value - 1);
         break;
       case "weapon1":
         this.switchWeapon(0);
@@ -343,6 +376,22 @@ export class GameScene extends Phaser.Scene {
     const gunY = GROUND_Y - 30;
     const baseAngle = Math.atan2(targetY - gunY, targetX - gunX);
 
+    // 射撃サウンド
+    switch (weapon.name) {
+      case "Handgun":
+        SoundSynth.handgunShot();
+        break;
+      case "Machinegun":
+        SoundSynth.machinegunShot();
+        break;
+      case "Shotgun":
+        SoundSynth.shotgunShot();
+        break;
+      case "Sniper":
+        SoundSynth.sniperShot();
+        break;
+    }
+
     // ペレット発射
     for (let p = 0; p < weapon.pellets; p++) {
       const spread = (Math.random() - 0.5) * weapon.spread * 2;
@@ -372,16 +421,18 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    // マズルフラッシュ
-    const flash = this.add.circle(gunX + 10, gunY, 6, 0xffffee, 1).setDepth(60);
+    // マズルフラッシュ（強化版）
+    const flash = this.add.circle(gunX + 10, gunY, 6, 0xffffff, 1).setDepth(60);
     this.tweens.add({
       targets: flash,
       alpha: 0,
+      scaleX: 0.5,
+      scaleY: 0.5,
       duration: 80,
       onComplete: () => flash.destroy(),
     });
 
-    // 薬莢
+    // 薬莢（落下 + フェードアウト）
     const shell = this.add
       .rectangle(gunX, gunY + 4, 3, 6, 0x8a7a3a)
       .setDepth(40);
@@ -391,8 +442,16 @@ export class GameScene extends Phaser.Scene {
       y: GROUND_Y - 4,
       angle: 180,
       duration: 400,
-      ease: "Quad.easeOut",
-      onComplete: () => shell.destroy(),
+      ease: "Quad.easeIn",
+      onComplete: () => {
+        this.tweens.add({
+          targets: shell,
+          alpha: 0,
+          delay: 1000,
+          duration: 300,
+          onComplete: () => shell.destroy(),
+        });
+      },
     });
 
     // 弾倉が空なら自動リロード
@@ -426,6 +485,7 @@ export class GameScene extends Phaser.Scene {
     if (this.magAmmo[this.currentWeapon] >= weapon.magSize) return;
 
     this.isReloading = true;
+    SoundSynth.reload();
     this.player.setTexture("player_reload");
 
     this.time.delayedCall(weapon.reloadTime, () => {
@@ -450,6 +510,7 @@ export class GameScene extends Phaser.Scene {
   private defend(): void {
     if (this.isDefending || this.gameOver) return;
     this.isDefending = true;
+    SoundSynth.defend();
     this.player.setTexture(SPRITE_KEYS.playerDefend);
 
     this.time.delayedCall(DEFENSE_DURATION, () => {
@@ -736,7 +797,8 @@ export class GameScene extends Phaser.Scene {
       warning.destroy();
       if (this.gameOver) return;
 
-      // カメラシェイク
+      // カメラシェイク + 爆発音
+      SoundSynth.explosion();
       this.cameras.main.shake(200, 0.01);
 
       // ダメージ判定
@@ -797,6 +859,7 @@ export class GameScene extends Phaser.Scene {
         if (bullet.y < headZoneBottom) {
           finalDamage *= HEADSHOT_MULTIPLIER;
           this.headshots++;
+          SoundSynth.headshot();
 
           const hsText = this.add
             .text(enemy.x, enemy.y - 20, "HEADSHOT", {
@@ -823,6 +886,9 @@ export class GameScene extends Phaser.Scene {
 
         if (hp <= 0) {
           // 撃破
+          SoundSynth.hit();
+          const enemyX = enemy.x;
+          const enemyY = enemy.y;
           const ft = enemy.getData("fireTimer") as
             | Phaser.Time.TimerEvent
             | undefined;
@@ -834,6 +900,33 @@ export class GameScene extends Phaser.Scene {
           }
           this.killsSinceAdvance++;
           this.checkAdvance();
+
+          // キル数ポップアップ
+          const killPopup = this.add
+            .text(enemyX, enemyY, `${this.kills} KILL`, {
+              fontSize: "14px",
+              color: "#ffcc00",
+              fontFamily: "monospace",
+              fontStyle: "bold",
+            })
+            .setOrigin(0.5)
+            .setDepth(91);
+          this.tweens.add({
+            targets: killPopup,
+            scaleX: 1.5,
+            scaleY: 1.5,
+            duration: 150,
+            yoyo: true,
+            onComplete: () => {
+              this.tweens.add({
+                targets: killPopup,
+                alpha: 0,
+                y: killPopup.y - 20,
+                duration: 400,
+                onComplete: () => killPopup.destroy(),
+              });
+            },
+          });
         } else {
           // 被弾エフェクト
           enemy.setTint(0xff0000);

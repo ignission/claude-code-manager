@@ -2,11 +2,14 @@
 
 import { ArrowLeft } from "lucide-react";
 import { Link } from "wouter";
+import { useIsMobile } from "@/hooks/useMobile";
 import { useSocket } from "@/hooks/useSocket";
 import { FrontLineGame } from "./FrontLineGame";
+import { MobileControls } from "./MobileControls";
 
 export default function FrontLinePage() {
   const { socket } = useSocket();
+  const isMobile = useIsMobile();
 
   return (
     <div className="min-h-screen bg-black text-white flex flex-col items-center">
@@ -20,6 +23,7 @@ export default function FrontLinePage() {
           </h1>
         </div>
         <FrontLineGame socket={socket} />
+        {isMobile && <MobileControls />}
       </div>
     </div>
   );
