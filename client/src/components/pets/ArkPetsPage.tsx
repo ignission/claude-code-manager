@@ -2,6 +2,7 @@
 import { useState } from "react";
 import type { Pet, PetAction, PetGame } from "../../../../shared/types";
 import { ArkShip } from "./ArkShip";
+import { GameMenu } from "./GameMenu";
 import { PetDetailPopover } from "./PetDetailPopover";
 
 interface ArkPetsPageProps {
@@ -9,7 +10,7 @@ interface ArkPetsPageProps {
   totalLevel: number;
   onInteract: (petId: string, action: PetAction) => void;
   onRename: (petId: string, name: string) => void;
-  onGameResult?: (petId: string, game: PetGame, score: number) => void;
+  onGameResult: (petId: string, game: PetGame, score: number) => void;
 }
 
 export function ArkPetsPage({
@@ -17,9 +18,12 @@ export function ArkPetsPage({
   totalLevel,
   onInteract,
   onRename,
-  onGameResult: _onGameResult,
+  onGameResult,
 }: ArkPetsPageProps) {
   const [_selectedPet, setSelectedPet] = useState<Pet | null>(null);
+  const [showGame, setShowGame] = useState<{ pet: Pet; game: PetGame } | null>(
+    null
+  );
 
   const handlePetClick = (pet: Pet) => {
     setSelectedPet(pet);
@@ -46,16 +50,31 @@ export function ArkPetsPage({
         onPetClick={handlePetClick}
       />
 
+      {/* ゲームボタン */}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => {
+            if (pets.length > 0) {
+              setShowGame({ pet: pets[0], game: "feeding" });
+            }
+          }}
+          className="text-sm px-3 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+        >
+          🎮 ミニゲーム
+        </button>
+      </div>
+
       {/* ペット一覧 */}
       <div className="space-y-2">
         <h3 className="text-sm font-medium text-muted-foreground">乗組員</h3>
         <div className="grid grid-cols-1 gap-2">
           {pets.map(pet => (
-            <div
+            <button
               key={pet.id}
+              type="button"
               onClick={() => setSelectedPet(pet)}
-              onKeyUp={e => e.key === "Enter" && setSelectedPet(pet)}
-              className="p-2 rounded-lg border border-border hover:border-primary/30 cursor-pointer transition-colors"
+              className="w-full p-2 rounded-lg border border-border hover:border-primary/30 cursor-pointer transition-colors text-left"
             >
               <PetDetailPopover
                 pet={pet}
@@ -63,10 +82,23 @@ export function ArkPetsPage({
                 onFeed={() => onInteract(pet.id, "feed")}
                 onRename={name => onRename(pet.id, name)}
               />
-            </div>
+            </button>
           ))}
         </div>
       </div>
+
+      {/* ゲームメニュー（モーダル） */}
+      {showGame && (
+        <GameMenu
+          pet={showGame.pet}
+          onSelectGame={game => setShowGame({ ...showGame, game })}
+          onGameResult={score => {
+            onGameResult(showGame.pet.id, showGame.game, score);
+            setShowGame(null);
+          }}
+          onClose={() => setShowGame(null)}
+        />
+      )}
     </div>
   );
 }
