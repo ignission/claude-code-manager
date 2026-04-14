@@ -69,13 +69,23 @@ describe("FileUploadManager", () => {
       expect(result.filename).toMatch(/\.json$/);
     });
 
-    it("application/octet-stream はoriginalFilenameがあっても拒否される", async () => {
+    it("application/octet-stream でも .csv 等の安全な拡張子なら許可される", async () => {
+      const result = await manager.saveFile(
+        "session-1",
+        makeBase64(50),
+        "application/octet-stream",
+        "data.csv"
+      );
+      expect(result.filename).toMatch(/\.csv$/);
+    });
+
+    it("application/octet-stream + 未知の拡張子は拒否", async () => {
       await expect(
         manager.saveFile(
           "session-1",
           makeBase64(50),
           "application/octet-stream",
-          "report.pdf"
+          "malware.exe"
         )
       ).rejects.toMatchObject({ code: "INVALID_MIME_TYPE" });
     });

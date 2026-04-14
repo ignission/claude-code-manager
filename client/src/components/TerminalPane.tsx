@@ -45,7 +45,6 @@ import type {
 import { fileToBase64, validateFile } from "../hooks/useFileUpload";
 import { useIsMobile } from "../hooks/useMobile";
 import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
-import { FileDropZone } from "./FileDropZone";
 import { FileViewerPane } from "./FileViewerPane";
 import { HtmlViewerPane } from "./HtmlViewerPane";
 import { ViewerTabBar } from "./ViewerTabBar";
@@ -117,6 +116,7 @@ export function TerminalPane({
   const [showInput, setShowInput] = useState(true);
   const [showQuickCommands, setShowQuickCommands] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   // PCでは入力バーをデフォルト非表示にする
   useEffect(() => {
@@ -296,6 +296,51 @@ export function TerminalPane({
     [onUploadFile]
   );
 
+  // ウィンドウ全体でファイルD&Dを受け付ける
+  // ttyd iframe はクロスフレーム分離でドラッグイベントを親に届けないため、
+  // window レベルのリスナーで検知して全画面オーバーレイを表示する
+  useEffect(() => {
+    let dragCounter = 0;
+
+    const handleDragEnter = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      dragCounter++;
+      setIsDragging(true);
+    };
+    const handleDragOver = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+    };
+    const handleDragLeave = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      dragCounter--;
+      if (dragCounter <= 0) {
+        dragCounter = 0;
+        setIsDragging(false);
+      }
+    };
+    const handleDrop = (e: DragEvent) => {
+      if (!e.dataTransfer?.types.includes("Files")) return;
+      e.preventDefault();
+      dragCounter = 0;
+      setIsDragging(false);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) handleFilesSelected(files);
+    };
+
+    window.addEventListener("dragenter", handleDragEnter);
+    window.addEventListener("dragover", handleDragOver);
+    window.addEventListener("dragleave", handleDragLeave);
+    window.addEventListener("drop", handleDrop);
+    return () => {
+      window.removeEventListener("dragenter", handleDragEnter);
+      window.removeEventListener("dragover", handleDragOver);
+      window.removeEventListener("dragleave", handleDragLeave);
+      window.removeEventListener("drop", handleDrop);
+    };
+  }, [handleFilesSelected]);
+
   // file-upload 成功時: 入力欄のカーソル位置に @path を挿入（画像貼り付け経路とは別）
   useEffect(() => {
     if (fileUploadResult && !pastedImage) {
@@ -338,6 +383,15 @@ export function TerminalPane({
 
   return (
     <div className="h-full flex flex-col bg-card border border-border rounded-lg overflow-hidden">
+      {/* ウィンドウ全体のD&Dオーバーレイ（ドラッグ中のみ表示） */}
+      {isDragging && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-blue-500/20 border-4 border-dashed border-blue-500 pointer-events-none">
+          <div className="text-2xl font-semibold text-blue-700 dark:text-blue-200 bg-white/90 dark:bg-gray-800/90 px-6 py-4 rounded-lg shadow-lg">
+            ファイルをドロップして送信
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="h-14 md:h-10 border-b border-border flex items-center justify-between px-4 md:px-3 bg-sidebar shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -377,6 +431,27 @@ export function TerminalPane({
             title="Paste image from clipboard"
           >
             <ImageIcon className="w-5 h-5 md:w-3 md:h-3" />
+          </Button>
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            className="h-10 w-10 md:h-6 md:w-6"
+            title="ファイルを添付"
+          >
+            <label className="cursor-pointer">
+              <input
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => {
+                  const files = Array.from(e.target.files ?? []);
+                  if (files.length > 0) handleFilesSelected(files);
+                  e.target.value = "";
+                }}
+              />
+              <Paperclip className="w-5 h-5 md:w-3 md:h-3" />
+            </label>
           </Button>
           <Button
             variant="ghost"
@@ -618,47 +693,29 @@ export function TerminalPane({
           )}
 
           {/* Main input */}
-          <FileDropZone onFilesSelected={handleFilesSelected}>
-            <form onSubmit={handleSubmit} className="p-3 md:p-2">
-              <div className="flex gap-2 items-end">
-                <label
-                  className="h-11 w-11 md:h-9 md:w-9 shrink-0 cursor-pointer inline-flex items-center justify-center rounded-md hover:bg-muted"
-                  title="ファイルを添付"
-                >
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={e => {
-                      const files = Array.from(e.target.files ?? []);
-                      if (files.length > 0) handleFilesSelected(files);
-                      e.target.value = "";
-                    }}
-                  />
-                  <Paperclip className="w-5 h-5 md:w-4 md:h-4" />
-                </label>
-                <div className="flex-1">
-                  <Textarea
-                    ref={textareaRef}
-                    value={inputValue}
-                    onChange={e => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="Type message... (Enter to send)"
-                    className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
-                    rows={1}
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  size="icon"
-                  className="h-11 w-11 md:h-9 md:w-9 glow-green shrink-0"
-                  disabled={!inputValue.trim()}
-                >
-                  <Send className="w-5 h-5 md:w-4 md:h-4" />
-                </Button>
+          <form onSubmit={handleSubmit} className="p-3 md:p-2">
+            <div className="flex gap-2 items-end">
+              <div className="flex-1">
+                <Textarea
+                  ref={textareaRef}
+                  value={inputValue}
+                  onChange={e => setInputValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Type message... (Enter to send)"
+                  className="min-h-[44px] max-h-32 resize-none font-mono text-sm bg-input"
+                  rows={1}
+                />
               </div>
-            </form>
-          </FileDropZone>
+              <Button
+                type="submit"
+                size="icon"
+                className="h-11 w-11 md:h-9 md:w-9 glow-green shrink-0"
+                disabled={!inputValue.trim()}
+              >
+                <Send className="w-5 h-5 md:w-4 md:h-4" />
+              </Button>
+            </div>
+          </form>
         </div>
       )}
 

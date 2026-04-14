@@ -54,6 +54,39 @@ const MIME_TO_EXTENSION: Record<string, string> = {
   "application/x-yaml": "yaml",
 };
 
+/**
+ * originalFilename から安全に取れる拡張子のホワイトリスト
+ * ブラウザが非標準MIME（Excel由来のCSV、空MIME、application/octet-stream 等）を返すケースを救済する
+ */
+const SAFE_EXTENSION_WHITELIST = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "pdf",
+  "txt",
+  "md",
+  "mdx",
+  "csv",
+  "log",
+  "json",
+  "xml",
+  "yaml",
+  "yml",
+  "toml",
+  "html",
+  "htm",
+  "css",
+  "scss",
+  "js",
+  "mjs",
+  "cjs",
+  "ts",
+  "tsx",
+  "jsx",
+]);
+
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const FILE_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const BASE_DIR = "/tmp/ark-files";
@@ -169,12 +202,15 @@ export class FileUploadManager {
     mimeType: string,
     originalFilename?: string
   ): string | null {
+    // 1) MIMEホワイトリストを優先
     const fromMime = MIME_TO_EXTENSION[mimeType];
     if (fromMime) return fromMime;
 
-    if (mimeType.startsWith("text/") && originalFilename) {
+    // 2) originalFilename の拡張子が安全リストに含まれていればそれを採用
+    //    ブラウザが非標準MIMEを返すケース（Excel→CSV、空MIME、octet-stream等）を救済する
+    if (originalFilename) {
       const ext = path.extname(originalFilename).toLowerCase().slice(1);
-      if (ext && /^[a-z0-9]{1,8}$/.test(ext)) {
+      if (ext && SAFE_EXTENSION_WHITELIST.has(ext)) {
         return ext;
       }
     }
