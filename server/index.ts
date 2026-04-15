@@ -42,6 +42,7 @@ import {
   FileUploadManagerError,
   fileUploadManager,
 } from "./lib/file-upload-manager.js";
+import { frontlineManager } from "./lib/frontline-manager.js";
 import {
   createWorktree,
   deleteWorktree,
@@ -1435,6 +1436,58 @@ async function startServer() {
       } catch (error) {
         console.error(
           `[Pet] pet:game_result エラー: ${getErrorMessage(error)}`
+        );
+      }
+    });
+
+    // ===== Frontline Commands =====
+
+    const emitFrontlineError = (
+      action: "get_stats" | "get_records" | "save_record",
+      error: unknown
+    ) => {
+      const message = getErrorMessage(error);
+      socket.emit("frontline:error", { action, message });
+      return message;
+    };
+
+    socket.on("frontline:get_stats", () => {
+      try {
+        const stats = frontlineManager.getStats();
+        socket.emit("frontline:stats", stats);
+      } catch (error) {
+        console.error(
+          `[Frontline] get_stats エラー: ${emitFrontlineError("get_stats", error)}`
+        );
+      }
+    });
+
+    socket.on("frontline:get_records", data => {
+      try {
+        const rawLimit =
+          typeof data?.limit === "string"
+            ? Number.parseInt(data.limit, 10)
+            : data?.limit;
+        const limit =
+          typeof rawLimit === "number" && Number.isFinite(rawLimit)
+            ? Math.min(100, Math.max(1, Math.floor(rawLimit)))
+            : 50;
+        const records = frontlineManager.getRecords(limit);
+        socket.emit("frontline:records", records);
+      } catch (error) {
+        console.error(
+          `[Frontline] get_records エラー: ${emitFrontlineError("get_records", error)}`
+        );
+      }
+    });
+
+    socket.on("frontline:save_record", record => {
+      try {
+        const result = frontlineManager.saveRecord(record);
+        io.emit("frontline:record_saved", result);
+      } catch (error) {
+        console.error(
+          `[Frontline] save_record エラー: ${emitFrontlineError("save_record", error)}`
         );
       }
     });
