@@ -89,20 +89,36 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.resetState();
-    this.createBackground();
-    this.createPlayer();
-    this.createHUD();
-    this.createGroups();
-    this.setupInput();
-    this.setupEnemySpawner();
+    console.log("[GameScene] create() start");
+    try {
+      this.resetState();
+      console.log("[GameScene] resetState done");
+      this.createBackground();
+      console.log("[GameScene] createBackground done");
+      this.createPlayer();
+      console.log("[GameScene] createPlayer done");
+      this.createHUD();
+      console.log("[GameScene] createHUD done");
+      this.createGroups();
+      console.log("[GameScene] createGroups done");
+      this.setupInput();
+      console.log("[GameScene] setupInput done");
+      this.setupEnemySpawner();
+      console.log("[GameScene] setupEnemySpawner done");
 
-    // モバイル操作イベント
-    this.game.events.on("mobile:action", this.handleMobileAction, this);
+      // モバイル操作イベント
+      this.game.events.on("mobile:action", this.handleMobileAction, this);
 
-    // 30%の確率で雨エフェクト
-    if (Math.random() < 0.3) {
-      this.startRain();
+      // 30%の確率で雨エフェクト
+      if (Math.random() < 0.3) {
+        this.startRain();
+      }
+      console.log(
+        "[GameScene] create() complete, enemies group size:",
+        this.enemies.getLength()
+      );
+    } catch (e) {
+      console.error("[GameScene] create() ERROR:", e);
     }
   }
 
@@ -562,12 +578,12 @@ export class GameScene extends Phaser.Scene {
     if (available.length === 0) return;
 
     const typeDef = available[Math.floor(Math.random() * available.length)];
+    // 画面内のランダムな位置に直接スポーン（画面外からの待ち時間なし）
+    const spawnX = GAME_WIDTH - 40 - Math.random() * (GAME_WIDTH * 0.4);
     const enemy = this.physics.add
-      .image(GAME_WIDTH + 20, GROUND_Y - 24, SPRITE_KEYS.enemy)
-      .setDepth(30);
-
-    const body = enemy.body as Phaser.Physics.Arcade.Body;
-    body.setVelocityX(-typeDef.speed);
+      .image(spawnX, GROUND_Y - 24, SPRITE_KEYS.enemy)
+      .setDepth(30)
+      .setFlipX(true); // 左向き（プレイヤー方向）
 
     enemy.setData("hp", typeDef.hp);
     enemy.setData("type", typeDef.type);
@@ -576,6 +592,25 @@ export class GameScene extends Phaser.Scene {
     enemy.setData("magRemaining", typeDef.magSize);
     enemy.setData("isReloading", false);
     this.enemies.add(enemy);
+
+    // Group追加後にvelocityを設定
+    const body = enemy.body as Phaser.Physics.Arcade.Body;
+    body.setVelocityX(-typeDef.speed);
+
+    // 敵の上にHPバーを表示（視認性向上）
+    const hpBar = this.add
+      .rectangle(enemy.x, enemy.y - 30, 30, 4, 0xff0000)
+      .setDepth(31);
+    enemy.setData("hpBar", hpBar);
+
+    console.log(
+      "[GameScene] enemy spawned at x=" +
+        enemy.x +
+        " vx=" +
+        body.velocity.x +
+        " type=" +
+        typeDef.type
+    );
 
     // 射撃タイマー
     const fireTimer = this.time.addEvent({
@@ -832,8 +867,19 @@ export class GameScene extends Phaser.Scene {
   // 更新ループ
   // ============================
 
+  private updateLogCount = 0;
+
   update(_time: number, delta: number): void {
     if (this.gameOver) return;
+
+    // デバッグ: 最初の数フレームだけログ
+    if (this.updateLogCount < 3) {
+      this.updateLogCount++;
+      const enemies = this.enemies.getChildren();
+      console.log(
+        `[GameScene] update #${this.updateLogCount} delta=${Math.round(delta)} enemies=${enemies.length} positions=[${enemies.map((e: Phaser.GameObjects.GameObject) => Math.round((e as Phaser.GameObjects.Image).x)).join(",")}]`
+      );
+    }
 
     // タイマー
     this.gameTimer += delta;
@@ -897,6 +943,10 @@ export class GameScene extends Phaser.Scene {
             | Phaser.Time.TimerEvent
             | undefined;
           ft?.destroy();
+          const hpBarRef = enemy.getData("hpBar") as
+            | Phaser.GameObjects.Rectangle
+            | undefined;
+          hpBarRef?.destroy();
           enemy.destroy();
           this.kills++;
           if (enemy.getData("isHeli")) {
@@ -960,15 +1010,25 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // 画面外の敵を除去
+    // 敵のHPバー追従 + 画面外の敵を除去
     const allEnemies =
       this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
     for (const enemy of allEnemies) {
-      if (enemy.active && enemy.x < -50) {
+      if (!enemy.active) continue;
+      // HPバー追従
+      const hpBar = enemy.getData("hpBar") as
+        | Phaser.GameObjects.Rectangle
+        | undefined;
+      if (hpBar) {
+        hpBar.setPosition(enemy.x, enemy.y - 30);
+      }
+      // 画面外除去
+      if (enemy.x < -50) {
         const ft = enemy.getData("fireTimer") as
           | Phaser.Time.TimerEvent
           | undefined;
         ft?.destroy();
+        hpBar?.destroy();
         enemy.destroy();
       }
     }
