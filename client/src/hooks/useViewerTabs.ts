@@ -138,7 +138,13 @@ export function useViewerTabs(
         if (onOpenUrl) {
           onOpenUrl(url);
         } else {
-          window.open(url, "_blank", "noopener");
+          // window.open ではなく <a> 要素クリックで開く
+          // iframe 経由の window.open は COOP 対応サイトで2タブ開く問題がある
+          const a = document.createElement("a");
+          a.href = url;
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.click();
         }
         return;
       }

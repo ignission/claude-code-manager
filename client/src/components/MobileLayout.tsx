@@ -119,7 +119,11 @@ export function MobileLayout({
         setHasBrowserOpened(true);
         navigateBrowser(url);
       } else {
-        window.open(url, "_blank", "noopener");
+        const a = document.createElement("a");
+        a.href = url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.click();
       }
     },
     [isRemote, onSelectBrowser, navigateBrowser]
