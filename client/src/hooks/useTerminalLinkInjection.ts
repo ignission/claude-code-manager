@@ -3,6 +3,18 @@ import { type RefObject, useEffect } from "react";
 /**
  * ttyd iframe内のxterm.jsにリンク検出プロバイダーをインジェクトするカスタムフック。
  * TerminalPane.tsx と MobileSessionView.tsx で共通利用する。
+ *
+ * ## URLクリック制御の仕組み
+ *
+ * xterm.js の WebLinksAddon/OscLinkProvider が URL クリックを検出し activate を呼ぶ。
+ * activate 内で window.open() → location.href = url のパターンで新タブを開く。
+ * しかしブラウザ拡張機能がクリックイベントを検知して追加のタブを開くため、
+ * 2タブ開く問題が発生していた。
+ *
+ * 対策: capture phase で mouseup/click を先取りし、リンクhover中であれば
+ * stopImmediatePropagation で xterm.js および拡張機能にイベントを渡さない。
+ * URL は term._core._linkifier2._currentLink から抽出し、
+ * postMessage 経由で親ウィンドウに1回だけ開かせる。
  */
 export function useTerminalLinkInjection(
   iframeRef: RefObject<HTMLIFrameElement | null>,
@@ -21,7 +33,6 @@ export function useTerminalLinkInjection(
         const iframeWindow = iframe.contentWindow;
         if (!iframeWindow) return;
 
-        // 既存のinterval/timeoutをクリア（重複防止）
         if (checkTermInterval) {
           clearInterval(checkTermInterval);
           checkTermInterval = null;
@@ -43,14 +54,11 @@ export function useTerminalLinkInjection(
           // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内の状態管理フラグ
           (iframeWindow as any).__arkLinkInjected = true;
 
-          // モバイル判定（touchイベント対応デバイスのみ）
           const isMobile =
             "ontouchstart" in iframeWindow ||
             iframeWindow.navigator.maxTouchPoints > 0;
 
           if (isMobile) {
-            // モバイルでターミナルタップ時の仮想キーボードを防止
-            // 入力は専用の入力バーで行うため、xterm.jsの入力用textareaは不要
             const xtermTextarea = iframeWindow.document.querySelector(
               ".xterm-helper-textarea"
             );
@@ -63,13 +71,8 @@ export function useTerminalLinkInjection(
           }
 
           // URL拡張マップ: 折り返しで切れた1行目URL → 複数行結合後の完全URL
-          // provideLinksで構築し、fakeWindowのURL横取り処理で参照する。
-          // WebLinksAddonが優先的にactivateされても、ここで完全URLに復元できる。
           const urlExtensionMap = new Map<string, string>();
 
-          // localhost 判定を URL パーサで厳密化する。
-          // 正規表現では `http://localhost.evil.example/` のようなサブドメインで
-          // trueになる可能性があるため、hostname を完全一致で比較する。
           const isLoopbackUrl = (urlStr: string): boolean => {
             try {
               const { protocol, hostname } = new URL(urlStr);
@@ -82,44 +85,38 @@ export function useTerminalLinkInjection(
             }
           };
 
-          // クリック世代ベースのdedup。
-          // xterm.js は WebLinksAddon（正規表現）と組み込みの OscLinkProvider
-          // （OSC 8 ハイパーリンク）を両方登録している。Claude CLI が URL を
-          // OSC 8 で包んで出力すると、両プロバイダが同じ範囲にリンクを張り、
-          // 1回のクリックで両方の activate が発火 → iframeWindow.open が
-          // 2回呼ばれて2タブ開く。
-          // URL文字列ベースの dedup では、両プロバイダが渡す文字列が末尾句読点・
-          // URLエンコーディング・表示文字列/href 差等で1文字でも異なると素通り
-          // するため、より頑健な「1クリック=1タブ」の世代カウンタ方式を採用する。
-          // pointerdown/click を capture フェーズで捕捉し世代を進め、
-          // window.open override 側で「この世代でまだ open していなければ許可、
-          // 既に open 済みなら拒否」とする。
-          let clickGeneration = 0;
-          let openedInGeneration = -1;
-          const bumpGeneration = () => {
-            clickGeneration++;
-          };
-          const iframeDocForClicks = iframeWindow.document;
-          iframeDocForClicks.addEventListener("pointerdown", bumpGeneration, {
-            capture: true,
-            passive: true,
-          });
-          iframeDocForClicks.addEventListener("click", bumpGeneration, {
-            capture: true,
-            passive: true,
-          });
+          const arkWindow = window;
+
+          // 500ms dedup
+          let lastOpenTime = 0;
           const tryClaimOpen = (): boolean => {
-            if (openedInGeneration === clickGeneration) return false;
-            openedInGeneration = clickGeneration;
+            const now = Date.now();
+            if (now - lastOpenTime < 500) return false;
+            lastOpenTime = now;
             return true;
           };
 
-          // xterm.js 組み込みの OscLinkProvider は URL クリック時に
-          // `confirm("Do you want to navigate to ${uri}?\n\nWARNING: This link could potentially be dangerous")`
-          // を表示する。UX としてこのダイアログを出したくないのと、Claude CLI の
-          // OSC 8 はリンクテキスト=URL で phishing リスクがないため、該当メッセージ
-          // に一致する confirm のみ自動承認する。他のコードパスが confirm を使う
-          // 場合は origConfirm に委譲。
+          /** URL を親ウィンドウ経由で開く */
+          const openUrl = (rawUrl: string): void => {
+            const resolved = urlExtensionMap.get(rawUrl) || rawUrl;
+            if (!tryClaimOpen()) return;
+            if (isLoopbackUrl(resolved)) {
+              // localhost URL は postMessage 経由（リモートモードでは埋め込みブラウザに表示）
+              arkWindow.postMessage(
+                { type: "ark:open-url", url: resolved },
+                arkWindow.location.origin
+              );
+            } else {
+              // 非localhost URL は常に新タブで直接開く（リモートモードでもハイジャックしない）
+              const a = arkWindow.document.createElement("a");
+              a.href = resolved;
+              a.target = "_blank";
+              a.rel = "noopener noreferrer";
+              a.click();
+            }
+          };
+
+          // OscLinkProvider の confirm ダイアログを自動承認
           const origConfirm = iframeWindow.confirm.bind(iframeWindow);
           const OSC_CONFIRM_MARKER =
             "WARNING: This link could potentially be dangerous";
@@ -134,91 +131,87 @@ export function useTerminalLinkInjection(
             return origConfirm(message);
           };
 
-          // xterm.js WebLinksAddonのURLを横取りする。
-          // WebLinksAddonは window.open() を引数なしで呼び、返されたウィンドウの
-          // location.href にURLを設定するパターン:
-          //   const newWindow = window.open();
-          //   newWindow.opener = null;
-          //   newWindow.location.href = uri;
-          // そのため、フェイクWindowオブジェクトを返してlocation.hrefのセッターで
-          // URLを検出し、postMessageに変換する。
-          const arkWindow = window;
-          const origOpen = iframeWindow.open.bind(iframeWindow);
-          // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内のwindow.openをオーバーライドするため型を緩める
+          // window.open 封じ込め（capture phase で止まらなかった場合の fallback）
+          // biome-ignore lint/suspicious/noExplicitAny: ttyd iframe内のwindow.openをオーバーライド
           (iframeWindow as any).open = (
             url?: string | URL,
-            target?: string,
-            features?: string
+            _target?: string,
+            _features?: string
           ): Window | null => {
-            // 引数ありの呼び出し（URL直接指定）
             if (url) {
-              const urlStr = urlExtensionMap.get(String(url)) || String(url);
-              if (!tryClaimOpen()) return null;
-              if (isLoopbackUrl(urlStr)) {
-                arkWindow.postMessage(
-                  { type: "ark:open-url", url: urlStr },
-                  arkWindow.location.origin
-                );
-                return null;
-              }
-              // 非localhost: 空URLで新タブを開き opener=null を付与してから
-              // location.href を設定する（タブナビゲーション攻撃対策）
-              const real = origOpen("", target, features);
-              if (real) {
-                try {
-                  real.opener = null;
-                } catch {}
-                real.location.href = urlStr;
-              }
-              return real;
+              openUrl(String(url));
+              return null;
             }
-
-            // 引数なしの呼び出し（WebLinksAddonパターン）
-            // フェイクWindowを返し、location.hrefセッターでURLを横取り
-            const fakeWindow = {
+            return {
               opener: null,
               location: {
                 _href: "",
                 set href(u: string) {
-                  // URL拡張マップで折り返しURLを完全URLに復元
-                  const resolved = urlExtensionMap.get(u) || u;
-                  if (!tryClaimOpen()) return;
-                  if (isLoopbackUrl(resolved)) {
-                    arkWindow.postMessage(
-                      { type: "ark:open-url", url: resolved },
-                      arkWindow.location.origin
-                    );
-                  } else {
-                    // localhost以外は実際に新しいウィンドウで開く
-                    const real = origOpen();
-                    if (real) {
-                      try {
-                        real.opener = null;
-                      } catch {}
-                      real.location.href = resolved;
-                    }
-                  }
+                  openUrl(u);
                 },
                 get href() {
                   return this._href;
                 },
               },
               close() {},
-            };
-            // biome-ignore lint/suspicious/noExplicitAny: xterm.js WebLinksAddonが期待するwindowのサブセットのみ実装
-            return fakeWindow as any;
+              // biome-ignore lint/suspicious/noExplicitAny: xterm.js互換の最小実装
+            } as any;
           };
 
-          // モバイルスワイプスクロール
-          // iframe内のtouchイベントを検知し、xterm.jsのバッファを直接スクロールする。
-          // Claude CLIは代替スクリーンバッファ（smcup/rmcup）を使うため tmux copy-mode は
-          // 使えないが、xterm.js側には出力がそのままあるためそちらをスクロールする。
+          // ── 本丸: capture phase でクリックイベントを先取り ──
+          //
+          // Linkifier2 は mouseup で activate を呼ぶ。ブラウザ拡張機能も
+          // click/mouseup を検知して URL を開く。capture phase で
+          // stopImmediatePropagation すれば両方とも防げる。
+          // _currentLink から URL を抽出して自前で1回だけ開く。
+          const iframeDoc = iframeWindow.document;
+
+          const extractCurrentLinkUrl = (): string | null => {
+            try {
+              // biome-ignore lint/suspicious/noExplicitAny: xterm.js 内部 API
+              const core = (term as any)._core;
+              const linkifier =
+                core?.linkifier ?? core?._linkifier2 ?? core?.linkifier2;
+              const currentLink = linkifier?._currentLink;
+              const text = currentLink?.link?.text;
+              if (typeof text === "string" && text.length > 0) return text;
+            } catch {
+              // 内部構造変更時は無視
+            }
+            return null;
+          };
+
+          // mouseup/click のみ capture phase で先取りして Linkifier2 より先に処理。
+          // pointerdown/mousedown は通す（Linkifier2 の _mouseDownLink 記録に必要、
+          // かつテキスト選択機能を維持）。
+          // _currentLink は hover 時に設定済みなので mouseup 時点で参照可能。
+          const handleMouseUpIntercept = (e: Event): void => {
+            // 左クリックのみ処理（右クリック・中クリックは通す）
+            if (e instanceof MouseEvent && e.button !== 0) return;
+            const url = extractCurrentLinkUrl();
+            if (!url) return;
+            // ファイルパスリンクはxterm.jsのactivateに委譲（ark:open-file経由で処理）
+            if (!url.startsWith("http://") && !url.startsWith("https://"))
+              return;
+            e.stopImmediatePropagation();
+            e.preventDefault();
+            // mouseup でのみ URL を開く（Linkifier2 と同じタイミング）
+            if (e.type === "mouseup") openUrl(url);
+          };
+
+          iframeDoc.addEventListener("mouseup", handleMouseUpIntercept, {
+            capture: true,
+          });
+          iframeDoc.addEventListener("click", handleMouseUpIntercept, {
+            capture: true,
+          });
+
+          // ── モバイルスワイプスクロール ──
           if (isMobile) {
-            const iframeDoc = iframeWindow.document;
             let touchStartY = 0;
             let touchSentLines = 0;
             let isSwiping = false;
-            const SWIPE_LINE_HEIGHT = 8; // 8pxで1行スクロール（高感度）
+            const SWIPE_LINE_HEIGHT = 8;
             const SWIPE_THRESHOLD = 3;
 
             iframeDoc.addEventListener(
@@ -250,29 +243,20 @@ export function useTerminalLinkInjection(
                 );
                 const newLines = totalLines - touchSentLines;
                 if (newLines > 0) {
-                  // 指を上にスワイプ (deltaY > 0) → 過去の出力を見たい → ホイールを上回転 → deltaY負。
-                  // xterm.jsのwheelハンドラに渡すため、xterm要素にWheelEventをdispatchする。
-                  // term.scrollLines() はttyd環境では viewport に反映されないケースがあり、
-                  // PC のマウスホイールと同じ経路（tmux mouse protocol → copy-mode、または
-                  // xterm.js内部scrollback）を通すためwheel dispatchを使う。
                   const wheelDeltaY =
-                    deltaY > 0 ? -newLines * 16 : newLines * 16; // 1行≈16px
+                    deltaY > 0 ? -newLines * 16 : newLines * 16;
                   const xtermEl =
                     iframeDoc.querySelector(".xterm-viewport") ||
                     iframeDoc.querySelector(".xterm-screen") ||
                     iframeDoc.querySelector(".xterm");
                   if (xtermEl) {
-                    // WheelEvent は iframe 側のコンストラクタで生成する。
-                    // 親 realm の `new WheelEvent(...)` は Firefox の realm 検証で
-                    // dispatch が失敗しうる、Safari ではプロパティが正しく機能しない
-                    // 可能性があるため、同一 realm で生成する。
                     const IframeWheelEvent = (
                       iframeWindow as unknown as typeof globalThis
                     ).WheelEvent;
                     xtermEl.dispatchEvent(
                       new IframeWheelEvent("wheel", {
                         deltaY: wheelDeltaY,
-                        deltaMode: 0, // DOM_DELTA_PIXEL
+                        deltaMode: 0,
                         bubbles: true,
                         cancelable: true,
                       })
@@ -294,6 +278,7 @@ export function useTerminalLinkInjection(
             );
           }
 
+          // ── ファイルパスリンクプロバイダー ──
           term.registerLinkProvider({
             provideLinks(
               lineNumber: number,
@@ -310,16 +295,6 @@ export function useTerminalLinkInjection(
               const links: any[] = [];
               let match: RegExpExecArray | null;
 
-              // URL検出を先に実行し、1行目の URL 範囲を urlRanges に記録する。
-              // 後続の file 検出でこの範囲内のマッチを除外することで、
-              // URL 内部の部分文字列（例: `https://example.com/path/foo.js`）が
-              // file リンクとして独立登録されるのを防ぐ。
-              // URL クリック自体は WebLinksAddon に一本化するため、ここでは
-              // links.push はせず、折り返し完全URL復元用の urlExtensionMap
-              // のみを維持する。
-              //
-              // Mapサイズ上限（メモリリーク防止。clearはprovideLinksが行ごとに
-              // 呼ばれるためクリック時にマッピングが消失する問題がある）
               if (urlExtensionMap.size > 100) {
                 const firstKey = urlExtensionMap.keys().next().value;
                 if (firstKey !== undefined) urlExtensionMap.delete(firstKey);
@@ -331,18 +306,15 @@ export function useTerminalLinkInjection(
                 let matchedUrl = match[0];
                 const originalUrl = match[0];
 
-                // 1 行目の URL 範囲を記録（file 検出で重複を避けるため）
                 urlRanges.push({
                   start: match.index,
                   end: match.index + originalUrl.length,
                 });
 
-                // URLの直後から行末まで空白のみか確認（URLが行の最後のトークン）
                 const afterUrl = text.substring(
                   match.index + matchedUrl.length
                 );
                 if (/^\s*$/.test(afterUrl)) {
-                  // 次行以降からURL継続部分を取得（最大10行まで）
                   const maxExtensionLines = 10;
                   for (
                     let nextIdx = lineNumber;
@@ -357,7 +329,6 @@ export function useTerminalLinkInjection(
                     const contMatch = trimmedNext.match(/^[^\s<>"'()]+/);
                     if (!contMatch) break;
 
-                    // 継続部分の直後が行末でなければ、この行はURL継続ではない
                     const leadingSpaces = nextText.length - trimmedNext.length;
                     const afterCont = nextText.substring(
                       leadingSpaces + contMatch[0].length
@@ -368,11 +339,8 @@ export function useTerminalLinkInjection(
                   }
                 }
 
-                // 末尾の句読点を除去（文中のURL: "See https://example.com." 等）
                 matchedUrl = matchedUrl.replace(/[.,;:!?]+$/, "");
 
-                // 拡張された場合、元URL→完全URLの対応をMapに記録
-                // WebLinksAddonが activate された際、fakeWindow で完全URLに復元する
                 if (matchedUrl !== originalUrl) {
                   urlExtensionMap.set(originalUrl, matchedUrl);
                 }
@@ -381,16 +349,11 @@ export function useTerminalLinkInjection(
               const inUrlRange = (idx: number): boolean =>
                 urlRanges.some(r => idx >= r.start && idx < r.end);
 
-              // ファイルパス検出
-              // 1. file:プレフィックス付き（拡張子不問）: file:Dockerfile, file:src/main.rs:42
-              // 2. パス区切り+拡張子付き: src/App.tsx:10
               const fileRegex =
                 /(?:file:([a-zA-Z0-9_.\-/]+)|([a-zA-Z0-9_.\-/]+\/[a-zA-Z0-9_.-]+\.[a-zA-Z0-9]+))(?::(\d+))?/g;
               while ((match = fileRegex.exec(text)) !== null) {
-                // URL 内部の部分文字列マッチはスキップ
                 if (inUrlRange(match.index)) continue;
                 const fullMatch = match[0];
-                // file:///path の場合、先頭の余分なスラッシュを除去して /path にする
                 const rawPath = match[1] || match[2];
                 const filePath = rawPath?.replace(/^\/{2,}/, "/");
                 const lineNum = match[3] ? Number.parseInt(match[3], 10) : null;
