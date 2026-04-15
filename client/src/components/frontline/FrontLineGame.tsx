@@ -6,6 +6,7 @@ import type { Socket } from "socket.io-client";
 import type {
   ClientToServerEvents,
   FrontlineRecord,
+  FrontlineRecordSaved,
   FrontlineStats,
   ServerToClientEvents,
 } from "../../../../shared/types";
@@ -48,7 +49,12 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
       game.events.emit("frontline:stats_received", stats);
     };
 
+    const onRecordSaved = (data: FrontlineRecordSaved) => {
+      game.events.emit("frontline:record_saved_received", data);
+    };
+
     socket?.on("frontline:stats", onStatsReceived);
+    socket?.on("frontline:record_saved", onRecordSaved);
 
     // --- Bridge: window CustomEvent → game.events ---
 
@@ -62,6 +68,7 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
     return () => {
       window.removeEventListener("frontline:mobile", onMobileAction);
       socket?.off("frontline:stats", onStatsReceived);
+      socket?.off("frontline:record_saved", onRecordSaved);
       game.events.off("frontline:save_record", onSaveRecord);
       game.events.off("frontline:get_stats", onGetStats);
       game.destroy(true);

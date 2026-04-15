@@ -1,16 +1,28 @@
 // FrontLine ResultScene — 戦果表示画面
 
 import Phaser from "phaser";
-
-import { COMMANDER_COMMENTS, GAME_HEIGHT, GAME_WIDTH } from "../constants";
+import type { FrontlineRecordSaved } from "../../../../../../shared/types";
+import { SoundSynth } from "../audio/sound-synth";
+import {
+  COMMANDER_COMMENTS,
+  GAME_HEIGHT,
+  GAME_WIDTH,
+  MEDALS,
+} from "../constants";
 import type { GameResultData } from "./GameScene";
 
 export class ResultScene extends Phaser.Scene {
+  private saveStatusText?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "ResultScene" });
   }
 
   create(data: GameResultData): void {
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.game.events.off("frontline:record_saved_received");
+    });
+
     // レコード保存イベント発火（Reactラッパーが受け取ってSocket.IOへ転送）
     this.game.events.emit("frontline:save_record", {
       distance: data.distance,
@@ -68,6 +80,14 @@ export class ResultScene extends Phaser.Scene {
       y += 24;
     }
 
+    this.saveStatusText = this.add
+      .text(GAME_WIDTH / 2, y + 6, "戦績を保存中...", {
+        fontSize: "11px",
+        color: "#88aacc",
+        fontFamily: "monospace",
+      })
+      .setOrigin(0.5);
+
     // 司令官コメント
     const category = this.getCommentCategory(data.meritPoints);
     const comments = COMMANDER_COMMENTS[category];
@@ -91,9 +111,16 @@ export class ResultScene extends Phaser.Scene {
       })
       .setOrigin(0.5);
 
+    this.game.events.once(
+      "frontline:record_saved_received",
+      (payload: FrontlineRecordSaved) => {
+        this.renderSaveResult(payload, data);
+      }
+    );
+
     // ボタン
     this.createButton(
-      GAME_WIDTH / 2 - 90,
+      GAME_WIDTH / 2 - 150,
       GAME_HEIGHT - 50,
       "再挑戦",
       "#44cc44",
@@ -103,7 +130,17 @@ export class ResultScene extends Phaser.Scene {
     );
 
     this.createButton(
-      GAME_WIDTH / 2 + 90,
+      GAME_WIDTH / 2,
+      GAME_HEIGHT - 50,
+      "戦績",
+      "#66ccff",
+      () => {
+        this.scene.start("RecordsScene");
+      }
+    );
+
+    this.createButton(
+      GAME_WIDTH / 2 + 150,
       GAME_HEIGHT - 50,
       "タイトルへ",
       "#888888",
@@ -111,6 +148,72 @@ export class ResultScene extends Phaser.Scene {
         this.scene.start("TitleScene");
       }
     );
+  }
+
+  private renderSaveResult(
+    payload: FrontlineRecordSaved,
+    data: GameResultData
+  ): void {
+    this.saveStatusText?.setText("戦績を保存しました");
+
+    let y = 232;
+
+    if (payload.newBestDistance || payload.newBestKills) {
+      const badges: string[] = [];
+      if (payload.newBestDistance) badges.push(`最長進軍 ${data.distance}m`);
+      if (payload.newBestKills) badges.push(`最多撃破 ${data.kills}`);
+
+      this.add
+        .text(GAME_WIDTH / 2, y, `NEW RECORD  ${badges.join(" / ")}`, {
+          fontSize: "12px",
+          color: "#ffd166",
+          fontFamily: "monospace",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      y += 22;
+    }
+
+    this.add
+      .text(
+        GAME_WIDTH / 2,
+        y,
+        `階級: ${payload.stats.rank} / 累計功績: ${payload.stats.totalMeritPoints}`,
+        {
+          fontSize: "11px",
+          color: "#d8e5d0",
+          fontFamily: "monospace",
+        }
+      )
+      .setOrigin(0.5);
+    y += 22;
+
+    if (payload.newMedals.length > 0) {
+      SoundSynth.medal();
+      const medalNames = payload.newMedals.map(
+        medalId => MEDALS.find(medal => medal.id === medalId)?.name ?? medalId
+      );
+
+      this.add
+        .text(GAME_WIDTH / 2, y, "新規獲得勲章", {
+          fontSize: "11px",
+          color: "#ffdd88",
+          fontFamily: "monospace",
+          fontStyle: "bold",
+        })
+        .setOrigin(0.5);
+      y += 18;
+
+      this.add
+        .text(GAME_WIDTH / 2, y, medalNames.join(" / "), {
+          fontSize: "11px",
+          color: "#ffe8aa",
+          fontFamily: "monospace",
+          wordWrap: { width: GAME_WIDTH - 80 },
+          align: "center",
+        })
+        .setOrigin(0.5);
+    }
   }
 
   private getCommentCategory(

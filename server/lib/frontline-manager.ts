@@ -148,6 +148,8 @@ class FrontlineManager {
 
     // 統計更新
     const stats = this.getStats();
+    const newBestDistance = input.distance > stats.bestDistance;
+    const newBestKills = input.kills > stats.bestKills;
 
     stats.totalPlays += 1;
     stats.totalPlayTime += input.playTime;
@@ -183,7 +185,7 @@ class FrontlineManager {
 
     db.upsertFrontlineStats(stats);
 
-    return { record, stats, newMedals };
+    return { record, stats, newMedals, newBestDistance, newBestKills };
   }
 }
 

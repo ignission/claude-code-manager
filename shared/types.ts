@@ -386,4 +386,6 @@ export interface FrontlineRecordSaved {
   record: FrontlineRecord;
   stats: FrontlineStats;
   newMedals: string[];
+  newBestDistance: boolean;
+  newBestKills: boolean;
 }

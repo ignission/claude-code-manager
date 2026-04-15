@@ -1,13 +1,13 @@
 // FrontLine GameScene — メインゲームロジック
 
 import Phaser from "phaser";
+import type { FrontlineStats } from "../../../../../../shared/types";
 
 import { SoundSynth } from "../audio/sound-synth";
 import {
   ADVANCE_DISTANCE,
   ARTILLERY_DAMAGE,
   ARTILLERY_MIN_DISTANCE,
-  DEFENSE_DURATION,
   ENEMY_TYPES,
   type EnemyTypeDef,
   GAME_HEIGHT,
@@ -44,6 +44,10 @@ export interface GameResultData {
 }
 
 export class GameScene extends Phaser.Scene {
+  private static readonly PIXELS_PER_METER = 0.35;
+  private static readonly MAX_BULLET_MARKS = 80;
+  private static readonly MOVE_METERS_PER_PIXEL = 0.16;
+
   // --- 状態 ---
   private playerHp = PLAYER_MAX_HP;
   private distance = 0;
@@ -62,20 +66,43 @@ export class GameScene extends Phaser.Scene {
   private gameTimer = 0;
   private lastFireTime = 0;
   private killsSinceAdvance = 0;
+  private pendingAdvanceScroll = 0;
+  private reloadStartedAt = 0;
+  private reloadDuration = 0;
+  private reloadTotalDuration = 0;
+  private reloadCompletedDuration = 0;
+  private pausedReloadDuration = 0;
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private keyA!: Phaser.Input.Keyboard.Key;
   private keyD!: Phaser.Input.Keyboard.Key;
+  private keyF!: Phaser.Input.Keyboard.Key;
 
   // --- Phaser オブジェクト ---
   private player!: Phaser.GameObjects.Image;
   private crosshair!: Phaser.GameObjects.Image;
   private enemies!: Phaser.Physics.Arcade.Group;
   private playerBulletList: Phaser.GameObjects.Image[] = [];
-  private enemyBullets!: Phaser.Physics.Arcade.Group;
+  private enemyBulletList: Phaser.GameObjects.Image[] = [];
+  private defendShield?: Phaser.GameObjects.Arc;
+  private playerHpBarBg?: Phaser.GameObjects.Rectangle;
+  private playerHpBarFill?: Phaser.GameObjects.Rectangle;
+  private cloudLayer: Phaser.GameObjects.Ellipse[] = [];
+  private mountainLayer: Phaser.GameObjects.Triangle[] = [];
+  private terrainFill?: Phaser.GameObjects.Graphics;
+  private terrainLine?: Phaser.GameObjects.Graphics;
+  private crossMarkers: Array<{
+    distance: number;
+    sprite: Phaser.GameObjects.Image;
+  }> = [];
+  private bulletMarks: Phaser.GameObjects.Rectangle[] = [];
+  private damageOverlay?: Phaser.GameObjects.Rectangle;
+  private terrainDisplayShift = 0;
 
   // --- HUD テキスト ---
   private hpText!: Phaser.GameObjects.Text;
   private ammoText!: Phaser.GameObjects.Text;
+  private reloadBarBg?: Phaser.GameObjects.Rectangle;
+  private reloadBarFill?: Phaser.GameObjects.Rectangle;
   private weaponTexts: Phaser.GameObjects.Text[] = [];
   private distanceText!: Phaser.GameObjects.Text;
   private killsText!: Phaser.GameObjects.Text;
@@ -86,6 +113,7 @@ export class GameScene extends Phaser.Scene {
   private heliSpawnTimer?: Phaser.Time.TimerEvent;
   private paraSpawnTimer?: Phaser.Time.TimerEvent;
   private artilleryTimer?: Phaser.Time.TimerEvent;
+  private reloadTimer?: Phaser.Time.TimerEvent;
 
   constructor() {
     super({ key: "GameScene" });
@@ -104,6 +132,8 @@ export class GameScene extends Phaser.Scene {
       console.log("[GameScene] createHUD done");
       this.createGroups();
       console.log("[GameScene] createGroups done");
+      this.loadDeathMarkers();
+      console.log("[GameScene] loadDeathMarkers queued");
       this.setupInput();
       console.log("[GameScene] setupInput done");
       this.setupEnemySpawner();
@@ -148,6 +178,7 @@ export class GameScene extends Phaser.Scene {
 
   shutdown(): void {
     this.game.events.off("mobile:action", this.handleMobileAction, this);
+    this.game.events.off("frontline:stats_received");
     this.input.setDefaultCursor("default");
   }
 
@@ -171,6 +202,12 @@ export class GameScene extends Phaser.Scene {
     this.gameTimer = 0;
     this.lastFireTime = 0;
     this.killsSinceAdvance = 0;
+    this.pendingAdvanceScroll = 0;
+    this.reloadStartedAt = 0;
+    this.reloadDuration = 0;
+    this.reloadTotalDuration = 0;
+    this.reloadCompletedDuration = 0;
+    this.pausedReloadDuration = 0;
 
     this.magAmmo = WEAPONS.map(w => w.magSize);
     this.reserveAmmo = WEAPONS.map(w => w.reserveAmmo);
@@ -182,24 +219,40 @@ export class GameScene extends Phaser.Scene {
     skyGfx.fillGradientStyle(0x1a2a4a, 0x1a2a4a, 0x4a6a8a, 0x4a6a8a, 1);
     skyGfx.fillRect(0, 0, GAME_WIDTH, GROUND_Y);
 
-    // 山のシルエット
-    const mtnGfx = this.add.graphics();
-    mtnGfx.fillStyle(0x2a3a2a, 1);
-    mtnGfx.beginPath();
-    mtnGfx.moveTo(0, GROUND_Y);
-    mtnGfx.lineTo(80, GROUND_Y - 60);
-    mtnGfx.lineTo(160, GROUND_Y - 30);
-    mtnGfx.lineTo(240, GROUND_Y - 80);
-    mtnGfx.lineTo(320, GROUND_Y - 40);
-    mtnGfx.lineTo(400, GROUND_Y - 70);
-    mtnGfx.lineTo(480, GROUND_Y - 20);
-    mtnGfx.lineTo(560, GROUND_Y - 50);
-    mtnGfx.lineTo(GAME_WIDTH, GROUND_Y - 30);
-    mtnGfx.lineTo(GAME_WIDTH, GROUND_Y);
-    mtnGfx.closePath();
-    mtnGfx.fillPath();
+    for (let i = 0; i < 5; i++) {
+      const cloud = this.add
+        .ellipse(
+          80 + i * 150,
+          50 + (i % 2) * 18,
+          70 + (i % 3) * 20,
+          24 + (i % 2) * 6,
+          0xf6f7fb,
+          0.2
+        )
+        .setDepth(4);
+      this.cloudLayer.push(cloud);
+    }
 
-    // 地面
+    for (let i = 0; i < 6; i++) {
+      const mountain = this.add
+        .triangle(
+          i * 140 + 60,
+          GROUND_Y - 18,
+          0,
+          0,
+          80,
+          -40 - (i % 3) * 18,
+          160,
+          0,
+          0x2a3a2a,
+          1
+        )
+        .setOrigin(0.5, 1)
+        .setDepth(2);
+      this.mountainLayer.push(mountain);
+    }
+
+    // 地面ベース
     this.add.rectangle(
       GAME_WIDTH / 2,
       GROUND_Y + (GAME_HEIGHT - GROUND_Y - HUD_HEIGHT) / 2,
@@ -208,8 +261,20 @@ export class GameScene extends Phaser.Scene {
       0x5a4a2a
     );
 
-    // 土嚢
-    this.add.image(PLAYER_X + 30, GROUND_Y - 8, "sandbag");
+    this.terrainFill = this.add.graphics().setDepth(18);
+    this.terrainLine = this.add.graphics().setDepth(19);
+    this.redrawTerrain();
+
+    this.damageOverlay = this.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        0xaa1111,
+        0
+      )
+      .setDepth(160);
 
     // HUD背景
     this.add
@@ -225,11 +290,36 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createPlayer(): void {
-    this.player = this.add.image(PLAYER_X, GROUND_Y - 24, SPRITE_KEYS.player);
+    const playerGroundY = this.getGroundYAtX(PLAYER_X);
+    this.player = this.add
+      .image(PLAYER_X, playerGroundY - 24, SPRITE_KEYS.player)
+      .setDepth(35);
+    this.defendShield = this.add
+      .arc(
+        PLAYER_X + 10,
+        playerGroundY - 24,
+        18,
+        -70,
+        70,
+        false,
+        0x88b7d8,
+        0.35
+      )
+      .setStrokeStyle(2, 0xd9ecff, 0.8)
+      .setDepth(45)
+      .setVisible(false);
+    this.playerHpBarBg = this.add
+      .rectangle(PLAYER_X, playerGroundY - 52, 30, 5, 0x221111, 0.9)
+      .setDepth(46);
+    this.playerHpBarFill = this.add
+      .rectangle(PLAYER_X, playerGroundY - 52, 28, 3, 0x44cc44, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(47);
     this.crosshair = this.add
       .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "crosshair")
       .setDepth(200);
 
+    this.updatePlayerHpBar();
     this.input.setDefaultCursor("none");
   }
 
@@ -252,12 +342,23 @@ export class GameScene extends Phaser.Scene {
       })
       .setDepth(101);
 
+    this.reloadBarBg = this.add
+      .rectangle(8, hudTop + 30, 124, 6, 0x221111, 0.9)
+      .setOrigin(0, 0.5)
+      .setDepth(101)
+      .setVisible(false);
+    this.reloadBarFill = this.add
+      .rectangle(8, hudTop + 30, 0, 4, 0x66ccff, 1)
+      .setOrigin(0, 0.5)
+      .setDepth(102)
+      .setVisible(false);
+
     // 武器名テキスト
     this.weaponTexts = [];
     for (let i = 0; i < WEAPONS.length; i++) {
       const w = WEAPONS[i];
       const txt = this.add
-        .text(8 + i * 90, hudTop + 32, `${w.key}:${w.nameJa}`, {
+        .text(8 + i * 90, hudTop + 42, `${w.key}:${w.nameJa}`, {
           fontSize: "10px",
           color: i === 0 ? "#ffcc00" : "#666666",
           fontFamily: "monospace",
@@ -297,8 +398,270 @@ export class GameScene extends Phaser.Scene {
   private createGroups(): void {
     this.enemies = this.physics.add.group();
     this.playerBulletList = [];
-    this.enemyBullets = this.physics.add.group();
+    this.enemyBulletList = [];
     // 衝突判定はupdate()内で手動距離チェック
+  }
+
+  private loadDeathMarkers(): void {
+    this.game.events.once(
+      "frontline:stats_received",
+      (stats: FrontlineStats) => {
+        this.renderDeathMarkers(stats.deathPositions);
+      }
+    );
+    this.game.events.emit("frontline:get_stats");
+  }
+
+  private renderDeathMarkers(deathPositions: number[]): void {
+    for (const marker of this.crossMarkers) {
+      marker.sprite.destroy();
+    }
+
+    this.crossMarkers = deathPositions.slice(-10).map(distance => ({
+      distance,
+      sprite: this.add
+        .image(-100, this.getGroundYAtX(-100) - 14, "cross")
+        .setDepth(22)
+        .setAlpha(0.75)
+        .setVisible(false),
+    }));
+  }
+
+  private updateBackgroundScroll(delta: number): void {
+    if (this.pendingAdvanceScroll > 0) {
+      const step = Math.min(this.pendingAdvanceScroll, delta * 0.12);
+      this.pendingAdvanceScroll -= step;
+
+      this.shiftLoopingLayer(this.cloudLayer, -step * 0.15, 140);
+      this.shiftLoopingLayer(this.mountainLayer, -step * 0.4, 170);
+      this.scrollTerrain(-step);
+      this.updateCrossMarkers(-step);
+      return;
+    }
+
+    this.updateCrossMarkers();
+  }
+
+  private shiftLoopingLayer<
+    T extends Phaser.GameObjects.GameObject & {
+      x: number;
+      displayWidth: number;
+    },
+  >(objects: T[], amount: number, spacing: number): void {
+    if (objects.length === 0 || amount === 0) return;
+
+    let leftmostX = Math.min(...objects.map(object => object.x));
+    let rightmostX = Math.max(...objects.map(object => object.x));
+    for (const object of objects) {
+      object.x += amount;
+      if (amount < 0 && object.x < -object.displayWidth) {
+        object.x = rightmostX + spacing;
+        rightmostX = object.x;
+      } else if (amount > 0 && object.x > GAME_WIDTH + object.displayWidth) {
+        object.x = leftmostX - spacing;
+        leftmostX = object.x;
+      } else {
+        if (object.x < leftmostX) leftmostX = object.x;
+        if (object.x > rightmostX) rightmostX = object.x;
+      }
+    }
+  }
+
+  private updateCrossMarkers(scrollAmount = 0): void {
+    const windowDistance = GAME_WIDTH / GameScene.PIXELS_PER_METER;
+
+    for (const marker of this.crossMarkers) {
+      const distanceAhead = marker.distance - this.distance;
+      const sprite = marker.sprite;
+
+      if (distanceAhead < -40 || distanceAhead > windowDistance) {
+        sprite.setVisible(false);
+        continue;
+      }
+
+      const baseX = GAME_WIDTH - distanceAhead * GameScene.PIXELS_PER_METER;
+      sprite.setVisible(true);
+      sprite.x = scrollAmount !== 0 ? sprite.x + scrollAmount : baseX;
+      sprite.y = this.getGroundYAtX(sprite.x) - 14;
+
+      if (
+        scrollAmount !== 0 &&
+        (sprite.x < -16 || sprite.x > GAME_WIDTH + 16)
+      ) {
+        sprite.x = baseX;
+      }
+    }
+  }
+
+  private scrollTerrain(amount: number): void {
+    if (amount === 0) return;
+    this.terrainDisplayShift += amount;
+    this.redrawTerrain();
+  }
+
+  private getGroundYAtX(screenX: number): number {
+    const worldX = screenX - this.terrainDisplayShift;
+    return this.getGroundYAtWorldX(worldX);
+  }
+
+  private getGroundYAtWorldX(worldX: number): number {
+    const segment = ((worldX % 768) + 768) % 768;
+    let terrace = GROUND_Y + 6;
+
+    if (segment < 76) {
+      terrace = GROUND_Y + 10;
+    } else if (segment < 138) {
+      terrace = GROUND_Y - 6;
+    } else if (segment < 196) {
+      terrace = GROUND_Y - 36;
+    } else if (segment < 256) {
+      terrace = GROUND_Y - 74;
+    } else if (segment < 332) {
+      terrace = GROUND_Y - 118;
+    } else if (segment < 404) {
+      terrace = GROUND_Y - 88;
+    } else if (segment < 470) {
+      terrace = GROUND_Y - 48;
+    } else if (segment < 540) {
+      terrace = GROUND_Y - 16;
+    } else if (segment < 608) {
+      terrace = GROUND_Y + 8;
+    } else if (segment < 664) {
+      terrace = GROUND_Y - 24;
+    } else if (segment < 720) {
+      terrace = GROUND_Y - 68;
+    } else {
+      terrace = GROUND_Y - 18;
+    }
+
+    const localRamps = [
+      { start: 62, end: 92, from: GROUND_Y + 10, to: GROUND_Y - 6 },
+      { start: 130, end: 164, from: GROUND_Y - 6, to: GROUND_Y - 36 },
+      { start: 188, end: 224, from: GROUND_Y - 36, to: GROUND_Y - 74 },
+      { start: 248, end: 294, from: GROUND_Y - 74, to: GROUND_Y - 118 },
+      { start: 390, end: 430, from: GROUND_Y - 88, to: GROUND_Y - 48 },
+      { start: 462, end: 496, from: GROUND_Y - 48, to: GROUND_Y - 16 },
+      { start: 600, end: 632, from: GROUND_Y + 8, to: GROUND_Y - 24 },
+      { start: 656, end: 696, from: GROUND_Y - 24, to: GROUND_Y - 68 },
+      { start: 716, end: 752, from: GROUND_Y - 68, to: GROUND_Y - 18 },
+    ];
+
+    for (const ramp of localRamps) {
+      if (segment >= ramp.start && segment <= ramp.end) {
+        const t = (segment - ramp.start) / (ramp.end - ramp.start);
+        terrace = Phaser.Math.Linear(ramp.from, ramp.to, t);
+        break;
+      }
+    }
+
+    const trenchPhase = ((worldX % 320) + 320) % 320;
+    const trench =
+      trenchPhase > 214 && trenchPhase < 256
+        ? -14 * (1 - Math.abs(trenchPhase - 235) / 21)
+        : 0;
+    const minorNoise =
+      Math.sin(worldX / 53) * 1.2 + Math.sin((worldX + 18) / 29) * 0.6;
+
+    return Phaser.Math.Clamp(terrace + trench + minorNoise, 198, GROUND_Y + 18);
+  }
+
+  private redrawTerrain(): void {
+    if (!this.terrainFill || !this.terrainLine) return;
+
+    const topPoints: number[] = [];
+    this.terrainFill.clear();
+    this.terrainLine.clear();
+
+    for (let x = -16; x <= GAME_WIDTH + 16; x += 4) {
+      const y = this.getGroundYAtX(x);
+      topPoints.push(x, y);
+    }
+
+    this.terrainFill.fillStyle(0x4a341f, 1);
+    this.terrainFill.fillPoints(
+      [
+        new Phaser.Geom.Point(-16, GAME_HEIGHT - HUD_HEIGHT),
+        ...this.toGeomPoints(topPoints),
+        new Phaser.Geom.Point(GAME_WIDTH + 16, GAME_HEIGHT - HUD_HEIGHT),
+      ],
+      true
+    );
+
+    this.terrainFill.fillStyle(0x6a4a2f, 0.95);
+    for (let i = 0; i < topPoints.length - 2; i += 2) {
+      const x1 = topPoints[i];
+      const y1 = topPoints[i + 1];
+      const x2 = topPoints[i + 2];
+      const y2 = topPoints[i + 3];
+      this.terrainFill.fillTriangle(x1, y1, x2, y2, x2, y2 + 18);
+
+      if (Math.abs(y2 - y1) > 7) {
+        this.terrainFill.fillStyle(0x3b2918, 0.85);
+        this.terrainFill.fillRect(
+          Math.min(x1, x2),
+          Math.min(y1, y2),
+          Math.max(4, Math.abs(x2 - x1)),
+          Math.abs(y2 - y1)
+        );
+        this.terrainFill.fillStyle(0x6a4a2f, 0.95);
+      }
+    }
+
+    this.terrainLine.lineStyle(2, 0xc7aa6e, 0.9);
+    this.terrainLine.beginPath();
+    this.terrainLine.moveTo(topPoints[0], topPoints[1]);
+    for (let i = 2; i < topPoints.length; i += 2) {
+      this.terrainLine.lineTo(topPoints[i], topPoints[i + 1]);
+    }
+    this.terrainLine.strokePath();
+  }
+
+  private toGeomPoints(points: number[]): Phaser.Geom.Point[] {
+    const result: Phaser.Geom.Point[] = [];
+    for (let i = 0; i < points.length; i += 2) {
+      result.push(new Phaser.Geom.Point(points[i], points[i + 1]));
+    }
+    return result;
+  }
+
+  private createBulletMark(x: number, y: number, color = 0x3f2c1f): void {
+    const mark = this.add
+      .rectangle(x, y, 3 + Math.random() * 3, 2 + Math.random() * 2, color, 0.7)
+      .setAngle(Math.random() * 180)
+      .setDepth(19);
+    this.bulletMarks.push(mark);
+
+    if (this.bulletMarks.length > GameScene.MAX_BULLET_MARKS) {
+      this.bulletMarks.shift()?.destroy();
+    }
+  }
+
+  private getEnemyHpBarColor(hpRatio: number): number {
+    if (hpRatio > 0.6) return 0x44cc44;
+    if (hpRatio > 0.3) return 0xcccc44;
+    return 0xcc4444;
+  }
+
+  private getGroundCollisionPoint(
+    prevX: number,
+    prevY: number,
+    nextX: number,
+    nextY: number
+  ): { x: number; y: number } | null {
+    const distance = Math.max(Math.abs(nextX - prevX), Math.abs(nextY - prevY));
+    const steps = Math.max(1, Math.ceil(distance / 4));
+
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const x = Phaser.Math.Linear(prevX, nextX, t);
+      const y = Phaser.Math.Linear(prevY, nextY, t);
+      const groundY = this.getGroundYAtX(x) - 4;
+      if (y >= groundY) {
+        return { x, y: groundY };
+      }
+    }
+
+    return null;
   }
 
   // ============================
@@ -326,13 +689,15 @@ export class GameScene extends Phaser.Scene {
     this.cursors = keyboard.createCursorKeys();
     this.keyA = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A);
     this.keyD = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+    this.keyF = keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.F);
 
     keyboard.on("keydown-ONE", () => this.switchWeapon(0));
     keyboard.on("keydown-TWO", () => this.switchWeapon(1));
     keyboard.on("keydown-THREE", () => this.switchWeapon(2));
     keyboard.on("keydown-FOUR", () => this.switchWeapon(3));
     keyboard.on("keydown-R", () => this.reload());
-    keyboard.on("keydown-SPACE", () => this.defend());
+    keyboard.on("keydown-SPACE", () => this.startDefend());
+    keyboard.on("keyup-SPACE", () => this.stopDefend());
     keyboard.on("keydown-TAB", (e: KeyboardEvent) => {
       e.preventDefault();
       if (this.scene.isPaused()) {
@@ -356,7 +721,10 @@ export class GameScene extends Phaser.Scene {
         this.reload();
         break;
       case "defend":
-        this.defend();
+        this.startDefend();
+        break;
+      case "defendEnd":
+        this.stopDefend();
         break;
       case "weapon":
         if (detail.value != null) this.switchWeapon(detail.value - 1);
@@ -473,7 +841,7 @@ export class GameScene extends Phaser.Scene {
     this.tweens.add({
       targets: shell,
       x: gunX - 10 - Math.random() * 10,
-      y: GROUND_Y - 4,
+      y: this.getGroundYAtX(gunX - 12) - 4,
       angle: 180,
       duration: 400,
       ease: "Quad.easeIn",
@@ -504,6 +872,10 @@ export class GameScene extends Phaser.Scene {
 
   private reload(): void {
     if (this.isReloading || this.gameOver) return;
+    if (this.pausedReloadDuration > 0) {
+      this.resumeReload();
+      return;
+    }
     const weapon = WEAPONS[this.currentWeapon];
     const reserve = this.reserveAmmo[this.currentWeapon];
 
@@ -518,14 +890,29 @@ export class GameScene extends Phaser.Scene {
     // 弾倉が満タンなら不要
     if (this.magAmmo[this.currentWeapon] >= weapon.magSize) return;
 
+    this.reloadTotalDuration = weapon.reloadTime;
+    this.reloadCompletedDuration = 0;
+    this.startReloadTimer(weapon.reloadTime);
+  }
+
+  private startReloadTimer(duration: number): void {
     this.isReloading = true;
+    this.reloadStartedAt = this.time.now;
+    this.reloadDuration = duration;
+    this.pausedReloadDuration = 0;
     SoundSynth.reload();
     this.player.setTexture("player_reload");
-
-    this.time.delayedCall(weapon.reloadTime, () => {
+    this.reloadTimer = this.time.delayedCall(duration, () => {
       if (!this.player.active) return;
       this.isReloading = false;
+      this.reloadStartedAt = 0;
+      this.reloadDuration = 0;
+      this.reloadTotalDuration = 0;
+      this.reloadCompletedDuration = 0;
+      this.pausedReloadDuration = 0;
+      this.reloadTimer = undefined;
 
+      const weapon = WEAPONS[this.currentWeapon];
       const needed = weapon.magSize - this.magAmmo[this.currentWeapon];
       if (this.reserveAmmo[this.currentWeapon] === Number.POSITIVE_INFINITY) {
         this.magAmmo[this.currentWeapon] = weapon.magSize;
@@ -541,18 +928,95 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private defend(): void {
+  private pauseReload(): void {
+    if (!this.isReloading) return;
+    const elapsed = this.time.now - this.reloadStartedAt;
+    this.reloadCompletedDuration = Math.min(
+      this.reloadTotalDuration,
+      this.reloadCompletedDuration + elapsed
+    );
+    this.pausedReloadDuration = Math.max(0, this.reloadDuration - elapsed);
+    this.isReloading = false;
+    this.reloadStartedAt = 0;
+    this.reloadDuration = 0;
+    this.reloadTimer?.destroy();
+    this.reloadTimer = undefined;
+  }
+
+  private resumeReload(): void {
+    if (this.isReloading || this.pausedReloadDuration <= 0 || this.gameOver)
+      return;
+    this.startReloadTimer(this.pausedReloadDuration);
+  }
+
+  private cancelReload(): void {
+    this.pauseReload();
+    this.reloadTotalDuration = 0;
+    this.reloadCompletedDuration = 0;
+    this.pausedReloadDuration = 0;
+
+    if (!this.isDefending && this.player.active) {
+      this.player.setTexture(SPRITE_KEYS.player);
+    }
+  }
+
+  private startDefend(): void {
     if (this.isDefending || this.gameOver) return;
+    this.pauseReload();
     this.isDefending = true;
     SoundSynth.defend();
     this.player.setTexture(SPRITE_KEYS.playerDefend);
+    this.defendShield
+      ?.setPosition(this.player.x + 12, this.player.y)
+      .setVisible(true)
+      .setAlpha(0.45);
+  }
 
-    this.time.delayedCall(DEFENSE_DURATION, () => {
-      this.isDefending = false;
-      if (!this.isReloading && this.player.active) {
-        this.player.setTexture(SPRITE_KEYS.player);
+  private stopDefend(): void {
+    if (!this.isDefending) return;
+    this.isDefending = false;
+    this.defendShield?.setVisible(false);
+    if (this.pausedReloadDuration > 0) {
+      this.resumeReload();
+    } else if (!this.isReloading && this.player.active) {
+      this.player.setTexture(SPRITE_KEYS.player);
+    }
+  }
+
+  private shiftWorld(amount: number): void {
+    if (amount === 0) return;
+
+    this.shiftLoopingLayer(this.cloudLayer, amount * 0.15, 140);
+    this.shiftLoopingLayer(this.mountainLayer, amount * 0.4, 170);
+    this.scrollTerrain(amount);
+
+    for (const bullet of this.playerBulletList) {
+      if (bullet.active) bullet.x += amount;
+    }
+    for (const bullet of this.enemyBulletList) {
+      if (bullet.active) bullet.x += amount;
+    }
+    for (const mark of this.bulletMarks) {
+      if (mark.active) {
+        mark.x += amount;
+        mark.y = this.getGroundYAtX(mark.x) - 6;
       }
-    });
+    }
+
+    const enemies = this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+    for (const enemy of enemies) {
+      if (!enemy.active) continue;
+      enemy.x += amount;
+      if (!enemy.getData("isHeli") && enemy.getData("landed") !== false) {
+        enemy.y = this.getGroundYAtX(enemy.x) - 24;
+      }
+      const hpBar = enemy.getData("hpBar") as
+        | Phaser.GameObjects.Rectangle
+        | undefined;
+      if (hpBar) hpBar.setPosition(enemy.x, enemy.y - 30);
+    }
+
+    this.updateCrossMarkers(amount);
   }
 
   // ============================
@@ -560,15 +1024,10 @@ export class GameScene extends Phaser.Scene {
   // ============================
 
   private setupEnemySpawner(): void {
-    // 最初の敵を即座にスポーン（開始直後に戦闘開始）
-    this.spawnEnemy();
-    this.time.delayedCall(800, () => this.spawnEnemy());
-
-    this.enemySpawnTimer = this.time.addEvent({
-      delay: 2000,
-      callback: () => this.spawnEnemy(),
-      loop: true,
-    });
+    // 開始直後は猶予を持たせ、以後は距離連動でスポーン間隔を短縮
+    this.time.delayedCall(1200, () => this.spawnEnemy());
+    this.time.delayedCall(2600, () => this.spawnEnemy());
+    this.scheduleNextEnemySpawn();
 
     this.heliSpawnTimer = this.time.addEvent({
       delay: 15000,
@@ -596,12 +1055,13 @@ export class GameScene extends Phaser.Scene {
     if (available.length === 0) return;
 
     const typeDef = available[Math.floor(Math.random() * available.length)];
-    // 画面内のランダムな位置に直接スポーン（画面外からの待ち時間なし）
-    const spawnX = GAME_WIDTH - 40 - Math.random() * (GAME_WIDTH * 0.4);
+    const spawnX = GAME_WIDTH + 20 + Math.random() * 40;
+    const spawnY = this.getGroundYAtX(spawnX) - 24;
     const enemy = this.physics.add
-      .image(spawnX, GROUND_Y - 24, SPRITE_KEYS.enemy)
+      .image(spawnX, spawnY, SPRITE_KEYS.enemy)
       .setDepth(30)
-      .setFlipX(true); // 左向き（プレイヤー方向）
+      .setFlipX(true)
+      .setTint(Phaser.Display.Color.HexStringToColor(typeDef.color).color); // 左向き（プレイヤー方向）
 
     enemy.setData("hp", typeDef.hp);
     enemy.setData("maxHp", typeDef.hp);
@@ -618,7 +1078,7 @@ export class GameScene extends Phaser.Scene {
 
     // 敵の上にHPバーを表示（視認性向上）
     const hpBar = this.add
-      .rectangle(enemy.x, enemy.y - 30, 30, 4, 0xff0000)
+      .rectangle(enemy.x, enemy.y - 30, 30, 4, 0x44cc44)
       .setDepth(31);
     enemy.setData("hpBar", hpBar);
 
@@ -632,14 +1092,15 @@ export class GameScene extends Phaser.Scene {
     );
 
     // 射撃タイマー
+    const fireDelay = 1000 + Math.random() * 1000;
     const fireTimer = this.time.addEvent({
-      delay: typeDef.fireRate,
+      delay: fireDelay,
       callback: () => {
         if (enemy.active && !this.gameOver) {
           this.enemyFire(enemy, typeDef);
         }
       },
-      loop: true,
+      loop: false,
     });
     enemy.setData("fireTimer", fireTimer);
 
@@ -653,10 +1114,37 @@ export class GameScene extends Phaser.Scene {
         }
         if (enemy.x <= typeDef.minApproachX) {
           (enemy.body as Phaser.Physics.Arcade.Body).setVelocityX(0);
+          fireTimer.destroy();
+          const loopingFireTimer = this.time.addEvent({
+            delay: typeDef.fireRate,
+            callback: () => {
+              if (enemy.active && !this.gameOver) {
+                this.enemyFire(enemy, typeDef);
+              }
+            },
+            loop: true,
+          });
+          enemy.setData("fireTimer", loopingFireTimer);
           stopCheck.destroy();
         }
       },
       loop: true,
+    });
+  }
+
+  private scheduleNextEnemySpawn(): void {
+    if (this.gameOver) return;
+
+    let delay = 3000;
+    if (this.distance >= 800) {
+      delay = 800;
+    } else if (this.distance >= 300) {
+      delay = 1500;
+    }
+
+    this.enemySpawnTimer = this.time.delayedCall(delay, () => {
+      this.spawnEnemy();
+      this.scheduleNextEnemySpawn();
     });
   }
 
@@ -685,22 +1173,19 @@ export class GameScene extends Phaser.Scene {
     enemy.setData("magRemaining", mag - 1);
 
     const targetX = PLAYER_X;
-    const targetY = GROUND_Y - 24;
+    const targetY = this.player.y;
     const angle =
       Math.atan2(targetY - enemy.y, targetX - enemy.x) +
       (Math.random() - 0.5) * typeDef.spread * 2;
 
-    const bullet = this.physics.add
+    const bullet = this.add
       .image(enemy.x - 10, enemy.y, SPRITE_KEYS.enemyBullet)
       .setTint(0xff6633)
       .setDepth(50);
-    const body = bullet.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(
-      Math.cos(angle) * typeDef.bulletSpeed,
-      Math.sin(angle) * typeDef.bulletSpeed
-    );
+    bullet.setData("vx", Math.cos(angle) * typeDef.bulletSpeed);
+    bullet.setData("vy", Math.sin(angle) * typeDef.bulletSpeed);
     bullet.setData("damage", typeDef.damage);
-    this.enemyBullets.add(bullet);
+    this.enemyBulletList.push(bullet);
 
     // テクスチャ切替
     enemy.setTexture("enemy_shoot");
@@ -759,19 +1244,19 @@ export class GameScene extends Phaser.Scene {
     if (!heli.active) return;
 
     const targetX = PLAYER_X;
-    const targetY = GROUND_Y - 24;
+    const targetY = this.player.y;
     const angle =
       Math.atan2(targetY - heli.y, targetX - heli.x) +
       (Math.random() - 0.5) * 0.1;
 
-    const bullet = this.physics.add
+    const bullet = this.add
       .image(heli.x, heli.y + 10, SPRITE_KEYS.enemyBullet)
       .setTint(0xff4444)
       .setDepth(50);
-    const body = bullet.body as Phaser.Physics.Arcade.Body;
-    body.setVelocity(Math.cos(angle) * 600, Math.sin(angle) * 600);
+    bullet.setData("vx", Math.cos(angle) * 600);
+    bullet.setData("vy", Math.sin(angle) * 600);
     bullet.setData("damage", HELI_DAMAGE);
-    this.enemyBullets.add(bullet);
+    this.enemyBulletList.push(bullet);
 
     this.time.delayedCall(2000, () => {
       if (bullet.active) bullet.destroy();
@@ -801,9 +1286,9 @@ export class GameScene extends Phaser.Scene {
           landCheck.destroy();
           return;
         }
-        if (para.y >= GROUND_Y - 24) {
+        if (para.y >= this.getGroundYAtX(para.x) - 24) {
           body.setVelocityY(0);
-          para.y = GROUND_Y - 24;
+          para.y = this.getGroundYAtX(para.x) - 24;
           para.setData("landed", true);
           para.setTexture(SPRITE_KEYS.enemy);
           landCheck.destroy();
@@ -832,10 +1317,11 @@ export class GameScene extends Phaser.Scene {
     if (this.gameOver || this.distance < ARTILLERY_MIN_DISTANCE) return;
 
     const targetX = PLAYER_X - 20 + Math.random() * 60;
+    const targetGroundY = this.getGroundYAtX(targetX);
 
     // 警告表示
     const warning = this.add
-      .text(targetX, GROUND_Y - 50, "⚠", {
+      .text(targetX, targetGroundY - 42, "⚠", {
         fontSize: "20px",
         color: "#ff4444",
       })
@@ -869,7 +1355,7 @@ export class GameScene extends Phaser.Scene {
 
       // 爆発エフェクト
       const explosion = this.add
-        .circle(targetX, GROUND_Y - 4, 20, 0xff6600, 0.8)
+        .circle(targetX, targetGroundY - 4, 20, 0xff6600, 0.8)
         .setDepth(80);
       this.tweens.add({
         targets: explosion,
@@ -907,19 +1393,31 @@ export class GameScene extends Phaser.Scene {
     // プレイヤー移動（A/D or 矢印キー）
     const moveSpeed = 150; // px/s
     const dt = delta / 1000;
+    let worldShift = 0;
     if (this.cursors?.left?.isDown || this.keyA?.isDown) {
-      this.player.x = Math.max(20, this.player.x - moveSpeed * dt);
+      worldShift += moveSpeed * dt;
     }
     if (this.cursors?.right?.isDown || this.keyD?.isDown) {
-      this.player.x = Math.min(
-        GAME_WIDTH * 0.6,
-        this.player.x + moveSpeed * dt
-      );
+      worldShift -= moveSpeed * dt;
     }
+    if (worldShift !== 0) {
+      this.shiftWorld(worldShift);
+      if (worldShift < 0) {
+        this.distance += -worldShift * GameScene.MOVE_METERS_PER_PIXEL;
+      }
+    }
+    this.player.y = this.getGroundYAtX(this.player.x) - 24;
+    this.defendShield?.setPosition(this.player.x + 12, this.player.y);
+    this.updatePlayerHpBar();
 
     // 照準
     const pointer = this.input.activePointer;
     this.crosshair.setPosition(pointer.worldX, pointer.worldY);
+    this.updateBackgroundScroll(delta);
+
+    if (this.keyF?.isDown && !this.isDefending && !this.isReloading) {
+      this.fire(this.crosshair.x, this.crosshair.y);
+    }
 
     // プレイヤー弾の移動と衝突判定（配列ベース・手動移動）
     const allEnemiesForHit =
@@ -933,8 +1431,25 @@ export class GameScene extends Phaser.Scene {
       // 手動移動
       const bvx = bullet.getData("vx") as number;
       const bvy = bullet.getData("vy") as number;
-      bullet.x += bvx * dt;
-      bullet.y += bvy * dt;
+      const prevX = bullet.x;
+      const prevY = bullet.y;
+      const nextX = bullet.x + bvx * dt;
+      const nextY = bullet.y + bvy * dt;
+      const groundHit = this.getGroundCollisionPoint(
+        prevX,
+        prevY,
+        nextX,
+        nextY
+      );
+      bullet.x = nextX;
+      bullet.y = nextY;
+
+      if (groundHit) {
+        this.createBulletMark(groundHit.x, groundHit.y - 2, 0x4d3822);
+        bullet.destroy();
+        this.playerBulletList.splice(bi, 1);
+        continue;
+      }
 
       // 画面外チェック
       if (
@@ -943,6 +1458,16 @@ export class GameScene extends Phaser.Scene {
         bullet.y < -10 ||
         bullet.y > GAME_HEIGHT + 10
       ) {
+        const groundY = this.getGroundYAtX(
+          Phaser.Math.Clamp(bullet.x, 0, GAME_WIDTH)
+        );
+        if (bullet.y >= groundY - 8) {
+          this.createBulletMark(
+            Phaser.Math.Clamp(bullet.x, 0, GAME_WIDTH),
+            groundY - 6,
+            0x4d3822
+          );
+        }
         bullet.destroy();
         this.playerBulletList.splice(bi, 1);
         continue;
@@ -996,7 +1521,9 @@ export class GameScene extends Phaser.Scene {
             | undefined;
           if (hpBarEl) {
             const maxHp = (enemy.getData("maxHp") as number) ?? 30;
-            hpBarEl.width = Math.max(0, 30 * (hp / maxHp));
+            const hpRatio = Math.max(0, hp / maxHp);
+            hpBarEl.width = Math.max(0, 30 * hpRatio);
+            hpBarEl.setFillStyle(this.getEnemyHpBarColor(hpRatio), 1);
           }
 
           if (hp <= 0) {
@@ -1052,19 +1579,65 @@ export class GameScene extends Phaser.Scene {
     }
 
     // 敵弾 vs プレイヤー（近接判定）
-    const eBullets =
-      this.enemyBullets.getChildren() as Phaser.Physics.Arcade.Image[];
-    for (const bullet of eBullets) {
-      if (!bullet.active) continue;
+    for (let bi = this.enemyBulletList.length - 1; bi >= 0; bi--) {
+      const bullet = this.enemyBulletList[bi];
+      if (!bullet.active) {
+        this.enemyBulletList.splice(bi, 1);
+        continue;
+      }
+
+      const prevX = bullet.x;
+      const prevY = bullet.y;
+      const nextX = bullet.x + ((bullet.getData("vx") as number) ?? 0) * dt;
+      const nextY = bullet.y + ((bullet.getData("vy") as number) ?? 0) * dt;
+      const groundHit = this.getGroundCollisionPoint(
+        prevX,
+        prevY,
+        nextX,
+        nextY
+      );
+      bullet.x = nextX;
+      bullet.y = nextY;
+
+      if (groundHit) {
+        this.createBulletMark(groundHit.x, groundHit.y - 2, 0x2d1a1a);
+        bullet.destroy();
+        this.enemyBulletList.splice(bi, 1);
+        continue;
+      }
+
+      if (
+        bullet.x < -10 ||
+        bullet.x > GAME_WIDTH + 10 ||
+        bullet.y < -10 ||
+        bullet.y > GAME_HEIGHT + 10
+      ) {
+        const groundY = this.getGroundYAtX(
+          Phaser.Math.Clamp(bullet.x, 0, GAME_WIDTH)
+        );
+        if (bullet.y >= groundY - 8) {
+          this.createBulletMark(
+            Phaser.Math.Clamp(bullet.x, 0, GAME_WIDTH),
+            groundY - 6,
+            0x2d1a1a
+          );
+        }
+        bullet.destroy();
+        this.enemyBulletList.splice(bi, 1);
+        continue;
+      }
+
       const dx = Math.abs(bullet.x - this.player.x);
       const dy = Math.abs(bullet.y - this.player.y);
       if (dx < 12 && dy < 20) {
         if (this.isDefending) {
           this.blocks++;
           bullet.destroy();
+          this.enemyBulletList.splice(bi, 1);
         } else {
           const dmg = (bullet.getData("damage") as number) ?? 8;
           bullet.destroy();
+          this.enemyBulletList.splice(bi, 1);
           this.applyDamage(dmg);
         }
       }
@@ -1075,6 +1648,9 @@ export class GameScene extends Phaser.Scene {
       this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
     for (const enemy of allEnemies) {
       if (!enemy.active) continue;
+      if (!enemy.getData("isHeli") && enemy.getData("landed") !== false) {
+        enemy.y = this.getGroundYAtX(enemy.x) - 24;
+      }
       // HPバー追従
       const hpBar = enemy.getData("hpBar") as
         | Phaser.GameObjects.Rectangle
@@ -1102,9 +1678,19 @@ export class GameScene extends Phaser.Scene {
 
   private applyDamage(amount: number): void {
     this.playerHp -= amount;
+    this.updatePlayerHpBar();
 
     // 赤フラッシュ
     this.player.setTint(0xff0000);
+    if (this.damageOverlay) {
+      this.damageOverlay.alpha = 0.22;
+      this.tweens.killTweensOf(this.damageOverlay);
+      this.tweens.add({
+        targets: this.damageOverlay,
+        alpha: 0,
+        duration: 180,
+      });
+    }
     this.time.delayedCall(100, () => {
       if (this.player.active) this.player.clearTint();
     });
@@ -1118,6 +1704,7 @@ export class GameScene extends Phaser.Scene {
   private checkAdvance(): void {
     if (this.killsSinceAdvance >= KILLS_TO_ADVANCE) {
       this.distance += ADVANCE_DISTANCE;
+      this.pendingAdvanceScroll += ADVANCE_DISTANCE * 3.2;
       this.killsSinceAdvance = 0;
     }
   }
@@ -1138,11 +1725,35 @@ export class GameScene extends Phaser.Scene {
     const reserve = this.reserveAmmo[this.currentWeapon];
     const reserveStr =
       reserve === Number.POSITIVE_INFINITY ? "∞" : String(reserve);
-    const reloadStr = this.isReloading ? " [RELOAD]" : "";
+    const pausedProgress =
+      this.pausedReloadDuration > 0 && this.reloadTotalDuration > 0
+        ? Phaser.Math.Clamp(
+            this.reloadCompletedDuration / this.reloadTotalDuration,
+            0,
+            1
+          )
+        : 0;
+    const reloadProgress =
+      this.isReloading &&
+      this.reloadDuration > 0 &&
+      this.reloadTotalDuration > 0
+        ? Phaser.Math.Clamp(
+            (this.reloadCompletedDuration +
+              (this.time.now - this.reloadStartedAt)) /
+              this.reloadTotalDuration,
+            0,
+            1
+          )
+        : pausedProgress;
+    const reloadPercent = Math.round(reloadProgress * 100);
+    const showReload = this.isReloading || this.pausedReloadDuration > 0;
+    const reloadStr = showReload ? ` [RELOAD ${reloadPercent}%]` : "";
     this.ammoText.setText(`${w.nameJa}: ${mag}/${reserveStr}${reloadStr}`);
+    this.reloadBarBg?.setVisible(showReload);
+    this.reloadBarFill?.setVisible(showReload).setSize(124 * reloadProgress, 4);
 
     // 距離
-    this.distanceText.setText(`${this.distance}m`);
+    this.distanceText.setText(`${Math.floor(this.distance)}m`);
 
     // キル
     this.killsText.setText(`KILLS: ${this.kills}`);
@@ -1155,8 +1766,21 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private updatePlayerHpBar(): void {
+    const hpRatio = Phaser.Math.Clamp(this.playerHp / PLAYER_MAX_HP, 0, 1);
+    const barColor =
+      hpRatio > 0.6 ? 0x44cc44 : hpRatio > 0.3 ? 0xcccc44 : 0xcc4444;
+    this.playerHpBarBg?.setPosition(this.player.x, this.player.y - 28);
+    this.playerHpBarFill
+      ?.setPosition(this.player.x - 14, this.player.y - 28)
+      .setSize(28 * hpRatio, 3)
+      .setFillStyle(barColor, 1);
+  }
+
   private onGameOver(): void {
     this.gameOver = true;
+    this.cancelReload();
+    this.stopDefend();
     this.player.setTexture("player_dead");
 
     // スポーンタイマー停止

@@ -139,7 +139,7 @@ export const ENEMY_TYPES: readonly EnemyTypeDef[] = [
   {
     type: "handgun",
     hp: 30,
-    speed: 80,
+    speed: 46,
     damage: 8,
     fireRate: 1200,
     magSize: 8,
@@ -153,7 +153,7 @@ export const ENEMY_TYPES: readonly EnemyTypeDef[] = [
   {
     type: "machinegun",
     hp: 40,
-    speed: 70,
+    speed: 40,
     damage: 5,
     fireRate: 200,
     magSize: 15,
@@ -167,7 +167,7 @@ export const ENEMY_TYPES: readonly EnemyTypeDef[] = [
   {
     type: "shotgun",
     hp: 50,
-    speed: 90,
+    speed: 52,
     damage: 10,
     fireRate: 800,
     magSize: 4,
@@ -181,7 +181,7 @@ export const ENEMY_TYPES: readonly EnemyTypeDef[] = [
   {
     type: "sniper",
     hp: 25,
-    speed: 30,
+    speed: 22,
     damage: 25,
     fireRate: 2500,
     magSize: 5,

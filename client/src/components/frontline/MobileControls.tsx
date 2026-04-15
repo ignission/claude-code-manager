@@ -44,6 +44,14 @@ export function MobileControls() {
           e.preventDefault();
           emitAction("defend");
         }}
+        onTouchEnd={e => {
+          e.preventDefault();
+          emitAction("defendEnd");
+        }}
+        onTouchCancel={e => {
+          e.preventDefault();
+          emitAction("defendEnd");
+        }}
       >
         防御
       </button>
