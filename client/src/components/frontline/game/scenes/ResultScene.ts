@@ -127,11 +127,16 @@ export class ResultScene extends Phaser.Scene {
     this.onRecordSaved = (payload: FrontlineRecordSaved) => {
       this.renderSaveResult(payload, data);
     };
-    this.game.events.once("frontline:record_saved_received", this.onRecordSaved);
+    this.game.events.once(
+      "frontline:record_saved_received",
+      this.onRecordSaved
+    );
 
     this.onFrontlineError = payload => {
       if (payload.action !== "save_record") return;
-      this.saveStatusText?.setText(`戦績の保存に失敗しました: ${payload.message}`);
+      this.saveStatusText?.setText(
+        `戦績の保存に失敗しました: ${payload.message}`
+      );
       this.saveStatusText?.setColor("#ff7b7b");
     };
     this.game.events.on("frontline:error_received", this.onFrontlineError);

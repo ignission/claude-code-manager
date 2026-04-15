@@ -169,7 +169,7 @@ export class RecordsScene extends Phaser.Scene {
         .rectangle(barX, y + 56 - barHeight / 2, 7, barHeight, 0x6ea8d9, 0.85)
         .setOrigin(0, 0.5);
 
-      if (hour < 10) {
+      if (hour % 3 === 0) {
         this.add
           .text(barX, y + 64, String(hour), {
             fontSize: "8px",

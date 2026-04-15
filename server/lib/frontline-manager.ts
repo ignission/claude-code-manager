@@ -52,8 +52,7 @@ const MEDAL_CHECKS: readonly MedalCheck[] = [
   {
     id: "precision",
     check: (_record, stats) =>
-      stats.totalShots >= 20 &&
-      stats.totalHeadshots / stats.totalShots >= 0.5,
+      stats.totalShots >= 20 && stats.totalHeadshots / stats.totalShots >= 0.5,
   },
   {
     id: "long_advance",
@@ -107,7 +106,29 @@ function calcRank(totalMeritPoints: number): string {
   return RANKS[0].name;
 }
 
+const RECORD_NUMERIC_FIELDS = [
+  "distance",
+  "kills",
+  "headshots",
+  "totalShots",
+  "playTime",
+  "meritPoints",
+  "blocks",
+  "heliKills",
+] as const;
+
 class FrontlineManager {
+  private validateRecordInput(
+    input: Omit<FrontlineRecord, "id" | "createdAt">
+  ): void {
+    for (const field of RECORD_NUMERIC_FIELDS) {
+      const value = input[field];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new Error(`Invalid ${field}: ${String(value)}`);
+      }
+    }
+  }
+
   /**
    * 統計を取得（存在しなければデフォルト作成）
    */
@@ -132,6 +153,8 @@ class FrontlineManager {
   saveRecord(
     input: Omit<FrontlineRecord, "id" | "createdAt">
   ): FrontlineRecordSaved {
+    this.validateRecordInput(input);
+
     const id = randomUUID();
     const createdAt = new Date().toISOString();
 
