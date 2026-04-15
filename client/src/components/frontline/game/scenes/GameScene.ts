@@ -70,7 +70,7 @@ export class GameScene extends Phaser.Scene {
   private player!: Phaser.GameObjects.Image;
   private crosshair!: Phaser.GameObjects.Image;
   private enemies!: Phaser.Physics.Arcade.Group;
-  private playerBullets!: Phaser.Physics.Arcade.Group;
+  private playerBulletList: Phaser.GameObjects.Image[] = [];
   private enemyBullets!: Phaser.Physics.Arcade.Group;
 
   // --- HUD テキスト ---
@@ -296,7 +296,7 @@ export class GameScene extends Phaser.Scene {
 
   private createGroups(): void {
     this.enemies = this.physics.add.group();
-    this.playerBullets = this.physics.add.group();
+    this.playerBulletList = [];
     this.enemyBullets = this.physics.add.group();
     // 衝突判定はupdate()内で手動距離チェック
   }
@@ -396,9 +396,18 @@ export class GameScene extends Phaser.Scene {
     this.lastFireTime = now;
     this.magAmmo[this.currentWeapon]--;
     this.totalShots++;
+    console.log(
+      "[FIRE] weapon:",
+      weapon.name,
+      "target:",
+      Math.round(targetX),
+      Math.round(targetY),
+      "bullets in list:",
+      this.playerBulletList.length
+    );
 
-    const gunX = PLAYER_X + 20;
-    const gunY = GROUND_Y - 30;
+    const gunX = this.player.x + 20;
+    const gunY = this.player.y;
     const baseAngle = Math.atan2(targetY - gunY, targetX - gunX);
 
     // 射撃サウンド
@@ -424,13 +433,13 @@ export class GameScene extends Phaser.Scene {
       const vx = Math.cos(angle) * weapon.bulletSpeed;
       const vy = Math.sin(angle) * weapon.bulletSpeed;
 
-      const bullet = this.physics.add
+      const bullet = this.add
         .image(gunX, gunY, SPRITE_KEYS.bullet)
         .setDepth(50);
-      const body = bullet.body as Phaser.Physics.Arcade.Body;
-      body.setVelocity(vx, vy);
       bullet.setData("damage", weapon.damage);
-      this.playerBullets.add(bullet);
+      bullet.setData("vx", vx);
+      bullet.setData("vy", vy);
+      this.playerBulletList.push(bullet);
 
       // 2秒後に自動破棄
       this.time.delayedCall(2000, () => {
@@ -595,6 +604,7 @@ export class GameScene extends Phaser.Scene {
       .setFlipX(true); // 左向き（プレイヤー方向）
 
     enemy.setData("hp", typeDef.hp);
+    enemy.setData("maxHp", typeDef.hp);
     enemy.setData("type", typeDef.type);
     enemy.setData("damage", typeDef.damage);
     enemy.setData("isHeli", false);
@@ -911,21 +921,44 @@ export class GameScene extends Phaser.Scene {
     const pointer = this.input.activePointer;
     this.crosshair.setPosition(pointer.worldX, pointer.worldY);
 
-    // プレイヤー弾 vs 敵（手動距離チェック）
-    const pBullets =
-      this.playerBullets.getChildren() as Phaser.Physics.Arcade.Image[];
+    // プレイヤー弾の移動と衝突判定（配列ベース・手動移動）
     const allEnemiesForHit =
       this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
-    for (const bullet of pBullets) {
-      if (!bullet.active) continue;
+    for (let bi = this.playerBulletList.length - 1; bi >= 0; bi--) {
+      const bullet = this.playerBulletList[bi];
+      if (!bullet.active) {
+        this.playerBulletList.splice(bi, 1);
+        continue;
+      }
+      // 手動移動
+      const bvx = bullet.getData("vx") as number;
+      const bvy = bullet.getData("vy") as number;
+      bullet.x += bvx * dt;
+      bullet.y += bvy * dt;
+
+      // 画面外チェック
+      if (
+        bullet.x < -10 ||
+        bullet.x > GAME_WIDTH + 10 ||
+        bullet.y < -10 ||
+        bullet.y > GAME_HEIGHT + 10
+      ) {
+        bullet.destroy();
+        this.playerBulletList.splice(bi, 1);
+        continue;
+      }
+
+      // 敵との衝突判定
+      let hit = false;
       for (const enemy of allEnemiesForHit) {
         if (!enemy.active) continue;
         const dx = Math.abs(bullet.x - enemy.x);
         const dy = Math.abs(bullet.y - enemy.y);
-        // 衝突範囲: 弾の中心が敵の矩形(20x30)内に入ったらヒット
         if (dx < 20 && dy < 30) {
+          hit = true;
           const damage = (bullet.getData("damage") as number) ?? 15;
           bullet.destroy();
+          this.playerBulletList.splice(bi, 1);
 
           // ヘッドショット判定
           let finalDamage = damage;
@@ -962,7 +995,7 @@ export class GameScene extends Phaser.Scene {
             | Phaser.GameObjects.Rectangle
             | undefined;
           if (hpBarEl) {
-            const maxHp = 30;
+            const maxHp = (enemy.getData("maxHp") as number) ?? 30;
             hpBarEl.width = Math.max(0, 30 * (hp / maxHp));
           }
 
@@ -981,7 +1014,6 @@ export class GameScene extends Phaser.Scene {
             this.killsSinceAdvance++;
             this.checkAdvance();
 
-            // キル数ポップアップ
             const kp = this.add
               .text(ex, ey, `${this.kills} KILL`, {
                 fontSize: "14px",
@@ -1013,9 +1045,10 @@ export class GameScene extends Phaser.Scene {
               if (enemy.active) enemy.clearTint();
             });
           }
-          break; // この弾は消費済み、次の弾へ
+          break;
         }
       }
+      if (hit) continue;
     }
 
     // 敵弾 vs プレイヤー（近接判定）
