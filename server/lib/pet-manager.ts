@@ -172,13 +172,21 @@ export class PetManager {
   /**
    * サーバー起動時に既存セッションへペットを補完する
    * 循環依存を避けるため、セッション一覧を引数として受け取る
+   * ManagedSession.idはtmux由来のIDであり、DBのsessions.idとは異なるため
+   * worktreePathからDBセッションを検索してFK整合性を保つ
    */
-  backfillExistingSessions(sessions: { id: string }[]): Pet[] {
+  backfillExistingSessions(
+    sessions: { id: string; worktreePath: string }[]
+  ): Pet[] {
     const created: Pet[] = [];
     for (const session of sessions) {
-      const existing = db.getPetBySessionId(session.id);
+      // DBのsession IDを取得（ManagedSession.idはtmux IDなのでFK違反になる）
+      const dbSession = db.getSessionByWorktreePath(session.worktreePath);
+      if (!dbSession) continue;
+
+      const existing = db.getPetBySessionId(dbSession.id);
       if (!existing) {
-        const pet = this.createPetForSession(session.id);
+        const pet = this.createPetForSession(dbSession.id);
         created.push(pet);
       }
     }
