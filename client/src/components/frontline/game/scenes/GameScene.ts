@@ -526,6 +526,10 @@ export class GameScene extends Phaser.Scene {
   // ============================
 
   private setupEnemySpawner(): void {
+    // 最初の敵を即座にスポーン（開始直後に戦闘開始）
+    this.spawnEnemy();
+    this.time.delayedCall(800, () => this.spawnEnemy());
+
     this.enemySpawnTimer = this.time.addEvent({
       delay: 2000,
       callback: () => this.spawnEnemy(),

@@ -26,6 +26,8 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
 
     const game = new Phaser.Game(createGameConfig(containerRef.current));
     gameRef.current = game;
+    // デバッグ用: ゲームインスタンスをwindowに公開
+    (window as unknown as Record<string, unknown>).__FRONTLINE_GAME__ = game;
 
     // --- Bridge: game.events → socket ---
 
