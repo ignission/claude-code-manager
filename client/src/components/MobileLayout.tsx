@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Socket } from "socket.io-client";
 import { BrowserPane } from "@/components/BrowserPane";
+import { FrontLineModal } from "@/components/frontline/FrontLineModal";
 import { MobileChatView } from "@/components/MobileChatView";
 import { MobileSessionList } from "@/components/MobileSessionList";
 import { MobileSessionView } from "@/components/MobileSessionView";
@@ -68,8 +69,6 @@ interface MobileLayoutProps {
   onSelectBrowser: () => void;
   navigateBrowser: (url: string) => void;
   isRemote: boolean;
-  // ペット箱舟画面
-  petsContent?: React.ReactNode;
 }
 
 export function MobileLayout({
@@ -98,11 +97,11 @@ export function MobileLayout({
   onSelectBrowser,
   navigateBrowser,
   isRemote,
-  petsContent,
 }: MobileLayoutProps) {
   const [activeView, setActiveView] = useState<
-    "list" | "detail" | "beacon" | "browser" | "pets"
+    "list" | "detail" | "beacon" | "browser"
   >("list");
+  const [showFrontLine, setShowFrontLine] = useState(false);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(
     null
   );
@@ -293,17 +292,6 @@ export function MobileLayout({
         </div>
       )}
 
-      {/* 箱舟ペットビュー */}
-      <div
-        className={
-          activeView === "pets"
-            ? "flex-1 flex flex-col min-h-0 pb-14"
-            : "hidden"
-        }
-      >
-        {petsContent}
-      </div>
-
       {/* ボトムナビゲーション（セッション詳細画面・ブラウザ画面以外で表示） */}
       {showBottomNav && (
         <nav className="fixed bottom-0 left-0 right-0 border-t border-border bg-background z-50 flex">
@@ -329,6 +317,13 @@ export function MobileLayout({
           )}
           <button
             type="button"
+            className="flex-1 py-3 text-center text-sm font-medium text-muted-foreground"
+            onClick={() => setShowFrontLine(true)}
+          >
+            🎯
+          </button>
+          <button
+            type="button"
             className={`flex-1 py-3 text-center text-sm font-medium ${
               activeView === "beacon"
                 ? "text-primary border-t-2 border-primary"
@@ -338,19 +333,26 @@ export function MobileLayout({
           >
             Beacon
           </button>
-          <button
-            type="button"
-            className={`flex-1 py-3 text-center text-sm font-medium ${
-              activeView === "pets"
-                ? "text-primary border-t-2 border-primary"
-                : "text-muted-foreground"
-            }`}
-            onClick={() => setActiveView("pets")}
-          >
-            🚢
-          </button>
         </nav>
       )}
+
+      {/* セッション詳細・ブラウザ画面用のFrontLine FAB */}
+      {!showBottomNav && (
+        <button
+          type="button"
+          className="fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-muted/80 backdrop-blur text-lg flex items-center justify-center shadow-lg active:scale-95 transition-transform"
+          onClick={() => setShowFrontLine(true)}
+        >
+          🎯
+        </button>
+      )}
+
+      {/* FrontLine モーダル */}
+      <FrontLineModal
+        open={showFrontLine}
+        onClose={() => setShowFrontLine(false)}
+        socket={socket}
+      />
     </div>
   );
 }

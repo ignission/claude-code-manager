@@ -118,6 +118,21 @@ export class GameScene extends Phaser.Scene {
   private rainGraphics?: Phaser.GameObjects.Graphics;
   private onStatsReceived?: (stats: FrontlineStats) => void;
 
+  // --- モバイル移動・照準 ---
+  private mobileMovingLeft = false;
+  private mobileMovingRight = false;
+  private mobileAimY = 290; // 照準Y座標（敵の立ち位置≈290付近）
+  private mobileAimingUp = false;
+  private mobileAimingDown = false;
+  private mobileFiring = false;
+  private mobileAimGfx?: Phaser.GameObjects.Graphics;
+  private gunSprite?: Phaser.GameObjects.Image;
+
+  // --- モーダル一時停止 ---
+  private modalPaused = false;
+  private pauseOverlay?: Phaser.GameObjects.Rectangle;
+  private pauseText?: Phaser.GameObjects.Text;
+
   constructor() {
     super({ key: "GameScene" });
   }
@@ -145,6 +160,10 @@ export class GameScene extends Phaser.Scene {
 
       // モバイル操作イベント
       this.game.events.on("mobile:action", this.handleMobileAction, this);
+
+      // モーダルpause/resume
+      this.game.events.on("modal:pause", this.onModalPause, this);
+      this.game.events.on("modal:resume", this.onModalResume, this);
 
       // 30%の確率で雨エフェクト
       if (Math.random() < 0.3) {
@@ -185,6 +204,8 @@ export class GameScene extends Phaser.Scene {
 
   shutdown(): void {
     this.game.events.off("mobile:action", this.handleMobileAction, this);
+    this.game.events.off("modal:pause", this.onModalPause, this);
+    this.game.events.off("modal:resume", this.onModalResume, this);
     if (this.onStatsReceived) {
       this.game.events.off("frontline:stats_received", this.onStatsReceived);
     }
@@ -193,6 +214,68 @@ export class GameScene extends Phaser.Scene {
     this.rainGraphics?.destroy();
     this.rainGraphics = undefined;
     this.input.setDefaultCursor("default");
+  }
+
+  // --- モーダル一時停止 ---
+
+  private onModalPause = (): void => {
+    if (this.gameOver || this.modalPaused) return;
+    this.modalPaused = true;
+    this.physics.pause();
+    this.scene.pause();
+  };
+
+  private onModalResume = (): void => {
+    if (!this.modalPaused) return;
+    this.scene.resume();
+    // physicsはresumeGameで任意キー押下後に再開
+    this.showPauseOverlay();
+  };
+
+  private showPauseOverlay(): void {
+    if (this.pauseOverlay) return;
+    this.pauseOverlay = this.add
+      .rectangle(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        GAME_WIDTH,
+        GAME_HEIGHT,
+        0x000000,
+        0.6
+      )
+      .setDepth(9998)
+      .setScrollFactor(0);
+    this.pauseText = this.add
+      .text(
+        GAME_WIDTH / 2,
+        GAME_HEIGHT / 2,
+        "PAUSED\n\nPress any key to continue",
+        {
+          fontSize: "20px",
+          color: "#ffffff",
+          fontFamily: "monospace",
+          align: "center",
+        }
+      )
+      .setOrigin(0.5)
+      .setDepth(9999)
+      .setScrollFactor(0);
+
+    // 任意キーまたはクリックで再開
+    const resumeGame = () => {
+      this.removePauseOverlay();
+      this.modalPaused = false;
+      this.physics.resume();
+    };
+    this.input.keyboard?.once("keydown", resumeGame);
+    this.input.once("pointerdown", resumeGame);
+  }
+
+  private removePauseOverlay(): void {
+    this.pauseOverlay?.destroy();
+    this.pauseOverlay = undefined;
+    this.pauseText?.destroy();
+    this.pauseText = undefined;
   }
 
   // ============================
@@ -328,6 +411,11 @@ export class GameScene extends Phaser.Scene {
       .rectangle(PLAYER_X, playerGroundY - 52, 28, 3, 0x44cc44, 1)
       .setOrigin(0, 0.5)
       .setDepth(47);
+    this.gunSprite = this.add
+      .image(PLAYER_X + 20, playerGroundY - 24, "gun_handgun")
+      .setOrigin(0.15, 0.5)
+      .setDepth(36);
+
     this.crosshair = this.add
       .image(GAME_WIDTH / 2, GAME_HEIGHT / 2, "crosshair")
       .setDepth(200);
@@ -680,17 +768,23 @@ export class GameScene extends Phaser.Scene {
   // ============================
 
   private setupInput(): void {
-    // 照準追従
-    this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
-      this.crosshair.setPosition(pointer.worldX, pointer.worldY);
-    });
+    const isMobile = "ontouchstart" in window;
 
-    // 射撃
-    this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (pointer.worldY > GAME_HEIGHT - HUD_HEIGHT) return;
-      if (this.isDefending || this.isReloading || this.gameOver) return;
-      this.fire(pointer.worldX, pointer.worldY);
-    });
+    if (isMobile) {
+      // モバイル: image crosshairを非表示にし、Graphicsで毎フレーム描画
+      this.crosshair.setVisible(false);
+      this.mobileAimGfx = this.add.graphics().setDepth(200);
+    } else {
+      // PC: マウスで照準追従+射撃
+      this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
+        this.crosshair.setPosition(pointer.worldX, pointer.worldY);
+      });
+      this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
+        if (pointer.worldY > GAME_HEIGHT - HUD_HEIGHT) return;
+        if (this.isDefending || this.isReloading || this.gameOver) return;
+        this.fire(pointer.worldX, pointer.worldY);
+      });
+    }
 
     // キーボード
     const keyboard = this.input.keyboard;
@@ -726,7 +820,22 @@ export class GameScene extends Phaser.Scene {
     if (this.gameOver) return;
     switch (detail.action) {
       case "fire":
-        this.fire(this.crosshair.x, this.crosshair.y);
+        this.mobileFiring = true;
+        break;
+      case "fireEnd":
+        this.mobileFiring = false;
+        break;
+      case "aimUp":
+        this.mobileAimingUp = true;
+        break;
+      case "aimUpEnd":
+        this.mobileAimingUp = false;
+        break;
+      case "aimDown":
+        this.mobileAimingDown = true;
+        break;
+      case "aimDownEnd":
+        this.mobileAimingDown = false;
         break;
       case "reload":
         this.reload();
@@ -751,6 +860,18 @@ export class GameScene extends Phaser.Scene {
         break;
       case "weapon4":
         this.switchWeapon(3);
+        break;
+      case "moveLeft":
+        this.mobileMovingLeft = true;
+        break;
+      case "moveLeftEnd":
+        this.mobileMovingLeft = false;
+        break;
+      case "moveRight":
+        this.mobileMovingRight = true;
+        break;
+      case "moveRightEnd":
+        this.mobileMovingRight = false;
         break;
     }
   };
@@ -1386,7 +1507,7 @@ export class GameScene extends Phaser.Scene {
   private updateLogCount = 0;
 
   update(_time: number, delta: number): void {
-    if (this.gameOver) return;
+    if (this.gameOver || this.modalPaused) return;
 
     // デバッグ: 最初の数フレームだけログ
     if (this.updateLogCount < 3) {
@@ -1401,14 +1522,75 @@ export class GameScene extends Phaser.Scene {
     this.gameTimer += delta;
     this.playTime = Math.floor(this.gameTimer / 1000);
 
+    // モバイル: 長押し連射（fireRate制限はfire()内で処理）
+    if (this.mobileFiring) {
+      this.fire(this.player.x + 200, this.mobileAimY);
+    }
+
+    // モバイル: 長押しで照準移動
+    const aimSpeed = 300 * (delta / 1000);
+    if (this.mobileAimingUp) {
+      this.mobileAimY = Math.max(30, this.mobileAimY - aimSpeed);
+    }
+    if (this.mobileAimingDown) {
+      this.mobileAimY = Math.min(GROUND_Y - 10, this.mobileAimY + aimSpeed);
+    }
+
+    // モバイル: Graphicsで照準を毎フレーム描画
+    if (this.mobileAimGfx) {
+      const ax = this.player.x + 200;
+      const ay = this.mobileAimY;
+      this.mobileAimGfx.clear();
+      this.mobileAimGfx.lineStyle(2, 0xff0000, 0.8);
+      this.mobileAimGfx.strokeCircle(ax, ay, 8);
+      this.mobileAimGfx.lineBetween(ax - 12, ay, ax + 12, ay);
+      this.mobileAimGfx.lineBetween(ax, ay - 12, ax, ay + 12);
+    } else {
+      // PC: pointermoveで更新済み
+    }
+
+    // 銃スプライト: 照準方向に回転、武器切り替え時にテクスチャ変更
+    if (this.gunSprite) {
+      const gunX = this.player.x + 20;
+      const gunY = this.player.y;
+      const targetX = this.mobileAimGfx
+        ? this.player.x + 200
+        : this.crosshair.x;
+      const targetY = this.mobileAimGfx ? this.mobileAimY : this.crosshair.y;
+      const angle = Math.atan2(targetY - gunY, targetX - gunX);
+
+      this.gunSprite.setPosition(gunX, gunY);
+      this.gunSprite.setRotation(angle);
+
+      // 武器ごとのテクスチャ
+      const gunKeys = [
+        "gun_handgun",
+        "gun_machinegun",
+        "gun_shotgun",
+        "gun_sniper",
+      ];
+      const key = gunKeys[this.currentWeapon] ?? "gun_handgun";
+      if (this.gunSprite.texture.key !== key) {
+        this.gunSprite.setTexture(key);
+      }
+    }
+
     // プレイヤー移動（A/D or 矢印キー）
     const moveSpeed = 150; // px/s
     const dt = delta / 1000;
     let worldShift = 0;
-    if (this.cursors?.left?.isDown || this.keyA?.isDown) {
+    if (
+      this.cursors?.left?.isDown ||
+      this.keyA?.isDown ||
+      this.mobileMovingLeft
+    ) {
       worldShift += moveSpeed * dt;
     }
-    if (this.cursors?.right?.isDown || this.keyD?.isDown) {
+    if (
+      this.cursors?.right?.isDown ||
+      this.keyD?.isDown ||
+      this.mobileMovingRight
+    ) {
       worldShift -= moveSpeed * dt;
     }
     if (worldShift !== 0) {

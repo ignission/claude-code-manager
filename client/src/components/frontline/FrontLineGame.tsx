@@ -29,6 +29,19 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
     gameRef.current = game;
     (window as unknown as Record<string, unknown>).__FRONTLINE_GAME__ = game;
 
+    // モーダル内ではcanvasのblurでPhaserのInputManagerが無効化される問題を回避
+    // InputManagerの初期化完了を待ってからblur/focusハンドラを除去し、常にアクティブに保つ
+    const patchInput = () => {
+      if (game.input?.manager) {
+        game.events.removeAllListeners("blur");
+        game.events.removeAllListeners("focus");
+        game.input.manager.isActive = true;
+      } else {
+        setTimeout(patchInput, 100);
+      }
+    };
+    game.events.once("ready", patchInput);
+
     const onMobileAction = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       gameRef.current?.events.emit("mobile:action", detail);
@@ -95,7 +108,7 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
   return (
     <div
       ref={containerRef}
-      style={{ imageRendering: "pixelated" }}
+      style={{ imageRendering: "pixelated", minHeight: "250px" }}
       className="w-full max-w-[640px] mx-auto"
     />
   );

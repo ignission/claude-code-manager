@@ -21,6 +21,10 @@ import {
   PLAYER_IDLE,
   PLAYER_RELOAD,
   PLAYER_SHOOT,
+  GUN_HANDGUN,
+  GUN_MACHINEGUN,
+  GUN_SHOTGUN,
+  GUN_SNIPER,
   renderPixelGrid,
   SANDBAG,
 } from "../sprites/pixel-sprites";
@@ -101,6 +105,12 @@ export class BootScene extends Phaser.Scene {
     this.registerTexture("crosshair", CROSSHAIR, SCALE);
     this.registerTexture("sandbag", SANDBAG, SCALE);
     this.registerTexture("cross", CROSS_MARKER, SCALE);
+
+    // 武器スプライト
+    this.registerTexture("gun_handgun", GUN_HANDGUN, SCALE);
+    this.registerTexture("gun_machinegun", GUN_MACHINEGUN, SCALE);
+    this.registerTexture("gun_shotgun", GUN_SHOTGUN, SCALE);
+    this.registerTexture("gun_sniper", GUN_SNIPER, SCALE);
 
     // 弾丸テクスチャ (4x4 黄色)
     this.createSolidTexture(SPRITE_KEYS.bullet, 4, 4, "#ffcc00");
