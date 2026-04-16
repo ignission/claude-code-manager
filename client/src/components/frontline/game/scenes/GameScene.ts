@@ -905,6 +905,9 @@ export class GameScene extends Phaser.Scene {
       bullet.setData("vx", vx);
       bullet.setData("vy", vy);
       bullet.setData("weaponIndex", this.currentWeapon);
+      bullet.setData("penetrationCount", 0);
+      bullet.setData("currentDamage", weapon.damage);
+      bullet.setData("hitEnemies", [] as Phaser.GameObjects.Image[]);
       this.playerBulletList.push(bullet);
 
       // 2秒後に自動破棄
@@ -1747,11 +1750,18 @@ export class GameScene extends Phaser.Scene {
       let hit = false;
       const weaponIdx = (bullet.getData("weaponIndex") as number) ?? 0;
       const isSniper = WEAPONS[weaponIdx]?.name === "Sniper";
-      let penetrationCount = 0;
-      let currentDamage = (bullet.getData("damage") as number) ?? 15;
+      const hitEnemies =
+        (bullet.getData("hitEnemies") as Phaser.GameObjects.Image[]) ?? [];
+      let currentDamage =
+        (bullet.getData("currentDamage") as number) ??
+        (bullet.getData("damage") as number) ??
+        15;
+      let penetrationCount =
+        (bullet.getData("penetrationCount") as number) ?? 0;
 
       for (const enemy of allEnemiesForHit) {
         if (!enemy.active) continue;
+        if (isSniper && hitEnemies.includes(enemy)) continue;
         const dx = Math.abs(bullet.x - enemy.x);
         const dy = Math.abs(bullet.y - enemy.y);
         if (dx < 20 && dy < 30) {
@@ -1847,8 +1857,12 @@ export class GameScene extends Phaser.Scene {
 
           // 狙撃銃: 貫通処理（弾を消さず次の敵へ）
           if (isSniper) {
+            hitEnemies.push(enemy);
             penetrationCount++;
             currentDamage *= SNIPER_PENETRATION_DAMAGE_DECAY;
+            bullet.setData("hitEnemies", hitEnemies);
+            bullet.setData("penetrationCount", penetrationCount);
+            bullet.setData("currentDamage", currentDamage);
             if (penetrationCount >= SNIPER_PENETRATION) {
               bullet.destroy();
               this.playerBulletList.splice(bi, 1);
