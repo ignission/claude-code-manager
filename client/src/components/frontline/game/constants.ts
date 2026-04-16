@@ -117,7 +117,27 @@ export const WEAPONS: readonly WeaponDef[] = [
     bulletSize: 4,
     bulletColor: "#ff0000",
   },
+  {
+    name: "Grenade",
+    nameJa: "手榴弾",
+    key: "5",
+    magSize: 5,
+    reserveAmmo: 0,
+    reloadTime: 0,
+    fireRate: 1500,
+    damage: 100,
+    bulletSpeed: 350,
+    spread: 0,
+    pellets: 1,
+    bulletSize: 6,
+    bulletColor: "#336633",
+  },
 ] as const;
+
+// --- 手榴弾定数 ---
+export const GRENADE_GRAVITY = 400;
+export const GRENADE_BLAST_RADIUS = 60;
+export const GRENADE_FUSE_TIME = 0; // 着弾即爆発
 
 // --- 敵タイプ定義 ---
 export interface EnemyTypeDef {

@@ -21,6 +21,8 @@ import {
   PLAYER_IDLE,
   PLAYER_RELOAD,
   PLAYER_SHOOT,
+  GRENADE_PROJECTILE,
+  GUN_GRENADE,
   GUN_HANDGUN,
   GUN_MACHINEGUN,
   GUN_SHOTGUN,
@@ -111,6 +113,8 @@ export class BootScene extends Phaser.Scene {
     this.registerTexture("gun_machinegun", GUN_MACHINEGUN, SCALE);
     this.registerTexture("gun_shotgun", GUN_SHOTGUN, SCALE);
     this.registerTexture("gun_sniper", GUN_SNIPER, SCALE);
+    this.registerTexture("gun_grenade", GUN_GRENADE, SCALE);
+    this.registerTexture("grenade_proj", GRENADE_PROJECTILE, SCALE);
 
     // 弾丸テクスチャ (4x4 黄色)
     this.createSolidTexture(SPRITE_KEYS.bullet, 4, 4, "#ffcc00");

@@ -3,7 +3,7 @@
 import Phaser from "phaser";
 import type { FrontlineStats } from "../../../../../../shared/types";
 
-import { SoundSynth } from "../audio/sound-synth";
+import { SoundSynth, initSoundSystem } from "../audio/sound-synth";
 import {
   ADVANCE_DISTANCE,
   ARTILLERY_DAMAGE,
@@ -12,6 +12,8 @@ import {
   type EnemyTypeDef,
   GAME_HEIGHT,
   GAME_WIDTH,
+  GRENADE_BLAST_RADIUS,
+  GRENADE_GRAVITY,
   GROUND_Y,
   HEADSHOT_MULTIPLIER,
   HEADSHOT_ZONE,
@@ -83,6 +85,17 @@ export class GameScene extends Phaser.Scene {
   private enemies!: Phaser.Physics.Arcade.Group;
   private playerBulletList: Phaser.GameObjects.Image[] = [];
   private enemyBulletList: Phaser.GameObjects.Image[] = [];
+  private grenadeList: {
+    sprite: Phaser.GameObjects.Image;
+    vx: number;
+    vy: number;
+    damage: number;
+  }[] = [];
+  private shrapnelList: {
+    sprite: Phaser.GameObjects.Rectangle;
+    vx: number;
+    vy: number;
+  }[] = [];
   private defendShield?: Phaser.GameObjects.Arc;
   private playerHpBarBg?: Phaser.GameObjects.Rectangle;
   private playerHpBarFill?: Phaser.GameObjects.Rectangle;
@@ -90,10 +103,6 @@ export class GameScene extends Phaser.Scene {
   private mountainLayer: Phaser.GameObjects.Triangle[] = [];
   private terrainFill?: Phaser.GameObjects.Graphics;
   private terrainLine?: Phaser.GameObjects.Graphics;
-  private crossMarkers: Array<{
-    distance: number;
-    sprite: Phaser.GameObjects.Image;
-  }> = [];
   private bulletMarks: Phaser.GameObjects.Rectangle[] = [];
   private damageOverlay?: Phaser.GameObjects.Rectangle;
   private terrainDisplayShift = 0;
@@ -116,7 +125,6 @@ export class GameScene extends Phaser.Scene {
   private reloadTimer?: Phaser.Time.TimerEvent;
   private rainTimer?: Phaser.Time.TimerEvent;
   private rainGraphics?: Phaser.GameObjects.Graphics;
-  private onStatsReceived?: (stats: FrontlineStats) => void;
 
   // --- モバイル移動・照準 ---
   private mobileMovingLeft = false;
@@ -141,6 +149,7 @@ export class GameScene extends Phaser.Scene {
     console.log("[GameScene] create() start");
     try {
       this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.shutdown, this);
+      initSoundSystem();
       this.resetState();
       console.log("[GameScene] resetState done");
       this.createBackground();
@@ -151,8 +160,6 @@ export class GameScene extends Phaser.Scene {
       console.log("[GameScene] createHUD done");
       this.createGroups();
       console.log("[GameScene] createGroups done");
-      this.loadDeathMarkers();
-      console.log("[GameScene] loadDeathMarkers queued");
       this.setupInput();
       console.log("[GameScene] setupInput done");
       this.setupEnemySpawner();
@@ -206,9 +213,6 @@ export class GameScene extends Phaser.Scene {
     this.game.events.off("mobile:action", this.handleMobileAction, this);
     this.game.events.off("modal:pause", this.onModalPause, this);
     this.game.events.off("modal:resume", this.onModalResume, this);
-    if (this.onStatsReceived) {
-      this.game.events.off("frontline:stats_received", this.onStatsReceived);
-    }
     this.rainTimer?.remove(false);
     this.rainTimer = undefined;
     this.rainGraphics?.destroy();
@@ -503,29 +507,6 @@ export class GameScene extends Phaser.Scene {
     // 衝突判定はupdate()内で手動距離チェック
   }
 
-  private loadDeathMarkers(): void {
-    this.onStatsReceived = (stats: FrontlineStats) => {
-      this.renderDeathMarkers(stats.deathPositions);
-    };
-    this.game.events.once("frontline:stats_received", this.onStatsReceived);
-    this.game.events.emit("frontline:get_stats");
-  }
-
-  private renderDeathMarkers(deathPositions: number[]): void {
-    for (const marker of this.crossMarkers) {
-      marker.sprite.destroy();
-    }
-
-    this.crossMarkers = deathPositions.slice(-10).map(distance => ({
-      distance,
-      sprite: this.add
-        .image(-100, this.getGroundYAtX(-100) - 14, "cross")
-        .setDepth(22)
-        .setAlpha(0.75)
-        .setVisible(false),
-    }));
-  }
-
   private updateBackgroundScroll(delta: number): void {
     if (this.pendingAdvanceScroll > 0) {
       const step = Math.min(this.pendingAdvanceScroll, delta * 0.12);
@@ -534,11 +515,8 @@ export class GameScene extends Phaser.Scene {
       this.shiftLoopingLayer(this.cloudLayer, -step * 0.15, 140);
       this.shiftLoopingLayer(this.mountainLayer, -step * 0.4, 170);
       this.scrollTerrain(-step);
-      this.updateCrossMarkers(-step);
       return;
     }
-
-    this.updateCrossMarkers();
   }
 
   private shiftLoopingLayer<
@@ -562,32 +540,6 @@ export class GameScene extends Phaser.Scene {
       } else {
         if (object.x < leftmostX) leftmostX = object.x;
         if (object.x > rightmostX) rightmostX = object.x;
-      }
-    }
-  }
-
-  private updateCrossMarkers(scrollAmount = 0): void {
-    const windowDistance = GAME_WIDTH / GameScene.PIXELS_PER_METER;
-
-    for (const marker of this.crossMarkers) {
-      const distanceAhead = marker.distance - this.distance;
-      const sprite = marker.sprite;
-
-      if (distanceAhead < -40 || distanceAhead > windowDistance) {
-        sprite.setVisible(false);
-        continue;
-      }
-
-      const baseX = GAME_WIDTH - distanceAhead * GameScene.PIXELS_PER_METER;
-      sprite.setVisible(true);
-      sprite.x = scrollAmount !== 0 ? sprite.x + scrollAmount : baseX;
-      sprite.y = this.getGroundYAtX(sprite.x) - 14;
-
-      if (
-        scrollAmount !== 0 &&
-        (sprite.x < -16 || sprite.x > GAME_WIDTH + 16)
-      ) {
-        sprite.x = baseX;
       }
     }
   }
@@ -800,6 +752,7 @@ export class GameScene extends Phaser.Scene {
     keyboard.on("keydown-TWO", () => this.switchWeapon(1));
     keyboard.on("keydown-THREE", () => this.switchWeapon(2));
     keyboard.on("keydown-FOUR", () => this.switchWeapon(3));
+    keyboard.on("keydown-FIVE", () => this.switchWeapon(4));
     keyboard.on("keydown-R", () => this.reload());
     keyboard.on("keydown-SPACE", () => this.startDefend());
     keyboard.on("keyup-SPACE", () => this.stopDefend());
@@ -910,6 +863,16 @@ export class GameScene extends Phaser.Scene {
     const gunY = this.player.y;
     const baseAngle = Math.atan2(targetY - gunY, targetX - gunX);
 
+    // 手榴弾は特殊処理（リロードなし・残数直接消費）
+    if (weapon.name === "Grenade") {
+      this.throwGrenade(gunX, gunY, targetX, targetY, weapon.damage);
+      // 残数0なら拳銃に切替
+      if (this.magAmmo[this.currentWeapon] <= 0) {
+        this.switchWeapon(0);
+      }
+      return;
+    }
+
     // 射撃サウンド
     switch (weapon.name) {
       case "Handgun":
@@ -994,6 +957,116 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ============================
+  // 手榴弾
+  // ============================
+
+  private throwGrenade(
+    fromX: number,
+    fromY: number,
+    targetX: number,
+    targetY: number,
+    damage: number
+  ): void {
+    SoundSynth.grenadeThrow();
+
+    const dx = targetX - fromX;
+    const dy = targetY - fromY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const t = Math.max(0.4, dist / 350); // 到達時間
+    const vx = dx / t;
+    const vy = (dy - 0.5 * GRENADE_GRAVITY * t * t) / t;
+
+    const grenade = this.add.image(fromX, fromY, "grenade_proj").setDepth(55);
+
+    this.grenadeList.push({ sprite: grenade, vx, vy, damage });
+  }
+
+  private explodeGrenade(x: number, y: number, _damage: number): void {
+    SoundSynth.explosion();
+
+    // 小さな閃光
+    const flash = this.add.circle(x, y, 12, 0xffaa00, 0.8).setDepth(80);
+    this.tweens.add({
+      targets: flash,
+      alpha: 0,
+      scaleX: 2,
+      scaleY: 2,
+      duration: 150,
+      onComplete: () => flash.destroy(),
+    });
+
+    // 破片を放射状に生成（当たれば即死）
+    const shrapnelCount = 16;
+    for (let i = 0; i < shrapnelCount; i++) {
+      const angle =
+        (i / shrapnelCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.3;
+      const speed = 300 + Math.random() * 200;
+      const size = 2 + Math.random() * 2;
+      const colors = [0xaaaaaa, 0x888888, 0x666666, 0xcccccc];
+      const color = colors[Math.floor(Math.random() * colors.length)];
+
+      const frag = this.add
+        .rectangle(x, y, size, size, color, 1)
+        .setDepth(75)
+        .setRotation(Math.random() * Math.PI * 2);
+
+      this.shrapnelList.push({
+        sprite: frag,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+      });
+
+      // 0.6秒後に自動消滅
+      this.time.delayedCall(600, () => {
+        if (frag.active) frag.destroy();
+      });
+    }
+  }
+
+  private killEnemyByShrapnel(enemy: Phaser.Physics.Arcade.Image): void {
+    SoundSynth.hit();
+    const ex = enemy.x;
+    const ey = enemy.y;
+    const ft = enemy.getData("fireTimer") as Phaser.Time.TimerEvent | undefined;
+    ft?.destroy();
+    const hpBarEl = enemy.getData("hpBar") as
+      | Phaser.GameObjects.Rectangle
+      | undefined;
+    hpBarEl?.destroy();
+    if (enemy.getData("isHeli")) this.heliKills++;
+    enemy.destroy();
+    this.kills++;
+    this.killsSinceAdvance++;
+    this.checkAdvance();
+
+    const kp = this.add
+      .text(ex, ey, `${this.kills} KILL`, {
+        fontSize: "14px",
+        color: "#ffcc00",
+        fontFamily: "monospace",
+        fontStyle: "bold",
+      })
+      .setOrigin(0.5)
+      .setDepth(91);
+    this.tweens.add({
+      targets: kp,
+      scaleX: 1.5,
+      scaleY: 1.5,
+      duration: 150,
+      yoyo: true,
+      onComplete: () => {
+        this.tweens.add({
+          targets: kp,
+          alpha: 0,
+          y: kp.y - 20,
+          duration: 400,
+          onComplete: () => kp.destroy(),
+        });
+      },
+    });
+  }
+
   private switchWeapon(index: number): void {
     if (index < 0 || index >= WEAPONS.length) return;
     this.currentWeapon = index;
@@ -1004,6 +1077,8 @@ export class GameScene extends Phaser.Scene {
 
   private reload(): void {
     if (this.isReloading || this.gameOver) return;
+    // 手榴弾はリロード不可
+    if (WEAPONS[this.currentWeapon].name === "Grenade") return;
     if (this.pausedReloadDuration > 0) {
       this.resumeReload();
       return;
@@ -1147,8 +1222,6 @@ export class GameScene extends Phaser.Scene {
         | undefined;
       if (hpBar) hpBar.setPosition(enemy.x, enemy.y - 30);
     }
-
-    this.updateCrossMarkers(amount);
   }
 
   // ============================
@@ -1568,6 +1641,7 @@ export class GameScene extends Phaser.Scene {
         "gun_machinegun",
         "gun_shotgun",
         "gun_sniper",
+        "gun_grenade",
       ];
       const key = gunKeys[this.currentWeapon] ?? "gun_handgun";
       if (this.gunSprite.texture.key !== key) {
@@ -1771,6 +1845,78 @@ export class GameScene extends Phaser.Scene {
       if (hit) continue;
     }
 
+    // 手榴弾の物理更新（放物線+着弾爆発）
+    for (let gi = this.grenadeList.length - 1; gi >= 0; gi--) {
+      const g = this.grenadeList[gi];
+      if (!g.sprite.active) {
+        this.grenadeList.splice(gi, 1);
+        continue;
+      }
+      g.sprite.x += g.vx * dt;
+      g.vy += GRENADE_GRAVITY * dt;
+      g.sprite.y += g.vy * dt;
+      g.sprite.setRotation(g.sprite.rotation + 5 * dt); // 回転
+
+      // 地面衝突 or 画面外
+      const groundY = this.getGroundYAtX(g.sprite.x);
+      if (
+        g.sprite.y >= groundY - 4 ||
+        g.sprite.x > GAME_WIDTH + 20 ||
+        g.sprite.x < -20
+      ) {
+        this.explodeGrenade(
+          g.sprite.x,
+          Math.min(g.sprite.y, groundY - 4),
+          g.damage
+        );
+        g.sprite.destroy();
+        this.grenadeList.splice(gi, 1);
+      }
+    }
+
+    // 破片の物理更新と敵衝突判定（当たれば即死）
+    for (let si = this.shrapnelList.length - 1; si >= 0; si--) {
+      const s = this.shrapnelList[si];
+      if (!s.sprite.active) {
+        this.shrapnelList.splice(si, 1);
+        continue;
+      }
+      s.sprite.x += s.vx * dt;
+      s.vy += 200 * dt; // 軽い重力
+      s.sprite.y += s.vy * dt;
+      s.sprite.setRotation(s.sprite.rotation + 8 * dt);
+
+      // 画面外 or 地面で消滅
+      const groundY = this.getGroundYAtX(s.sprite.x);
+      if (
+        s.sprite.x < -20 ||
+        s.sprite.x > GAME_WIDTH + 20 ||
+        s.sprite.y >= groundY
+      ) {
+        s.sprite.destroy();
+        this.shrapnelList.splice(si, 1);
+        continue;
+      }
+
+      // 敵との衝突判定
+      const enemies =
+        this.enemies.getChildren() as Phaser.Physics.Arcade.Image[];
+      let shrapnelHit = false;
+      for (const enemy of enemies) {
+        if (!enemy.active) continue;
+        const dx = Math.abs(enemy.x - s.sprite.x);
+        const dy = Math.abs(enemy.y - s.sprite.y);
+        if (dx < 20 && dy < 30) {
+          this.killEnemyByShrapnel(enemy);
+          s.sprite.destroy();
+          this.shrapnelList.splice(si, 1);
+          shrapnelHit = true;
+          break;
+        }
+      }
+      if (shrapnelHit) continue;
+    }
+
     // 敵弾 vs プレイヤー（近接判定）
     for (let bi = this.enemyBulletList.length - 1; bi >= 0; bi--) {
       const bullet = this.enemyBulletList[bi];
@@ -1915,35 +2061,46 @@ export class GameScene extends Phaser.Scene {
     // 弾薬
     const w = WEAPONS[this.currentWeapon];
     const mag = this.magAmmo[this.currentWeapon];
-    const reserve = this.reserveAmmo[this.currentWeapon];
-    const reserveStr =
-      reserve === Number.POSITIVE_INFINITY ? "∞" : String(reserve);
-    const pausedProgress =
-      this.pausedReloadDuration > 0 && this.reloadTotalDuration > 0
-        ? Phaser.Math.Clamp(
-            this.reloadCompletedDuration / this.reloadTotalDuration,
-            0,
-            1
-          )
-        : 0;
-    const reloadProgress =
-      this.isReloading &&
-      this.reloadDuration > 0 &&
-      this.reloadTotalDuration > 0
-        ? Phaser.Math.Clamp(
-            (this.reloadCompletedDuration +
-              (this.time.now - this.reloadStartedAt)) /
-              this.reloadTotalDuration,
-            0,
-            1
-          )
-        : pausedProgress;
-    const reloadPercent = Math.round(reloadProgress * 100);
-    const showReload = this.isReloading || this.pausedReloadDuration > 0;
-    const reloadStr = showReload ? ` [RELOAD ${reloadPercent}%]` : "";
-    this.ammoText.setText(`${w.nameJa}: ${mag}/${reserveStr}${reloadStr}`);
-    this.reloadBarBg?.setVisible(showReload);
-    this.reloadBarFill?.setVisible(showReload).setSize(124 * reloadProgress, 4);
+    const isGrenade = w.name === "Grenade";
+
+    if (isGrenade) {
+      // 手榴弾: 残数のみ表示、リロードバー非表示
+      this.ammoText.setText(`${w.nameJa}: ${mag}`);
+      this.reloadBarBg?.setVisible(false);
+      this.reloadBarFill?.setVisible(false);
+    } else {
+      const reserve = this.reserveAmmo[this.currentWeapon];
+      const reserveStr =
+        reserve === Number.POSITIVE_INFINITY ? "∞" : String(reserve);
+      const pausedProgress =
+        this.pausedReloadDuration > 0 && this.reloadTotalDuration > 0
+          ? Phaser.Math.Clamp(
+              this.reloadCompletedDuration / this.reloadTotalDuration,
+              0,
+              1
+            )
+          : 0;
+      const reloadProgress =
+        this.isReloading &&
+        this.reloadDuration > 0 &&
+        this.reloadTotalDuration > 0
+          ? Phaser.Math.Clamp(
+              (this.reloadCompletedDuration +
+                (this.time.now - this.reloadStartedAt)) /
+                this.reloadTotalDuration,
+              0,
+              1
+            )
+          : pausedProgress;
+      const reloadPercent = Math.round(reloadProgress * 100);
+      const showReload = this.isReloading || this.pausedReloadDuration > 0;
+      const reloadStr = showReload ? ` [RELOAD ${reloadPercent}%]` : "";
+      this.ammoText.setText(`${w.nameJa}: ${mag}/${reserveStr}${reloadStr}`);
+      this.reloadBarBg?.setVisible(showReload);
+      this.reloadBarFill
+        ?.setVisible(showReload)
+        .setSize(124 * reloadProgress, 4);
+    }
 
     // 距離
     this.distanceText.setText(`${Math.floor(this.distance)}m`);
