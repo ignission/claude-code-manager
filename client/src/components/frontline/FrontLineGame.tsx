@@ -32,10 +32,10 @@ export function FrontLineGame({ socket }: FrontLineGameProps) {
     // モーダル内ではcanvasのblurでPhaserのInputManagerが無効化される問題を回避
     // InputManagerの初期化完了を待ってからblur/focusハンドラを除去し、常にアクティブに保つ
     const patchInput = () => {
-      if (game.input?.manager) {
+      if ((game.input as any)?.manager) {
         game.events.removeAllListeners("blur");
         game.events.removeAllListeners("focus");
-        game.input.manager.isActive = true;
+        (game.input as any).manager.isActive = true;
       } else {
         setTimeout(patchInput, 100);
       }
