@@ -3,7 +3,7 @@
 import Phaser from "phaser";
 import type { FrontlineStats } from "../../../../../../shared/types";
 
-import { SoundSynth, initSoundSystem } from "../audio/sound-synth";
+import { initSoundSystem, SoundSynth } from "../audio/sound-synth";
 import {
   ADVANCE_DISTANCE,
   ARTILLERY_DAMAGE,
