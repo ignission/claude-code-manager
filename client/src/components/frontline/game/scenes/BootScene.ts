@@ -27,12 +27,6 @@ import {
   PLAYER_IDLE,
   PLAYER_RELOAD,
   PLAYER_SHOOT,
-  GRENADE_PROJECTILE,
-  GUN_GRENADE,
-  GUN_HANDGUN,
-  GUN_MACHINEGUN,
-  GUN_SHOTGUN,
-  GUN_SNIPER,
   renderPixelGrid,
   SANDBAG,
 } from "../sprites/pixel-sprites";
