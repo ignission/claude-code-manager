@@ -54,6 +54,7 @@ export default function Dashboard() {
     repoList,
     repoPath,
     selectRepo,
+    removeRepo,
     scannedRepos,
     isScanning,
     scanRepos,
@@ -363,6 +364,7 @@ export default function Dashboard() {
               onDeleteSession={handleDeleteSession}
               onStartSession={handleStartSession}
               onNewSession={handleNewSession}
+              onRemoveRepo={removeRepo}
               onSelectBrowser={handleSelectBrowser}
               isBrowserSelected={selectedSessionId === "browser"}
               isRemote={isRemote}
