@@ -6,10 +6,22 @@
  * worktree中心のイテレーション: セッション未起動のworktreeも表示する。
  */
 
-import { FolderOpen, Globe, Plus, Terminal } from "lucide-react";
+import { FolderOpen, Globe, Plus, Terminal, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useGroupedWorktreeItems } from "@/hooks/useGroupedWorktreeItems";
+import { getBaseName } from "@/utils/pathUtils";
 import type { ManagedSession, Worktree } from "../../../shared/types";
 import { SessionCard } from "./SessionCard";
 
@@ -25,6 +37,8 @@ interface SessionSidebarProps {
   onDeleteSession: (sessionId: string, worktree: Worktree | undefined) => void;
   onStartSession: (worktree: Worktree) => void;
   onNewSession: () => void;
+  /** リポジトリをサイドバー一覧から除外する */
+  onRemoveRepo?: (repoPath: string) => void;
   /** ブラウザ選択コールバック（リモートアクセス時のみ使用） */
   onSelectBrowser?: () => void;
   /** ブラウザが選択中か */
@@ -44,6 +58,7 @@ export function SessionSidebar({
   onDeleteSession,
   onStartSession,
   onNewSession,
+  onRemoveRepo,
   onSelectBrowser,
   isBrowserSelected = false,
   isRemote = false,
@@ -53,6 +68,16 @@ export function SessionSidebar({
     sessions,
     repoList
   );
+
+  // basename → repoPath の対応表（同名repoは衝突する点に注意。既存ロジックも同前提）
+  const repoPathByName = useMemo(
+    () => new Map(repoList.map(p => [getBaseName(p), p])),
+    [repoList]
+  );
+
+  const [removeTargetRepoPath, setRemoveTargetRepoPath] = useState<
+    string | null
+  >(null);
 
   return (
     <div className="h-full flex flex-col bg-sidebar">
@@ -101,47 +126,95 @@ export function SessionSidebar({
               <p className="text-xs mt-1">「+」から新規作成</p>
             </div>
           ) : (
-            Array.from(groupedItems.entries()).map(([repoName, items]) => (
-              <div key={repoName} className="mb-3">
-                {/* リポジトリヘッダー */}
-                <div className="flex items-center gap-1.5 px-2 py-1.5">
-                  <FolderOpen className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
-                    {repoName}
-                  </span>
+            Array.from(groupedItems.entries()).map(([repoName, items]) => {
+              const repoPath = repoPathByName.get(repoName);
+              const canRemove = !!onRemoveRepo && !!repoPath;
+              return (
+                <div key={repoName} className="mb-3">
+                  {/* リポジトリヘッダー */}
+                  <div className="sticky left-0 flex items-center gap-1.5 px-2 py-1.5">
+                    <FolderOpen className="w-3 h-3 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
+                      {repoName}
+                    </span>
+                    {canRemove && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-5 w-5 shrink-0 text-sidebar-foreground/70 hover:text-destructive hover:bg-destructive/15"
+                        onClick={() => setRemoveTargetRepoPath(repoPath)}
+                        aria-label={`${repoName} をサイドバーから除外`}
+                        title="サイドバーから除外"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                  {/* アイテム一覧 */}
+                  <div className="space-y-1">
+                    {items.map(({ worktree: wt, session }) => (
+                      <SessionCard
+                        key={session?.id ?? wt?.id ?? "unknown"}
+                        session={session}
+                        worktree={wt ?? undefined}
+                        repoList={repoList}
+                        isSelected={
+                          session ? selectedSessionId === session.id : false
+                        }
+                        previewText={
+                          session ? sessionPreviews.get(session.id) || "" : ""
+                        }
+                        activityText={
+                          session
+                            ? sessionActivityTexts.get(session.id) || ""
+                            : ""
+                        }
+                        onClick={() => session && onSelectSession(session.id)}
+                        onDelete={() =>
+                          session &&
+                          onDeleteSession(session.id, wt ?? undefined)
+                        }
+                        onStart={() => (wt ? onStartSession(wt) : undefined)}
+                      />
+                    ))}
+                  </div>
                 </div>
-                {/* アイテム一覧 */}
-                <div className="space-y-1">
-                  {items.map(({ worktree: wt, session }) => (
-                    <SessionCard
-                      key={session?.id ?? wt?.id ?? "unknown"}
-                      session={session}
-                      worktree={wt ?? undefined}
-                      repoList={repoList}
-                      isSelected={
-                        session ? selectedSessionId === session.id : false
-                      }
-                      previewText={
-                        session ? sessionPreviews.get(session.id) || "" : ""
-                      }
-                      activityText={
-                        session
-                          ? sessionActivityTexts.get(session.id) || ""
-                          : ""
-                      }
-                      onClick={() => session && onSelectSession(session.id)}
-                      onDelete={() =>
-                        session && onDeleteSession(session.id, wt ?? undefined)
-                      }
-                      onStart={() => (wt ? onStartSession(wt) : undefined)}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </ScrollArea>
+
+      <AlertDialog
+        open={removeTargetRepoPath !== null}
+        onOpenChange={open => {
+          if (!open) setRemoveTargetRepoPath(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>リポジトリをサイドバーから除外</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeTargetRepoPath
+                ? `「${getBaseName(removeTargetRepoPath)}」をサイドバー一覧から非表示にします。Worktreeやセッション、リポジトリ自体は削除されません。再度リポジトリを選択すれば復元できます。`
+                : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>キャンセル</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (removeTargetRepoPath && onRemoveRepo) {
+                  onRemoveRepo(removeTargetRepoPath);
+                }
+                setRemoveTargetRepoPath(null);
+              }}
+            >
+              除外
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
