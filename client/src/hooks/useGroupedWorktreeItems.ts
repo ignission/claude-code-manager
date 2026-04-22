@@ -31,21 +31,23 @@ export function useGroupedWorktreeItems(
     const groups = new Map<string, GroupedItem[]>();
     const worktreeSessionIds = new Set<string>();
 
-    // repoListが空でない場合、リスト外のrepoに属するworktree/sessionは非表示にする
-    // （サイドバーからrepoを除外する操作で利用）
-    const hasFilter = repoList.length > 0;
+    // repoListに含まれるrepoのworktree/sessionのみ表示する。
+    // repoListが空の場合は何も表示しない（「全件表示」にフォールバックすると、
+    // 最後の1件を除外した直後に除外対象が再表示されてしまう）。
+    const repoListEmpty = repoList.length === 0;
 
     // worktreePath昇順で処理することでリロード間の並び順を安定させる
     const sortedWorktrees = [...worktrees].sort((a, b) =>
       a.path.localeCompare(b.path)
     );
     for (const wt of sortedWorktrees) {
+      if (repoListEmpty) break;
       const session = sessionByWorktreeId.get(wt.id) ?? null;
       const matchedRepo = repoList.find(repo => wt.path.startsWith(repo));
       const sessionRepoMatched = session?.repoPath
         ? repoList.includes(session.repoPath)
         : false;
-      if (hasFilter && !matchedRepo && !sessionRepoMatched) continue;
+      if (!matchedRepo && !sessionRepoMatched) continue;
       if (session) worktreeSessionIds.add(session.id);
       const repoName = (() => {
         if (session?.repoPath) return getBaseName(session.repoPath);
@@ -61,10 +63,11 @@ export function useGroupedWorktreeItems(
       a.worktreePath.localeCompare(b.worktreePath)
     );
     for (const session of sortedSessions) {
+      if (repoListEmpty) break;
       if (worktreeSessionIds.has(session.id)) continue;
       const repo = session.repoPath ?? findRepoForSession(session, repoList);
-      if (hasFilter && (!repo || !repoList.includes(repo))) continue;
-      const repoName = repo ? getBaseName(repo) : "unknown";
+      if (!repo || !repoList.includes(repo)) continue;
+      const repoName = getBaseName(repo);
       const existing = groups.get(repoName) || [];
       existing.push({ worktree: null, session });
       groups.set(repoName, existing);

@@ -320,6 +320,21 @@ export default function Dashboard() {
     setIsSelectRepoOpen(true);
   };
 
+  /**
+   * リポジトリをサイドバーから除外する。
+   * 現在選択中のrepoを除外する場合、残りrepoListの先頭に切り替えてから除外することで
+   * 他repoのworktree表示（repoPath選択でのみフェッチされる）が連鎖的に消えないようにする。
+   */
+  const handleRemoveRepo = (path: string) => {
+    if (repoPath === path) {
+      const remaining = repoList.filter(p => p !== path);
+      if (remaining.length > 0) {
+        selectRepo(remaining[0]);
+      }
+    }
+    removeRepo(path);
+  };
+
   return (
     <>
       {isMobile ? (
@@ -364,7 +379,7 @@ export default function Dashboard() {
               onDeleteSession={handleDeleteSession}
               onStartSession={handleStartSession}
               onNewSession={handleNewSession}
-              onRemoveRepo={removeRepo}
+              onRemoveRepo={handleRemoveRepo}
               onSelectBrowser={handleSelectBrowser}
               isBrowserSelected={selectedSessionId === "browser"}
               isRemote={isRemote}
