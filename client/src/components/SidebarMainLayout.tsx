@@ -22,6 +22,9 @@ const BEACON_MIN_WIDTH = 280;
 const BEACON_MAX_WIDTH = 700;
 const BEACON_DEFAULT_WIDTH = 350;
 
+// メインエリアが最低限保持すべき幅（これ未満には潰れないようBeacon/Sidebarを制限）
+const MAIN_MIN_WIDTH = 320;
+
 interface SidebarMainLayoutProps {
   sidebar: ReactNode;
   main: ReactNode;
@@ -39,6 +42,14 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// 現在のサイドバー幅とviewport幅から、Beacon幅の上限を計算する
+function resolveBeaconMax(sidebarWidth: number): number {
+  if (typeof window === "undefined") return BEACON_MAX_WIDTH;
+  const available = window.innerWidth - sidebarWidth - MAIN_MIN_WIDTH;
+  // availableが下限を下回る場合はBEACON_MIN_WIDTHまで許容（main側が潰れてもBeaconはmin死守）
+  return Math.max(BEACON_MIN_WIDTH, Math.min(BEACON_MAX_WIDTH, available));
+}
+
 export function SidebarMainLayout({
   sidebar,
   main,
@@ -51,16 +62,30 @@ export function SidebarMainLayout({
   initialBeaconWidth = BEACON_DEFAULT_WIDTH,
   onBeaconWidthChange,
 }: SidebarMainLayoutProps) {
-  const [sidebarWidth, setSidebarWidth] = useState(
+  const [sidebarWidth, setSidebarWidth] = useState(() =>
     clamp(initialSidebarWidth, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
   );
-  const [beaconWidth, setBeaconWidth] = useState(
-    clamp(initialBeaconWidth, BEACON_MIN_WIDTH, BEACON_MAX_WIDTH)
-  );
+  const [beaconWidth, setBeaconWidth] = useState(() => {
+    const initialSb = clamp(
+      initialSidebarWidth,
+      SIDEBAR_MIN_WIDTH,
+      SIDEBAR_MAX_WIDTH
+    );
+    return clamp(
+      initialBeaconWidth,
+      BEACON_MIN_WIDTH,
+      resolveBeaconMax(initialSb)
+    );
+  });
   const [resizing, setResizing] = useState<"sidebar" | "beacon" | null>(null);
   const sidebarWidthRef = useRef(sidebarWidth);
   const beaconWidthRef = useRef(beaconWidth);
   const cleanupRef = useRef<(() => void) | null>(null);
+  const onBeaconWidthChangeRef = useRef(onBeaconWidthChange);
+
+  useEffect(() => {
+    onBeaconWidthChangeRef.current = onBeaconWidthChange;
+  }, [onBeaconWidthChange]);
 
   useEffect(() => {
     const clamped = clamp(
@@ -76,11 +101,25 @@ export function SidebarMainLayout({
     const clamped = clamp(
       initialBeaconWidth,
       BEACON_MIN_WIDTH,
-      BEACON_MAX_WIDTH
+      resolveBeaconMax(sidebarWidthRef.current)
     );
     setBeaconWidth(clamped);
     beaconWidthRef.current = clamped;
   }, [initialBeaconWidth]);
+
+  // ウィンドウリサイズ時にBeaconが新しい上限を超えていたら縮める
+  useEffect(() => {
+    const handleResize = () => {
+      const max = resolveBeaconMax(sidebarWidthRef.current);
+      if (beaconWidthRef.current > max) {
+        beaconWidthRef.current = max;
+        setBeaconWidth(max);
+        onBeaconWidthChangeRef.current?.(max);
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const handleSidebarResizeStart = useCallback(
     (e: React.MouseEvent) => {
@@ -95,11 +134,18 @@ export function SidebarMainLayout({
         );
         sidebarWidthRef.current = newWidth;
         setSidebarWidth(newWidth);
+        // サイドバー拡大でBeaconの許容上限を超えたら縮める
+        const beaconMax = resolveBeaconMax(newWidth);
+        if (beaconWidthRef.current > beaconMax) {
+          beaconWidthRef.current = beaconMax;
+          setBeaconWidth(beaconMax);
+        }
       };
 
       const handleMouseUp = () => {
         setResizing(null);
         onSidebarWidthChange?.(sidebarWidthRef.current);
+        onBeaconWidthChangeRef.current?.(beaconWidthRef.current);
         document.removeEventListener("mousemove", handleMouseMove);
         document.removeEventListener("mouseup", handleMouseUp);
         document.body.style.cursor = "";
@@ -131,7 +177,7 @@ export function SidebarMainLayout({
         const newWidth = clamp(
           window.innerWidth - ev.clientX,
           BEACON_MIN_WIDTH,
-          BEACON_MAX_WIDTH
+          resolveBeaconMax(sidebarWidthRef.current)
         );
         beaconWidthRef.current = newWidth;
         setBeaconWidth(newWidth);
