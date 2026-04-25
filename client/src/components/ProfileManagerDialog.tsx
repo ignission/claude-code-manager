@@ -73,9 +73,7 @@ export function ProfileManagerDialog({
   onDelete,
 }: ProfileManagerDialogProps) {
   const [mode, setMode] = useState<Mode>({ kind: "list" });
-  const [pendingDelete, setPendingDelete] = useState<Profile | null>(
-    null
-  );
+  const [pendingDelete, setPendingDelete] = useState<Profile | null>(null);
 
   // ダイアログが閉じたら内部stateをリセット
   useEffect(() => {
@@ -201,7 +199,8 @@ function ListView({
           プロファイル管理
         </DialogTitle>
         <DialogDescription>
-          Claude CLI の設定ディレクトリ (CLAUDE_CONFIG_DIR) をリポジトリ単位で使い分けます。
+          Claude CLI の設定ディレクトリ (CLAUDE_CONFIG_DIR)
+          をリポジトリ単位で使い分けます。
         </DialogDescription>
       </DialogHeader>
 

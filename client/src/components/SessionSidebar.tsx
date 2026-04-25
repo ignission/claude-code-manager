@@ -51,8 +51,8 @@ import {
 import { useGroupedWorktreeItems } from "@/hooks/useGroupedWorktreeItems";
 import { getBaseName } from "@/utils/pathUtils";
 import type {
-  Profile,
   ManagedSession,
+  Profile,
   SystemCapabilities,
   Worktree,
 } from "../../../shared/types";

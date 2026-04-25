@@ -10,12 +10,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type {
-  Profile,
   BeaconStreamChunk,
   BrowserSession,
   ChatMessage,
   ClientToServerEvents,
   ManagedSession,
+  Profile,
   RepoInfo,
   ServerToClientEvents,
   SpecialKey,
