@@ -416,8 +416,9 @@ describe("AccountLoginManager", () => {
 // extractOAuthUrl: tmux capture-pane 出力からの URL 抽出ロジック
 // ---------------------------------------------------------------------------
 describe("extractOAuthUrl", () => {
+  // 実機 (Claude CLI 2.1.120) が出す URL 形式
   const FULL_URL =
-    "https://claude.ai/oauth/authorize?response_type=code&client_id=9d1c250a-e61b-44d9-88ed-5944d1962abc&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=user&state=xyz123&code_challenge=abc&code_challenge_method=S256";
+    "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile&code_challenge=QA6rGXdk1NhadFPlwyN22cM_NP-LBShdurLrPqtLmX8&code_challenge_method=S256&state=Z1AIuRUuYTpPyNPluQ2SvzhSxadFheELe92vLerpYE4";
 
   it("通常の出力から URL を抽出できる", () => {
     const input = `Open URL:\n\n${FULL_URL}\n\nPaste code:`;

@@ -48,8 +48,11 @@ interface ActiveLogin {
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const URL_DETECT_INTERVAL_MS = 1000;
-// OAuth URL の起点（`claude /login` が出す URL のホスト部）
-const OAUTH_URL_START = /https?:\/\/(?:claude\.ai|console\.anthropic\.com)\//;
+// OAuth URL の起点（`claude /login` が出す URL のホスト部）。
+// 実機 (Claude CLI 2.1.x) では `claude.com/cai/oauth/...` を出す。
+// 過去/将来バージョン互換のため、claude.* と anthropic.com の主要サブドメインを許容する。
+const OAUTH_URL_START =
+  /https?:\/\/(?:[a-z0-9-]+\.)?(?:claude\.(?:ai|com)|anthropic\.com)\//;
 // URL文字の判定（RFC3986 unreserved + reserved の主要部分）
 const URL_CHAR = /[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]/;
 // ANSIエスケープシーケンス除去用 (CSI / OSC / charset switch)
