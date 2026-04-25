@@ -206,7 +206,12 @@ describe("AccountLoginManager", () => {
       "arklogin-abc12345",
       profile.id
     );
-    expect(result).toEqual({ ttydUrl: `/ttyd-login/${profile.id}/` });
+    // per-login token がクエリ文字列に付与されているはず
+    expect(result.ttydUrl).toMatch(
+      new RegExp(`^/ttyd-login/${profile.id}/\\?arklogin_token=[A-Za-z0-9_-]+$`)
+    );
+    expect(result.token).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(result.token.length).toBeGreaterThan(20);
   });
 
   it("startLogin: CredentialsWatcher を起動する", async () => {

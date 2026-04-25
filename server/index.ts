@@ -623,18 +623,33 @@ async function startServer() {
 
   // HTTP proxy for ttyd login sessions
   // 通常の `/ttyd/:sessionId` と独立し、`arklogin-*` tmux セッションを attach する。
+  // セキュリティ: profileId は account:list 経由で他クライアントに漏れるため、
+  // per-login token (cookie or query) で発行元クライアントだけが接続できるよう絞る。
   app.use("/ttyd-login/:profileId", (req, res) => {
     const { profileId } = req.params;
-    const inst = ttydLoginManager.getInstance(profileId);
-    if (!inst) {
-      res.status(404).json({ error: "Login session not found" });
+    const token = extractArkLoginToken(req);
+    const port = accountLoginManager.authorizeAndGetPort(profileId, token);
+    if (port === null) {
+      res
+        .status(404)
+        .json({ error: "Login session not found or unauthorized" });
       return;
+    }
+    // 初回 GET でトークン Cookie を発行 (ttyd 内サブリソースも認可するため)
+    if (
+      req.method === "GET" &&
+      !(req.headers.cookie || "").includes("arklogin_token_")
+    ) {
+      res.setHeader(
+        "Set-Cookie",
+        `arklogin_token_${profileId}=${token}; Path=/ttyd-login/${profileId}; HttpOnly; SameSite=Strict`
+      );
     }
     // ttyd は --base-path=/ttyd-login/<profileId> で起動しており、
     // Express がマウントパスを削除するため originalUrl で復元する。
     req.url = req.originalUrl;
     ttydProxy.web(req, res, {
-      target: `http://127.0.0.1:${inst.port}`,
+      target: `http://127.0.0.1:${port}`,
     });
   });
 
@@ -726,6 +741,28 @@ async function startServer() {
    * ローカル/プライベートIPは認証スキップ。
    * @returns 認証OKならtrue、失敗時はfalse（呼び出し側でsocket.destroy()する）
    */
+  /**
+   * `/ttyd-login/:profileId` 用の per-login token を req から取り出す。
+   * 優先順: クエリ `arklogin_token` → Cookie `arklogin_token_<profileId>`。
+   * (初回 GET でクエリ → サーバが Cookie 発行 → 後続のサブリソース/WS は Cookie で認可)
+   */
+  function extractArkLoginToken(
+    req: import("node:http").IncomingMessage
+  ): string {
+    const urlStr = req.url ?? "";
+    const profileMatch = urlStr.match(/^\/ttyd-login\/([^/?]+)/);
+    const profileId = profileMatch?.[1] ?? "";
+    // クエリ
+    const qMatch = urlStr.match(/[?&]arklogin_token=([^&#]+)/);
+    if (qMatch) return decodeURIComponent(qMatch[1]);
+    // Cookie
+    const cookie = req.headers.cookie ?? "";
+    const cookieMatch = cookie.match(
+      new RegExp(`(?:^|;\\s*)arklogin_token_${profileId}=([^;]+)`)
+    );
+    return cookieMatch ? decodeURIComponent(cookieMatch[1]) : "";
+  }
+
   function authorizeWebSocketUpgrade(
     req: import("node:http").IncomingMessage,
     url: URL
@@ -787,14 +824,16 @@ async function startServer() {
       }
 
       const profileId = ttydLoginMatch[1];
-      const inst = ttydLoginManager.getInstance(profileId);
+      // per-login token 認可: profileId だけでは他クライアントが乗っ取れるため
+      const token = extractArkLoginToken(req);
+      const port = accountLoginManager.authorizeAndGetPort(profileId, token);
 
-      if (inst) {
+      if (port !== null) {
         // ttyd は --base-path=/ttyd-login/<profileId> で起動しており、
         // /ttyd-login/<profileId>/ws で WebSocket 接続を待ち受ける。
         // req.url はそのまま転送する（パスの変更不要）。
         ttydProxy.ws(req, socket, head, {
-          target: `ws://127.0.0.1:${inst.port}`,
+          target: `ws://127.0.0.1:${port}`,
         });
         return;
       }
@@ -1661,9 +1700,30 @@ async function startServer() {
         if (accountLoginManager.isActive(id)) {
           await accountLoginManager.cancelLogin(id, "cancelled");
         }
+        // 削除前に該当紐付け一覧をスナップショット (CASCADE でDB上は消えるため)
+        const affectedRepoPaths = db
+          .listRepoAccountLinks()
+          .filter(link => link.accountProfileId === id)
+          .map(link => link.repoPath);
+
         db.deleteAccountProfile(id);
         io.emit("account:deleted", { id });
         io.emit("account:list", db.listAccountProfiles());
+
+        // 紐付けが切れた各リポジトリについて、クライアントのバッジ + 稼働中
+        // セッションの staleAccount を更新する
+        for (const repoPath of affectedRepoPaths) {
+          io.emit("repo:account-changed", {
+            repoPath,
+            accountProfileId: null,
+          });
+          // そのリポジトリで稼働中のセッションを列挙して staleAccount 再計算
+          for (const sess of sessionOrchestrator.getAllSessions()) {
+            if (sess.repoPath === repoPath) {
+              io.emit("session:updated", sess);
+            }
+          }
+        }
       } catch (e) {
         socket.emit("account:error", { message: getErrorMessage(e) });
       }

@@ -20,6 +20,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -44,6 +45,13 @@ interface ActiveLogin {
   timeoutHandle: NodeJS.Timeout;
   urlDetectorHandle: NodeJS.Timeout | null;
   detectedUrl: string | null;
+  /**
+   * ログインプロキシ認可用のランダムトークン。
+   * `/ttyd-login/<profileId>` URL は `account:list` から profileId が漏れるため
+   * 推測可能 → トークン無しだと別クライアントが進行中ログインに乗っ取り可能。
+   * クライアントはこのトークンを iframe の URL に乗せて送信し、プロキシ側で検証する。
+   */
+  token: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -145,10 +153,25 @@ export class AccountLoginManager extends EventEmitter {
   }
 
   /**
+   * profileId と token から認可成功時の port を取得する。
+   * proxy/upgrade ハンドラから per-login 認可チェックに使う。
+   * 不一致 / 未存在の場合は null。
+   */
+  authorizeAndGetPort(profileId: string, token: string): number | null {
+    const record = this.active.get(profileId);
+    if (!record) return null;
+    if (!token || token !== record.token) return null;
+    return record.ttydPort;
+  }
+
+  /**
    * インタラクティブなログインフローを開始する。
    * 同一 profileId で既にアクティブなログインが存在する場合は throw する。
+   * 戻り値の `ttydUrl` には per-login token がクエリ文字列として含まれる。
    */
-  async startLogin(profile: AccountProfile): Promise<{ ttydUrl: string }> {
+  async startLogin(
+    profile: AccountProfile
+  ): Promise<{ ttydUrl: string; token: string }> {
     if (this.active.has(profile.id)) {
       throw new Error("Login already in progress");
     }
@@ -206,7 +229,8 @@ export class AccountLoginManager extends EventEmitter {
         void this.cancelLogin(profile.id, "timeout");
       }, this.timeoutMs);
 
-      // 5. アクティブログインに登録
+      // 5. per-login token 生成 + アクティブログインに登録
+      const token = randomBytes(24).toString("base64url");
       this.active.set(profile.id, {
         profileId: profile.id,
         tmuxSessionName,
@@ -215,6 +239,7 @@ export class AccountLoginManager extends EventEmitter {
         timeoutHandle,
         urlDetectorHandle: null,
         detectedUrl: null,
+        token,
       });
 
       // 6. OAuth URL 検出ループ起動
@@ -223,7 +248,10 @@ export class AccountLoginManager extends EventEmitter {
       // クライアントへ送信し、ボタンから直接ブラウザで開けるようにする
       this.startUrlDetector(profile.id);
 
-      return { ttydUrl: ttydInstance.url };
+      // ttydUrl に token をクエリで付与
+      const sep = ttydInstance.url.includes("?") ? "&" : "?";
+      const ttydUrl = `${ttydInstance.url}${sep}arklogin_token=${token}`;
+      return { ttydUrl, token };
     } catch (error) {
       // 逆順ロールバック: ttyd → tmux
       if (ttydStarted) {

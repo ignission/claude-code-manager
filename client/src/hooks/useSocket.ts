@@ -601,15 +601,24 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       );
     });
 
-    socket.on("account:login-completed", ({ profileId: _profileId }) => {
-      setActiveLogin(null);
-      toast.success("アカウント認証が完了しました");
+    socket.on("account:login-completed", ({ profileId }) => {
+      // 別クライアント/タブの完了で自分のモーダルを閉じないよう profileId で絞る
+      setActiveLogin(prev => {
+        if (prev && prev.profileId === profileId) {
+          toast.success("アカウント認証が完了しました");
+          return null;
+        }
+        return prev;
+      });
     });
 
-    socket.on("account:login-failed", ({ profileId: _profileId, reason }) => {
-      setActiveLogin(null);
-      toast.error("アカウント認証に失敗しました", {
-        description: reason,
+    socket.on("account:login-failed", ({ profileId, reason }) => {
+      setActiveLogin(prev => {
+        if (prev && prev.profileId === profileId) {
+          toast.error("アカウント認証に失敗しました", { description: reason });
+          return null;
+        }
+        return prev;
       });
     });
 

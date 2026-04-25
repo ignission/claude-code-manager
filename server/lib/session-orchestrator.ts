@@ -158,6 +158,15 @@ export class SessionOrchestrator extends EventEmitter {
       db.updateSessionRepoPath(dbSession.id, derivedRepoPath);
     }
 
+    // 起動時に確定したアカウントと、現在のリポジトリ紐付けを比較して
+    // staleAccount を判定する。session:list / session:restored 経由でも
+    // 整合性を保つため、再接続/別クライアントでもバッジが復元される。
+    const currentProfileId = this.sessionAccounts.get(tmuxSession.id) ?? null;
+    const link = repoPath ? db.getRepoAccountLink(repoPath) : null;
+    const desiredProfileId = link?.accountProfileId ?? null;
+    const staleAccount =
+      currentProfileId !== null && currentProfileId !== desiredProfileId;
+
     return {
       id: tmuxSession.id,
       worktreeId,
@@ -168,6 +177,8 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSessionName: tmuxSession.tmuxSessionName,
       ttydPort: ttydInstance?.port || null,
       ttydUrl: ttydInstance ? `/ttyd/${tmuxSession.id}/` : null,
+      accountProfileId: currentProfileId,
+      staleAccount,
     };
   }
 
@@ -299,19 +310,9 @@ export class SessionOrchestrator extends EventEmitter {
         );
       }
 
+      // toManagedSession 内で sessionAccounts と紐付けを比較して
+      // accountProfileId / staleAccount を反映済み
       const managed = this.toManagedSession(existingTmux, worktreeId);
-
-      // 既存セッションのprofileIdと現在の紐付けを比較し、
-      // staleAccount を再計算する（ユーザがアカウント切替後に再接続したケース）。
-      const currentProfileId =
-        this.sessionAccounts.get(existingTmux.id) ?? null;
-      const link = resolvedRepoPath
-        ? db.getRepoAccountLink(resolvedRepoPath)
-        : null;
-      const desiredProfileId = link?.accountProfileId ?? null;
-      managed.accountProfileId = currentProfileId;
-      managed.staleAccount = currentProfileId !== desiredProfileId;
-
       this.emit("session:restored", managed);
       return managed;
     }

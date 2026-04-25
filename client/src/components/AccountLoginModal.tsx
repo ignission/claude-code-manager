@@ -26,8 +26,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import type { AccountProfile } from "../../../shared/types";
+import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 
 /** 10分のタイムアウト（サーバ側と一致させる） */
 const LOGIN_TIMEOUT_SECONDS = 10 * 60;
