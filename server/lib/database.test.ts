@@ -386,4 +386,69 @@ describe("SessionDatabase - profiles / repo_profile_links", () => {
       ).toBeNull();
     });
   });
+
+  // ============================================================
+  // replaceSession (atomic delete + upsert for restartSession)
+  // ============================================================
+
+  describe("replaceSession", () => {
+    it("旧セッションを削除しつつ新IDで挿入する (atomic)", () => {
+      // 旧セッションを upsert
+      testDb.upsertSession({
+        id: "old-id",
+        worktreeId: "wt-1",
+        worktreePath: "/repo/work",
+        repoPath: "/repo",
+        status: "active",
+      });
+      expect(testDb.getAllSessions()).toHaveLength(1);
+
+      // replaceSession で新IDに切替
+      testDb.replaceSession("old-id", {
+        id: "new-id",
+        worktreeId: "wt-1",
+        worktreePath: "/repo/work",
+        repoPath: "/repo",
+        status: "active",
+      });
+
+      const sessions = testDb.getAllSessions();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.id).toBe("new-id");
+      // 旧IDではもう取得できない
+      expect(testDb.getAllSessions().some(s => s.id === "old-id")).toBe(false);
+    });
+
+    it("既存セッションのmessagesも CASCADE で削除される", () => {
+      testDb.upsertSession({
+        id: "old-id",
+        worktreeId: "wt-1",
+        worktreePath: "/repo/work",
+        repoPath: "/repo",
+        status: "active",
+      });
+      testDb.addMessage({
+        id: "msg-1",
+        sessionId: "old-id",
+        role: "user",
+        content: "hello",
+        type: "text",
+        timestamp: new Date(),
+      });
+      expect(testDb.getMessagesBySession("old-id")).toHaveLength(1);
+
+      testDb.replaceSession("old-id", {
+        id: "new-id",
+        worktreeId: "wt-1",
+        worktreePath: "/repo/work",
+        repoPath: "/repo",
+        status: "active",
+      });
+
+      // 旧IDのmessagesはCASCADEで消える
+      expect(testDb.getMessagesBySession("old-id")).toHaveLength(0);
+      // 新IDにmessagesは引き継がれない
+      expect(testDb.getMessagesBySession("new-id")).toHaveLength(0);
+    });
+  });
 });

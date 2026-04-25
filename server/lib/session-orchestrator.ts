@@ -425,27 +425,32 @@ export class SessionOrchestrator extends EventEmitter {
       throw e;
     }
 
-    // 4. DB の切替を「旧tmux/ttyd停止より前」に実施する。
+    // 4. DB の切替を「旧tmux/ttyd停止より前」に atomic 実施する。
     //    sessions.id は messages.session_id から外部キー参照されており、
     //    messages 行に ON UPDATE CASCADE がないため、UPSERT による id 書き換えは
     //    SQLite に拒否される。よって旧行を delete (messages は ON DELETE CASCADE
-    //    で連鎖削除) → 新行を upsert する順序にする。
+    //    で連鎖削除) → 新行を upsert する順序にする。delete と insert を別個に
+    //    実行すると、insert 失敗時に DB行+messages を失ったまま旧tmux が残るので、
+    //    `replaceSession` (transaction) で atomic 化し、失敗時は ROLLBACK で
+    //    旧行を保護する。
     //    restart は新たな claude プロセスを起動する仕様で、Ark側の会話履歴
     //    (messages) も同期して破棄する想定。
     //    ここで失敗した場合は旧tmuxはまだ生きているので新tmuxを後始末して throw。
     try {
-      if (dbSession) {
-        db.deleteSession(dbSession.id);
-      }
-      db.upsertSession({
+      const newSessionInput = {
         id: newTmux.id,
         worktreeId,
         worktreePath,
         repoPath,
-        status: "active",
+        status: "active" as const,
         profileId: snapshot?.id ?? null,
         profileConfigDir: snapshot?.configDir ?? null,
-      });
+      };
+      if (dbSession) {
+        db.replaceSession(dbSession.id, newSessionInput);
+      } else {
+        db.upsertSession(newSessionInput);
+      }
     } catch (e) {
       ttydManager.stopInstance(newTmux.id);
       tmuxManager.killSession(newTmux.id);

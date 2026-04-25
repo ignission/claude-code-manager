@@ -58,6 +58,7 @@ vi.mock("./database.js", () => {
     getProfile: vi.fn(),
     getSessionByWorktreePath: vi.fn(),
     upsertSession: vi.fn(),
+    replaceSession: vi.fn(),
     updateSessionRepoPath: vi.fn(),
     updateSessionStatus: vi.fn(),
     deleteSession: vi.fn(),

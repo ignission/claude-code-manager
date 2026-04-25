@@ -475,6 +475,23 @@ export class SessionDatabase {
   }
 
   /**
+   * 旧セッションIDを削除し、新しいIDで upsert する操作を atomic に実行。
+   *
+   * restartSession 用。messages.session_id は ON DELETE CASCADE のみで
+   * ON UPDATE CASCADE が無いため、id を直接書き換える upsert は外部キー
+   * 違反になる。delete → insert の順で行うが、片方だけ成功すると整合性が
+   * 壊れるためトランザクションで括る。失敗時は自動ROLLBACKされ、呼び出し
+   * 側は旧行が無傷で残ったまま例外を受け取れる。
+   */
+  replaceSession(oldId: string, newSession: CreateSessionInput): void {
+    const txn = this.db.transaction((oid: string, ns: CreateSessionInput) => {
+      this.deleteSession(oid);
+      this.upsertSession(ns);
+    });
+    txn(oldId, newSession);
+  }
+
+  /**
    * 全てのセッションを取得
    *
    * @returns セッションの配列
