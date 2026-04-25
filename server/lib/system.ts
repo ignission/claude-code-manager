@@ -5,21 +5,48 @@
  *
  * 条件:
  *   - process.platform === "linux"
- *   - `claude` CLI が PATH に存在する
+ *   - `claude` CLI が見つかる（PATH または既知の候補ディレクトリ）
  *
  * macOS / Windows は Keychain 依存のため非対応。
+ *
+ * 注: pm2 等のサービスマネージャ経由で起動された場合、ログインシェルと
+ * PATH が異なるため `which claude` だけだと検知漏れする。`~/.local/bin`
+ * 等の典型的な場所も直接チェックする。
  */
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-/** PATH に `claude` コマンドが存在するか */
+/**
+ * `claude` コマンドが利用可能か。
+ * 1. `which claude` (PATH チェック)
+ * 2. 既知の候補ディレクトリ
+ * 3. mise shims
+ */
 export function checkClaudeCommandExists(): boolean {
   try {
     const r = spawnSync("which", ["claude"], { stdio: "pipe" });
-    return r.status === 0;
+    if (r.status === 0) return true;
   } catch {
-    return false;
+    // fallthrough
   }
+
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".local/bin/claude"),
+    path.join(home, ".local/share/mise/shims/claude"),
+    "/usr/local/bin/claude",
+    "/opt/claude/bin/claude",
+  ];
+  return candidates.some(p => {
+    try {
+      return existsSync(p);
+    } catch {
+      return false;
+    }
+  });
 }
 
 /**

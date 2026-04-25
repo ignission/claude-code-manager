@@ -888,6 +888,7 @@ async function startServer() {
       "session:restored",
       "session:stopped",
       "session:updated",
+      "session:warning",
     ] as const;
     type ForwardedEvent = (typeof forwardedEvents)[number];
 
