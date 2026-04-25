@@ -79,7 +79,10 @@ const getLastWatcher = (): FakeWatcher =>
 import { spawnSync } from "node:child_process";
 import { promises as fsPromises } from "node:fs";
 import type { AccountProfile } from "../../shared/types.js";
-import { AccountLoginManager } from "./account-login-manager.js";
+import {
+  AccountLoginManager,
+  extractOAuthUrl,
+} from "./account-login-manager.js";
 
 const spawnSyncMock = spawnSync as unknown as ReturnType<typeof vi.fn>;
 const fsMkdirMock = fsPromises.mkdir as unknown as ReturnType<typeof vi.fn>;
@@ -406,5 +409,55 @@ describe("AccountLoginManager", () => {
       "profile-B",
     ]);
     expect(failedEvents.every(e => e.reason === "cancelled")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractOAuthUrl: tmux capture-pane 出力からの URL 抽出ロジック
+// ---------------------------------------------------------------------------
+describe("extractOAuthUrl", () => {
+  const FULL_URL =
+    "https://claude.ai/oauth/authorize?response_type=code&client_id=9d1c250a-e61b-44d9-88ed-5944d1962abc&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=user&state=xyz123&code_challenge=abc&code_challenge_method=S256";
+
+  it("通常の出力から URL を抽出できる", () => {
+    const input = `Open URL:\n\n${FULL_URL}\n\nPaste code:`;
+    expect(extractOAuthUrl(input)).toBe(FULL_URL);
+  });
+
+  it("ターミナル幅で折り返された URL を結合できる", () => {
+    const wrapped = `${FULL_URL.slice(0, 80)}\n${FULL_URL.slice(80, 160)}\n${FULL_URL.slice(160)}\n\nPaste:`;
+    expect(extractOAuthUrl(wrapped)).toBe(FULL_URL);
+  });
+
+  it("ANSIエスケープ (CSI) を除去して抽出できる", () => {
+    const input = `\x1b[34;4m${FULL_URL}\x1b[0m\n\nNext`;
+    expect(extractOAuthUrl(input)).toBe(FULL_URL);
+  });
+
+  it("redirect_uri を含まない不完全な URL は null", () => {
+    expect(
+      extractOAuthUrl(
+        "https://claude.ai/oauth/authorize?response_type=code&client_id=abc"
+      )
+    ).toBeNull();
+  });
+
+  it("空行で URL が終了する場合、後続テキストを取り込まない", () => {
+    const input = `${FULL_URL}\n\nPaste the code:`;
+    expect(extractOAuthUrl(input)).toBe(FULL_URL);
+  });
+
+  it("URL が出力に含まれない場合は null", () => {
+    expect(extractOAuthUrl("ただのターミナル出力\nプロンプト>")).toBeNull();
+  });
+
+  it("OSC エスケープシーケンスも除去できる", () => {
+    const input = `\x1b]0;title\x07${FULL_URL}\n\nNext`;
+    expect(extractOAuthUrl(input)).toBe(FULL_URL);
+  });
+
+  it("複数のスペースで区切られた場合、後続文字列を取り込まない", () => {
+    const input = `${FULL_URL}    other text on same line`;
+    expect(extractOAuthUrl(input)).toBe(FULL_URL);
   });
 });

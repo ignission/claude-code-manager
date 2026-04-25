@@ -48,13 +48,80 @@ interface ActiveLogin {
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const URL_DETECT_INTERVAL_MS = 1000;
-// `claude /login` が表示する OAuth URL を検出する正規表現
-// 例: https://claude.ai/oauth/authorize?... / https://console.anthropic.com/oauth/...
-const OAUTH_URL_PATTERN =
-  /https?:\/\/(?:claude\.ai|console\.anthropic\.com)\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]+/;
-// ANSIエスケープシーケンス除去用
+// OAuth URL の起点（`claude /login` が出す URL のホスト部）
+const OAUTH_URL_START = /https?:\/\/(?:claude\.ai|console\.anthropic\.com)\//;
+// URL文字の判定（RFC3986 unreserved + reserved の主要部分）
+const URL_CHAR = /[A-Za-z0-9._~:/?#@!$&'()*+,;=%-]/;
+// ANSIエスケープシーケンス除去用 (CSI / OSC / charset switch)
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSIエスケープシーケンス除去のため
-const ANSI_ESCAPE_PATTERN = /\x1b\[[0-9;]*[A-Za-z]/g;
+const ANSI_CSI = /\x1b\[[?#]?[0-9;]*[a-zA-Z]/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: OSC終端は BEL または ESC\
+const ANSI_OSC = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
+// biome-ignore lint/suspicious/noControlCharactersInRegex: charset切替シーケンス
+const ANSI_CHARSET = /\x1b[()][AB012]/g;
+
+/**
+ * tmux capture-pane の生出力から OAuth URL を抽出する。
+ *
+ * ttyd ターミナル幅で URL が物理改行されてもロバストに復元する:
+ *  - ANSIエスケープを除去
+ *  - URL の起点 (claude.ai/oauth/... 等) を探す
+ *  - URL文字を貪欲に収集。空白/改行は「次の非空白がURL文字なら折り返し」と判定して連結
+ *  - 段落区切り (空行 or スペース2文字以上) は URL の終端と判定して停止
+ *  - 末尾は redirect_uri= を含むことを必須にしてサニティ確認
+ *    （長い URL の前半だけ取れて OAuth サーバから怒られる事故を防ぐ）
+ *
+ * 注: xterm.js の WebLinksAddon は視覚行ベースで URL 検出するため、
+ * ttyd 内クリックでは折り返し済URLの先頭部分しか開けない。サーバ側で
+ * 抽出して URL バナーから直接ブラウザを開かせるのが本機構の役割。
+ */
+export function extractOAuthUrl(rawCapture: string): string | null {
+  const stripped = rawCapture
+    .replace(ANSI_CSI, "")
+    .replace(ANSI_OSC, "")
+    .replace(ANSI_CHARSET, "")
+    .replace(/\r/g, "");
+
+  const start = stripped.match(OAUTH_URL_START);
+  if (!start || start.index === undefined) return null;
+
+  let pos = start.index;
+  let url = "";
+  while (pos < stripped.length) {
+    const ch = stripped[pos];
+    if (URL_CHAR.test(ch)) {
+      url += ch;
+      pos++;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      // 空白/改行: 次の非空白文字がURL文字なら「折り返し」とみなして連結
+      // ただし以下の場合は段落区切りと判断して停止:
+      //  - 連続する改行が2つ以上 (空行は段落の区切り)
+      //  - 改行を挟まない複数空白文字 (URL内に空白は無いはず)
+      let next = pos + 1;
+      let newlineCount = ch === "\n" ? 1 : 0;
+      let nonNewlineWs = ch !== "\n" ? 1 : 0;
+      while (next < stripped.length && /\s/.test(stripped[next])) {
+        if (stripped[next] === "\n") newlineCount++;
+        else nonNewlineWs++;
+        next++;
+      }
+      if (newlineCount >= 2 || nonNewlineWs >= 2) break;
+      if (next < stripped.length && URL_CHAR.test(stripped[next])) {
+        pos = next;
+        continue;
+      }
+      break;
+    }
+    break;
+  }
+
+  // 必須クエリパラメータ (redirect_uri) を含むこと
+  // → 取りこぼしで OAuth サーバが「無効なOAuth要求」と返す事故を防ぐ
+  if (!url.includes("redirect_uri=")) return null;
+  return url;
+}
 
 export class AccountLoginManager extends EventEmitter {
   private readonly active = new Map<string, ActiveLogin>();
@@ -217,23 +284,26 @@ export class AccountLoginManager extends EventEmitter {
       const cur = this.active.get(profileId);
       if (!cur) return;
       try {
+        // 履歴も含めて取得 (-S - で先頭から、-E - で末尾まで)。
+        // -J で wrap 連結を試みつつ、対応しきれない折り返しは extractOAuthUrl で復元
         const r = spawnSync(
           "tmux",
-          ["capture-pane", "-p", "-J", "-t", cur.tmuxSessionName],
+          [
+            "capture-pane",
+            "-p",
+            "-J",
+            "-S",
+            "-",
+            "-E",
+            "-",
+            "-t",
+            cur.tmuxSessionName,
+          ],
           { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }
         );
         if (r.status !== 0) return;
-        // ANSIエスケープを除去（色やカーソル制御）
-        const cleaned = (r.stdout || "")
-          .replace(ANSI_ESCAPE_PATTERN, "")
-          // ターミナル幅で改行されたURL断片を結合（claude /login は URL を1行で書くが、
-          // ttyd の幅で物理改行される。-J オプションで連結を試みるが、改行コードは残るので除去）
-          .replace(/\r/g, "")
-          // 改行+空白のパターンは折り返しと判断して連結
-          .replace(/\n\s*/g, "");
-        const m = cleaned.match(OAUTH_URL_PATTERN);
-        if (m) {
-          const url = m[0];
+        const url = extractOAuthUrl(r.stdout || "");
+        if (url) {
           if (cur.detectedUrl !== url) {
             cur.detectedUrl = url;
             this.emit("url-detected", profileId, url);
