@@ -271,6 +271,14 @@ export default function Dashboard() {
     [selectedSessionId, sessions, restartSessionWithProfile]
   );
 
+  // ユーザー操作によるセッション選択。restart pending 中にユーザーが
+  // 別セッションを手動で選んだ場合、新セッション到着時に元の worktree
+  // へ自動移動させない (= migration を破棄する)。
+  const handleSelectSession = useCallback((id: string | null) => {
+    restartingWorktreePathRef.current = null;
+    setSelectedSessionId(id);
+  }, []);
+
   // セッション自動選択
   useEffect(() => {
     // ブラウザ選択中はリセットしない
@@ -437,7 +445,7 @@ export default function Dashboard() {
           onDeleteWorktree={handleDeleteWorktree}
           onSendMessage={sendMessage}
           onSendKey={sendKey}
-          onSelectSession={sessionId => setSelectedSessionId(sessionId)}
+          onSelectSession={handleSelectSession}
           onUploadFile={uploadFile}
           onCopyBuffer={copyBuffer}
           onNewSession={handleNewSession}
@@ -463,7 +471,7 @@ export default function Dashboard() {
               selectedSessionId={selectedSessionId}
               sessionPreviews={sessionPreviews}
               sessionActivityTexts={sessionActivityTexts}
-              onSelectSession={setSelectedSessionId}
+              onSelectSession={handleSelectSession}
               onDeleteSession={handleDeleteSession}
               onStartSession={handleStartSession}
               onNewSession={handleNewSession}

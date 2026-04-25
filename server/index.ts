@@ -1606,12 +1606,31 @@ async function startServer() {
         });
         return;
       }
+      // symlink 経由の repoPath を realpath で正規化する。
+      // session-orchestrator 側は git rev-parse で実パスに正規化されるため、
+      // ここで揃えないと DB に保存した key と lookup key が一致せず
+      // resolveProfileForRepo が紐付けを取り出せない (silently ignore)。
+      let canonicalRepoPath: string;
+      try {
+        canonicalRepoPath = fs.realpathSync(repoPath);
+      } catch {
+        socket.emit("profile:error", {
+          message: "リポジトリパスが解決できません",
+          code: "invalid_repo",
+        });
+        return;
+      }
       // repo:select と同等の境界検証: 任意のpathへの書き込みを防ぐ。
       // allowedRepos が指定されている場合のみ含まれているかを確認する
       // (allowedRepos 未指定時は repoList リロード復元等で knownRepos に
       //  まだ反映されていないケースもあるため、後続の isGitRepository
       //  チェックで実体を保護する)。
-      if (allowedRepos.length > 0 && !allowedRepos.includes(repoPath)) {
+      // 元 repoPath / 正規化後どちらかが allowedRepos に含まれていれば許可する
+      if (
+        allowedRepos.length > 0 &&
+        !allowedRepos.includes(repoPath) &&
+        !allowedRepos.includes(canonicalRepoPath)
+      ) {
         socket.emit("profile:error", {
           message: "リポジトリが許可リストに含まれていません",
           code: "repo_not_allowed",
@@ -1619,7 +1638,7 @@ async function startServer() {
         return;
       }
       try {
-        if (!(await isGitRepository(repoPath))) {
+        if (!(await isGitRepository(canonicalRepoPath))) {
           socket.emit("profile:error", {
             message: "リポジトリパスが有効なgitリポジトリではありません",
             code: "invalid_repo",
@@ -1627,19 +1646,24 @@ async function startServer() {
           return;
         }
         if (profileId === null) {
-          db.removeRepoProfileLink(repoPath);
+          db.removeRepoProfileLink(canonicalRepoPath);
         } else {
-          db.setRepoProfileLink(repoPath, profileId);
+          db.setRepoProfileLink(canonicalRepoPath, profileId);
         }
-        io.emit("repo:profile-changed", { repoPath, profileId });
+        io.emit("repo:profile-changed", {
+          repoPath: canonicalRepoPath,
+          profileId,
+        });
 
         // 該当 repoPath 配下の稼働中セッションは紐付け変更で staleProfile が
         // 切り替わっている可能性があるため、最新の ManagedSession を再 emit する。
         // (getAllSessions() は toManagedSession 経由で staleProfile を再計算済。
         //  「変更前/変更後」の比較で発火制御してしまうと、紐付けは既に新値に
         //  なっているため両者が一致して emit されない再発バグの原因になる)
+        // ManagedSession.repoPath も git rev-parse 由来 = 正規化済みなので
+        // canonicalRepoPath と直接比較できる
         for (const session of sessionOrchestrator.getAllSessions()) {
-          if (session.repoPath === repoPath) {
+          if (session.repoPath === canonicalRepoPath) {
             io.emit("session:updated", session);
           }
         }
