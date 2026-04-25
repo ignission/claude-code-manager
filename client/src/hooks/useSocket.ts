@@ -8,7 +8,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
+import { toast } from "sonner";
 import type {
+  AccountProfile,
   BeaconStreamChunk,
   BrowserSession,
   ChatMessage,
@@ -17,6 +19,7 @@ import type {
   RepoInfo,
   ServerToClientEvents,
   SpecialKey,
+  SystemCapabilities,
   Worktree,
 } from "../../../shared/types";
 
@@ -133,6 +136,25 @@ interface UseSocketReturn {
   startBrowser: () => void;
   stopBrowser: (browserId: string) => void;
   navigateBrowser: (url: string) => void;
+
+  // 複数アカウント切替 (Linux限定)
+  accounts: AccountProfile[];
+  /** repoPath → accountProfileId のマップ */
+  repoAccountLinks: Map<string, string>;
+  capabilities: SystemCapabilities;
+  /** 現在進行中のログイン情報（モーダル表示用） */
+  activeLogin: { profileId: string; ttydUrl: string } | null;
+  loadAccounts: () => void;
+  createAccount: (name: string, configDir: string) => void;
+  updateAccount: (
+    id: string,
+    patch: { name?: string; configDir?: string }
+  ) => void;
+  deleteAccount: (id: string) => void;
+  startLogin: (profileId: string) => void;
+  cancelLogin: (profileId: string) => void;
+  setRepoAccount: (repoPath: string, accountProfileId: string | null) => void;
+  restartSessionWithAccount: (sessionId: string) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
@@ -201,6 +223,19 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   const [beaconMessages, setBeaconMessages] = useState<ChatMessage[]>([]);
   const [beaconStreaming, setBeaconStreaming] = useState(false);
   const [beaconStreamText, setBeaconStreamText] = useState("");
+
+  // 複数アカウント切替 (Linux限定)
+  const [accounts, setAccounts] = useState<AccountProfile[]>([]);
+  const [repoAccountLinks, setRepoAccountLinks] = useState<Map<string, string>>(
+    new Map()
+  );
+  const [capabilities, setCapabilities] = useState<SystemCapabilities>({
+    multiAccountSupported: false,
+  });
+  const [activeLogin, setActiveLogin] = useState<{
+    profileId: string;
+    ttydUrl: string;
+  } | null>(null);
 
   // repoPathRefをrepoPathの変化に同期させる
   useEffect(() => {
@@ -521,6 +556,77 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       setBrowserError(message);
     });
 
+    // 複数アカウント切替 (Linux限定) ----------------------------------
+    socket.on("system:capabilities", caps => {
+      setCapabilities(caps);
+      // 機能利用可能ならアカウント一覧を初回取得
+      if (caps.multiAccountSupported) {
+        socket.emit("account:list");
+      }
+    });
+
+    socket.on("account:list", list => {
+      setAccounts(list);
+    });
+
+    socket.on("account:created", profile => {
+      // サーバー側でも account:list を再emitするが、即時反映のため楽観更新
+      setAccounts(prev =>
+        prev.some(p => p.id === profile.id) ? prev : [...prev, profile]
+      );
+    });
+
+    socket.on("account:updated", profile => {
+      setAccounts(prev => prev.map(p => (p.id === profile.id ? profile : p)));
+    });
+
+    socket.on("account:deleted", ({ id }) => {
+      setAccounts(prev => prev.filter(p => p.id !== id));
+    });
+
+    socket.on("account:login-started", ({ profileId, ttydUrl }) => {
+      setActiveLogin({ profileId, ttydUrl });
+    });
+
+    socket.on("account:login-completed", ({ profileId: _profileId }) => {
+      setActiveLogin(null);
+      toast.success("アカウント認証が完了しました");
+    });
+
+    socket.on("account:login-failed", ({ profileId: _profileId, reason }) => {
+      setActiveLogin(null);
+      toast.error("アカウント認証に失敗しました", {
+        description: reason,
+      });
+    });
+
+    socket.on("account:error", ({ message, code }) => {
+      console.error("[Socket] Account error:", message, code);
+      toast.error(message);
+    });
+
+    socket.on("repo:account-changed", ({ repoPath, accountProfileId }) => {
+      setRepoAccountLinks(prev => {
+        const next = new Map(prev);
+        if (accountProfileId) {
+          next.set(repoPath, accountProfileId);
+        } else {
+          next.delete(repoPath);
+        }
+        return next;
+      });
+    });
+
+    socket.on("session:warning", ({ sessionId: _sessionId, code }) => {
+      if (code === "config_dir_missing") {
+        toast.warning("アカウント設定ディレクトリが見つかりません", {
+          description: "再ログインが必要です",
+        });
+      } else {
+        toast.warning(`セッション警告: ${code}`);
+      }
+    });
+
     // Cleanup on unmount
     return () => {
       socket.off("ports:list");
@@ -781,6 +887,48 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     socketRef.current?.emit("browser:navigate", { url });
   }, []);
 
+  // 複数アカウント切替 (Linux限定) actions
+  const loadAccounts = useCallback(() => {
+    socketRef.current?.emit("account:list");
+  }, []);
+
+  const createAccount = useCallback((name: string, configDir: string) => {
+    socketRef.current?.emit("account:create", { name, configDir });
+  }, []);
+
+  const updateAccount = useCallback(
+    (id: string, patch: { name?: string; configDir?: string }) => {
+      socketRef.current?.emit("account:update", { id, ...patch });
+    },
+    []
+  );
+
+  const deleteAccount = useCallback((id: string) => {
+    socketRef.current?.emit("account:delete", { id });
+  }, []);
+
+  const startLogin = useCallback((profileId: string) => {
+    socketRef.current?.emit("account:start-login", { profileId });
+  }, []);
+
+  const cancelLogin = useCallback((profileId: string) => {
+    socketRef.current?.emit("account:cancel-login", { profileId });
+  }, []);
+
+  const setRepoAccount = useCallback(
+    (repoPath: string, accountProfileId: string | null) => {
+      socketRef.current?.emit("repo:set-account", {
+        repoPath,
+        accountProfileId,
+      });
+    },
+    []
+  );
+
+  const restartSessionWithAccount = useCallback((sessionId: string) => {
+    socketRef.current?.emit("session:restart-with-account", { sessionId });
+  }, []);
+
   return {
     socket: socketRef.current,
     isConnected,
@@ -840,5 +988,18 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     startBrowser,
     stopBrowser,
     navigateBrowser,
+    // 複数アカウント切替 (Linux限定)
+    accounts,
+    repoAccountLinks,
+    capabilities,
+    activeLogin,
+    loadAccounts,
+    createAccount,
+    updateAccount,
+    deleteAccount,
+    startLogin,
+    cancelLogin,
+    setRepoAccount,
+    restartSessionWithAccount,
   };
 }

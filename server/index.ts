@@ -6,7 +6,7 @@
  * Supports remote access via Cloudflare Tunnel.
  */
 
-import { exec } from "node:child_process";
+import { exec, execSync, spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { promisify } from "node:util";
 import express from "express";
@@ -22,7 +22,9 @@ import { Server, type Socket } from "socket.io";
 import type {
   ClientToServerEvents,
   ServerToClientEvents,
+  SystemCapabilities,
 } from "../shared/types.js";
+import { AccountLoginManager } from "./lib/account-login-manager.js";
 import { authManager } from "./lib/auth.js";
 import { beaconManager } from "./lib/beacon-manager.js";
 import { browserManager } from "./lib/browser-manager.js";
@@ -53,7 +55,9 @@ import {
 import { getListeningPorts } from "./lib/port-scanner.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { sessionOrchestrator } from "./lib/session-orchestrator.js";
+import { detectMultiAccountSupported } from "./lib/system.js";
 import { tmuxManager } from "./lib/tmux-manager.js";
+import { TtydLoginManager } from "./lib/ttyd-login-manager.js";
 import { TunnelManager } from "./lib/tunnel.js";
 
 // Parse command line arguments
@@ -143,6 +147,37 @@ async function startServer() {
     console.log(
       "Skip permissions mode enabled - Claude will run with --dangerously-skip-permissions"
     );
+  }
+
+  // ===== マルチアカウント機能 (Linux限定) =====
+  const capabilities: SystemCapabilities = {
+    multiAccountSupported: detectMultiAccountSupported(),
+  };
+  console.log(
+    `[Capabilities] multiAccountSupported = ${capabilities.multiAccountSupported}`
+  );
+
+  // ttyd ログイン用マネージャ + アカウントログインオーケストレータ
+  const ttydLoginManager = new TtydLoginManager();
+  const accountLoginManager = new AccountLoginManager(
+    tmuxManager,
+    ttydLoginManager
+  );
+
+  // 起動時クリーンアップ: 前回プロセスから残留した arklogin-* tmux セッションを除去
+  try {
+    const r = execSync("tmux list-sessions -F '#{session_name}'", {
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    for (const name of r.trim().split("\n").filter(Boolean)) {
+      if (name.startsWith("arklogin-")) {
+        spawnSync("tmux", ["kill-session", "-t", name], { stdio: "pipe" });
+        console.log(`[AccountLogin] Killed orphan tmux session: ${name}`);
+      }
+    }
+  } catch {
+    // tmux 未起動 / list-sessions が空 → 無視
   }
 
   // Create proxy for ttyd WebSocket connections
@@ -236,6 +271,38 @@ async function startServer() {
 
   // Apply Socket.IO authentication middleware
   io.use(authManager.socketMiddleware());
+
+  // ===== AccountLoginManager のイベントを Socket.IO にブリッジ =====
+
+  // socket.id → このソケットが開始したアクティブログインの profileId 集合
+  // connection 内で参照する変数だが、ログイン完了/失敗 event ハンドラからも
+  // 解除する必要があるため、connection 外側 (startServer スコープ) に置く。
+  const socketActiveLogins = new Map<string, Set<string>>();
+
+  /** ログイン終了時に socketActiveLogins から該当 profileId を除去する */
+  const removeProfileFromTracking = (profileId: string) => {
+    for (const set of socketActiveLogins.values()) {
+      set.delete(profileId);
+    }
+  };
+
+  accountLoginManager.on("completed", (profileId: string) => {
+    try {
+      db.markAccountAuthenticated(profileId);
+    } catch (error) {
+      console.error(
+        `[AccountLogin] markAccountAuthenticated 失敗: ${getErrorMessage(error)}`
+      );
+    }
+    removeProfileFromTracking(profileId);
+    io.emit("account:login-completed", { profileId });
+    io.emit("account:list", db.listAccountProfiles());
+  });
+
+  accountLoginManager.on("failed", (profileId: string, reason: string) => {
+    removeProfileFromTracking(profileId);
+    io.emit("account:login-failed", { profileId, reason });
+  });
 
   // BeaconにArk操作の依存を注入（MCPツールで利用）
   beaconManager.configure({
@@ -548,6 +615,25 @@ async function startServer() {
     });
   });
 
+  // ===== ttyd Login Proxy Routes (マルチアカウント機能用) =====
+
+  // HTTP proxy for ttyd login sessions
+  // 通常の `/ttyd/:sessionId` と独立し、`arklogin-*` tmux セッションを attach する。
+  app.use("/ttyd-login/:profileId", (req, res) => {
+    const { profileId } = req.params;
+    const inst = ttydLoginManager.getInstance(profileId);
+    if (!inst) {
+      res.status(404).json({ error: "Login session not found" });
+      return;
+    }
+    // ttyd は --base-path=/ttyd-login/<profileId> で起動しており、
+    // Express がマウントパスを削除するため originalUrl で復元する。
+    req.url = req.originalUrl;
+    ttydProxy.web(req, res, {
+      target: `http://127.0.0.1:${inst.port}`,
+    });
+  });
+
   // ===== noVNC Browser Proxy Routes =====
 
   app.use("/browser/:browserId", (req, res) => {
@@ -687,6 +773,31 @@ async function startServer() {
       return;
     }
 
+    // Handle ttyd-login WebSocket connections (マルチアカウント機能用)
+    const ttydLoginMatch = pathname.match(/^\/ttyd-login\/([^/]+)/);
+    if (ttydLoginMatch) {
+      // 認証検証（Quick Tunnel時のみ）
+      if (!authorizeWebSocketUpgrade(req, url)) {
+        socket.destroy();
+        return;
+      }
+
+      const profileId = ttydLoginMatch[1];
+      const inst = ttydLoginManager.getInstance(profileId);
+
+      if (inst) {
+        // ttyd は --base-path=/ttyd-login/<profileId> で起動しており、
+        // /ttyd-login/<profileId>/ws で WebSocket 接続を待ち受ける。
+        // req.url はそのまま転送する（パスの変更不要）。
+        ttydProxy.ws(req, socket, head, {
+          target: `ws://127.0.0.1:${inst.port}`,
+        });
+        return;
+      }
+      socket.destroy();
+      return;
+    }
+
     // Handle browser (noVNC) WebSocket connections
     const browserMatch = pathname.match(/^\/browser\/([^/]+)(\/.*)?$/);
     if (browserMatch) {
@@ -758,6 +869,9 @@ async function startServer() {
 
     // このソケット接続で選択中のリポジトリパス
     let currentRepoPath: string | null = null;
+
+    // マルチアカウント機能のサポート状況を最初に通知
+    socket.emit("system:capabilities", capabilities);
 
     // Send allowed repos list to client on connection
     socket.emit("repos:list", allowedRepos);
@@ -1397,6 +1511,261 @@ async function startServer() {
       }
     });
 
+    // ===== Multi-Account Commands (Linux限定) =====
+
+    /** マルチアカウント機能未サポート時の共通レスポンス */
+    const emitUnsupported = () => {
+      socket.emit("account:error", {
+        message: "マルチアカウント機能は Linux + claude CLI 必須です",
+        code: "unsupported",
+      });
+    };
+
+    /**
+     * configDir のバリデーション。
+     * @returns 正規化済み configDir、または null（エラーは socket に emit 済み）
+     */
+    const validateConfigDir = (configDir: string): string | null => {
+      if (typeof configDir !== "string" || configDir.trim().length === 0) {
+        socket.emit("account:error", {
+          message: "configDir は必須です",
+          code: "invalid_path",
+        });
+        return null;
+      }
+      // チルダ展開: 先頭の `~` を $HOME に置換
+      let expanded = configDir.trim();
+      if (expanded === "~" || expanded.startsWith("~/")) {
+        expanded = path.join(os.homedir(), expanded.slice(1));
+      }
+      // 絶対パス必須
+      if (!path.isAbsolute(expanded)) {
+        socket.emit("account:error", {
+          message: "configDir は絶対パスで指定してください",
+          code: "invalid_path",
+        });
+        return null;
+      }
+      // 危険文字チェック (git.ts validatePath と同等)
+      if (/[;&|`$(){}[\]<>!"'\\]/.test(expanded)) {
+        socket.emit("account:error", {
+          message: "configDir に使用できない文字が含まれています",
+          code: "invalid_path",
+        });
+        return null;
+      }
+      // 禁止パス: ルート/システムディレクトリ
+      const normalized = path.resolve(expanded);
+      const forbidden = ["/", "/etc", "/usr", "/var", "/bin", "/sbin"];
+      for (const f of forbidden) {
+        if (normalized === f || normalized.startsWith(`${f}/`)) {
+          socket.emit("account:error", {
+            message: `configDir に禁止パス (${f}) は使用できません`,
+            code: "forbidden_path",
+          });
+          return null;
+        }
+      }
+      return normalized;
+    };
+
+    socket.on("account:list", () => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      try {
+        socket.emit("account:list", db.listAccountProfiles());
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("account:create", ({ name, configDir }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      if (typeof name !== "string" || name.trim().length === 0) {
+        socket.emit("account:error", {
+          message: "name は必須です",
+          code: "invalid_name",
+        });
+        return;
+      }
+      const normalized = validateConfigDir(configDir);
+      if (!normalized) return;
+      try {
+        const profile = db.createAccountProfile({
+          name: name.trim(),
+          configDir: normalized,
+        });
+        io.emit("account:created", profile);
+        io.emit("account:list", db.listAccountProfiles());
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("account:update", ({ id, name, configDir }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      if (typeof id !== "string" || id.length === 0) {
+        socket.emit("account:error", {
+          message: "id は必須です",
+          code: "invalid_id",
+        });
+        return;
+      }
+      const patch: { name?: string; configDir?: string } = {};
+      if (name !== undefined) {
+        if (typeof name !== "string" || name.trim().length === 0) {
+          socket.emit("account:error", {
+            message: "name は空にできません",
+            code: "invalid_name",
+          });
+          return;
+        }
+        patch.name = name.trim();
+      }
+      if (configDir !== undefined) {
+        const normalized = validateConfigDir(configDir);
+        if (!normalized) return;
+        patch.configDir = normalized;
+      }
+      try {
+        const profile = db.updateAccountProfile(id, patch);
+        io.emit("account:updated", profile);
+        io.emit("account:list", db.listAccountProfiles());
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("account:delete", async ({ id }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      try {
+        // アクティブなログインがあれば先にキャンセル
+        if (accountLoginManager.isActive(id)) {
+          await accountLoginManager.cancelLogin(id, "cancelled");
+        }
+        db.deleteAccountProfile(id);
+        io.emit("account:deleted", { id });
+        io.emit("account:list", db.listAccountProfiles());
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("account:start-login", async ({ profileId }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      try {
+        const profile = db.getAccountProfile(profileId);
+        if (!profile) {
+          socket.emit("account:error", {
+            message: "プロファイルが見つかりません",
+            code: "not_found",
+          });
+          return;
+        }
+        // socket → profileId の対応を記録（disconnect 時のクリーンアップ用）
+        let activeSet = socketActiveLogins.get(socket.id);
+        if (!activeSet) {
+          activeSet = new Set();
+          socketActiveLogins.set(socket.id, activeSet);
+        }
+        activeSet.add(profileId);
+
+        const { ttydUrl } = await accountLoginManager.startLogin(profile);
+        socket.emit("account:login-started", { profileId, ttydUrl });
+      } catch (e) {
+        // 失敗時はトラッキングから外す
+        socketActiveLogins.get(socket.id)?.delete(profileId);
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("account:cancel-login", async ({ profileId }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      try {
+        await accountLoginManager.cancelLogin(profileId, "cancelled");
+        socketActiveLogins.get(socket.id)?.delete(profileId);
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("repo:set-account", ({ repoPath, accountProfileId }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      if (typeof repoPath !== "string" || repoPath.length === 0) {
+        socket.emit("account:error", {
+          message: "repoPath は必須です",
+          code: "invalid_repo",
+        });
+        return;
+      }
+      try {
+        if (accountProfileId === null) {
+          db.removeRepoAccountLink(repoPath);
+        } else {
+          db.setRepoAccountLink(repoPath, accountProfileId);
+        }
+        io.emit("repo:account-changed", { repoPath, accountProfileId });
+
+        // 該当 repoPath 配下の稼働中セッションについて staleAccount を再計算
+        // 変化したセッションは session:updated を再 emit してクライアントに反映
+        const allSessions = sessionOrchestrator.getAllSessions();
+        for (const session of allSessions) {
+          if (session.repoPath !== repoPath) continue;
+          const previousStale = session.staleAccount === true;
+          const currentStale = sessionOrchestrator.recomputeStaleAccount(
+            session.id
+          );
+          if (previousStale !== currentStale) {
+            const updated = sessionOrchestrator.getSession(session.id);
+            if (updated) {
+              io.emit("session:updated", {
+                ...updated,
+                staleAccount: currentStale,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        socket.emit("account:error", { message: getErrorMessage(e) });
+      }
+    });
+
+    socket.on("session:restart-with-account", async ({ sessionId }) => {
+      if (!capabilities.multiAccountSupported) {
+        emitUnsupported();
+        return;
+      }
+      try {
+        const newSession = await sessionOrchestrator.restartSession(sessionId);
+        io.emit("session:updated", newSession);
+      } catch (e) {
+        socket.emit("session:error", {
+          sessionId,
+          error: getErrorMessage(e),
+        });
+      }
+    });
+
     // セッションプレビューのポーリング（1秒間隔）
     const previewInterval = setInterval(() => {
       try {
@@ -1427,6 +1796,19 @@ async function startServer() {
       forwardHandlers.forEach((handler, event) => {
         sessionOrchestrator.off(event, handler);
       });
+
+      // このソケットが開始したアクティブログインを全てキャンセル
+      const activeSet = socketActiveLogins.get(socket.id);
+      if (activeSet && activeSet.size > 0) {
+        for (const profileId of activeSet) {
+          accountLoginManager.cancelLogin(profileId, "cancelled").catch(err => {
+            console.error(
+              `[AccountLogin] disconnect cleanup 失敗 (${profileId}): ${getErrorMessage(err)}`
+            );
+          });
+        }
+      }
+      socketActiveLogins.delete(socket.id);
 
       // ブラウザセッションはシングルトンのため、socket切断では停止しない。
       // 明示的なbrowser:stopまたはSIGTERM/SIGINT時のcleanup()で停止する。
