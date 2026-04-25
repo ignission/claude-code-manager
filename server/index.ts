@@ -1594,7 +1594,7 @@ async function startServer() {
       }
     });
 
-    socket.on("repo:set-profile", ({ repoPath, profileId }) => {
+    socket.on("repo:set-profile", async ({ repoPath, profileId }) => {
       if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
@@ -1606,7 +1606,27 @@ async function startServer() {
         });
         return;
       }
+      // repo:select と同等の境界検証: 任意のpathに紐付けを書き込まれないよう、
+      // allowedRepos / knownRepos に含まれており、実体がgitリポジトリで
+      // あることを確認する。
+      const repoListed =
+        (allowedRepos.length === 0 || allowedRepos.includes(repoPath)) &&
+        knownRepos.has(repoPath);
+      if (!repoListed) {
+        socket.emit("profile:error", {
+          message: "リポジトリが許可リストに含まれていません",
+          code: "repo_not_allowed",
+        });
+        return;
+      }
       try {
+        if (!(await isGitRepository(repoPath))) {
+          socket.emit("profile:error", {
+            message: "リポジトリパスが有効なgitリポジトリではありません",
+            code: "invalid_repo",
+          });
+          return;
+        }
         if (profileId === null) {
           db.removeRepoProfileLink(repoPath);
         } else {
