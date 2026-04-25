@@ -263,6 +263,8 @@ describe("SessionDatabase - profiles / repo_profile_links", () => {
         const sessions = upgraded.getAllSessions();
         expect(sessions).toHaveLength(1);
         expect(sessions[0]?.id).toBe("s-legacy");
+        // profile_id 列が追加され、既存rowは null
+        expect(sessions[0]?.profileId).toBeNull();
 
         // 新テーブルが操作可能
         const profile = upgraded.createProfile({
@@ -270,12 +272,89 @@ describe("SessionDatabase - profiles / repo_profile_links", () => {
           configDir: "/home/user/.claude-postmigrate",
         });
         upgraded.setRepoProfileLink("/legacy/path", profile.id);
-        expect(
-          upgraded.getRepoProfileLink("/legacy/path")?.profileId
-        ).toBe(profile.id);
+        expect(upgraded.getRepoProfileLink("/legacy/path")?.profileId).toBe(
+          profile.id
+        );
       } finally {
         upgraded.close();
       }
+    });
+  });
+
+  // ============================================================
+  // sessions.profile_id 永続化
+  // ============================================================
+
+  describe("upsertSession: profile_id 永続化", () => {
+    it("profileId付きでupsertすると getSessionByWorktreePath で復元できる", () => {
+      const profile = testDb.createProfile({
+        name: "Persist",
+        configDir: "/home/user/.claude-persist",
+      });
+      testDb.upsertSession({
+        id: "sess-1",
+        worktreeId: "wt-1",
+        worktreePath: "/repo/work",
+        repoPath: "/repo",
+        status: "active",
+        profileId: profile.id,
+      });
+
+      const restored = testDb.getSessionByWorktreePath("/repo/work");
+      expect(restored?.profileId).toBe(profile.id);
+    });
+
+    it("profileId 省略時は null として保存される", () => {
+      testDb.upsertSession({
+        id: "sess-2",
+        worktreeId: "wt-2",
+        worktreePath: "/repo/work2",
+        status: "active",
+      });
+
+      const restored = testDb.getSessionByWorktreePath("/repo/work2");
+      expect(restored?.profileId).toBeNull();
+    });
+
+    it("upsert 時に profileId が更新される (null → id, id → null)", () => {
+      const profile = testDb.createProfile({
+        name: "Switch",
+        configDir: "/home/user/.claude-switch",
+      });
+      // 初回: null
+      testDb.upsertSession({
+        id: "sess-3",
+        worktreeId: "wt-3",
+        worktreePath: "/repo/work3",
+        status: "active",
+      });
+      expect(
+        testDb.getSessionByWorktreePath("/repo/work3")?.profileId
+      ).toBeNull();
+
+      // 2回目: profile.id を上書き
+      testDb.upsertSession({
+        id: "sess-3",
+        worktreeId: "wt-3",
+        worktreePath: "/repo/work3",
+        status: "active",
+        profileId: profile.id,
+      });
+      expect(testDb.getSessionByWorktreePath("/repo/work3")?.profileId).toBe(
+        profile.id
+      );
+
+      // 3回目: 明示的に null へ戻す
+      testDb.upsertSession({
+        id: "sess-3",
+        worktreeId: "wt-3",
+        worktreePath: "/repo/work3",
+        status: "active",
+        profileId: null,
+      });
+      expect(
+        testDb.getSessionByWorktreePath("/repo/work3")?.profileId
+      ).toBeNull();
     });
   });
 });

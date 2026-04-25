@@ -30,6 +30,8 @@ export interface Session {
   repoPath?: string;
   status: SessionStatus;
   createdAt: Date;
+  /** 起動時に確定したプロファイルID（未紐付けはnull/undefined） */
+  profileId?: string | null;
 }
 
 /**

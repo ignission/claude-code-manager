@@ -284,6 +284,39 @@ describe("SessionOrchestrator - プロファイル切替", () => {
       expect(managed.staleProfile).toBe(false);
       expect(managed.profileId).toBeNull();
     });
+
+    it("既存セッションは未紐付け (~/.claude) で起動、後からプロファイルを紐付け: staleProfile=true", async () => {
+      // 1. 紐付けなしで新規作成 (profileId=null)
+      mockedDb.getRepoProfileLink.mockReturnValue(null);
+      await orchestrator.startSession("wt-1", "/path/to/work", "/repo");
+
+      // 2. 後からリポジトリにプロファイルを紐付け
+      mockedDb.getRepoProfileLink.mockReturnValue({
+        repoPath: "/repo",
+        profileId: "prof-new",
+        updatedAt: 0,
+      });
+      mockedDb.getProfile.mockReturnValue({
+        id: "prof-new",
+        name: "new",
+        configDir: "/home/user/.claude-new",
+        createdAt: 0,
+        updatedAt: 0,
+      });
+
+      // 既存セッション再利用 → null から prof-new への変化を stale として検出
+      const existing = makeTmuxSession();
+      mockedTmux.getSessionByWorktree.mockReturnValue(existing);
+
+      const managed = await orchestrator.startSession(
+        "wt-1",
+        "/path/to/work",
+        "/repo"
+      );
+
+      expect(managed.staleProfile).toBe(true);
+      expect(managed.profileId).toBeNull();
+    });
   });
 
   // ============================================================

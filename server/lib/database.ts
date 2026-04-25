@@ -35,6 +35,7 @@ interface SessionRow {
   worktree_path: string;
   repo_path: string | null;
   status: string;
+  profile_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +57,8 @@ interface CreateSessionInput {
   readonly worktreePath: string;
   readonly repoPath?: string;
   readonly status: SessionStatus;
+  /** プロファイルID（未紐付けはnull/undefined） */
+  readonly profileId?: string | null;
 }
 
 /** メッセージ作成時の入力データ */
@@ -154,6 +157,7 @@ export class SessionDatabase {
         worktree_id TEXT NOT NULL,
         worktree_path TEXT NOT NULL UNIQUE,
         status TEXT NOT NULL DEFAULT 'idle',
+        profile_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       )
@@ -193,6 +197,17 @@ export class SessionDatabase {
       this.db.exec("ALTER TABLE sessions ADD COLUMN repo_path TEXT");
     } catch (e) {
       // カラムが既に存在する場合のみ無視、それ以外は再スロー
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!msg.includes("duplicate column name")) {
+        throw e;
+      }
+    }
+
+    // マイグレーション: sessionsテーブルにprofile_id列を追加
+    // (server再起動後のセッション復元時に sessionProfiles Map を再構築するため)
+    try {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN profile_id TEXT");
+    } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (!msg.includes("duplicate column name")) {
         throw e;
@@ -321,8 +336,8 @@ export class SessionDatabase {
   createSession(session: CreateSessionInput): void {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, profile_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(
       session.id,
@@ -330,6 +345,7 @@ export class SessionDatabase {
       session.worktreePath,
       session.repoPath ?? null,
       session.status,
+      session.profileId ?? null,
       now,
       now
     );
@@ -338,20 +354,21 @@ export class SessionDatabase {
   /**
    * セッションをupsert（存在すれば更新、なければ作成）
    *
-   * worktree_pathのUNIQUE制約に基づき、競合時はid, worktree_id, statusを更新する
+   * worktree_pathのUNIQUE制約に基づき、競合時はid, worktree_id, status, profile_id を更新する
    *
    * @param session - セッション作成データ
    */
   upsertSession(session: CreateSessionInput): void {
     const now = new Date().toISOString();
     const stmt = this.db.prepare(`
-      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, worktree_id, worktree_path, repo_path, status, profile_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(worktree_path) DO UPDATE SET
         id = excluded.id,
         worktree_id = excluded.worktree_id,
         repo_path = COALESCE(excluded.repo_path, repo_path),
         status = excluded.status,
+        profile_id = excluded.profile_id,
         updated_at = excluded.updated_at
     `);
     stmt.run(
@@ -360,6 +377,7 @@ export class SessionDatabase {
       session.worktreePath,
       session.repoPath ?? null,
       session.status,
+      session.profileId ?? null,
       now,
       now
     );
@@ -580,6 +598,7 @@ export class SessionDatabase {
       repoPath: row.repo_path ?? undefined,
       status: row.status as SessionStatus,
       createdAt: new Date(row.created_at),
+      profileId: row.profile_id,
     };
   }
 

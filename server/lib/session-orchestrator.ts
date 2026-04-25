@@ -99,6 +99,9 @@ export class SessionOrchestrator extends EventEmitter {
         console.log(
           `[Orchestrator] Restored session: ${tmuxSession.tmuxSessionName} -> ${dbSession.id} (status: ${dbSession.status})`
         );
+        // 永続化されたprofileIdを sessionProfiles Map に復元
+        // (サーバ再起動後でも staleProfile 判定が正しく動くため)
+        this.sessionProfiles.set(dbSession.id, dbSession.profileId ?? null);
       }
 
       // ttydも自動起動（起動完了後にクライアントへ通知）
@@ -160,11 +163,12 @@ export class SessionOrchestrator extends EventEmitter {
     // 起動時に確定したプロファイルと、現在のリポジトリ紐付けを比較して
     // staleProfile を判定する。session:list / session:restored 経由でも
     // 整合性を保つため、再接続/別クライアントでもバッジが復元される。
+    // null → profileId への遷移 (デフォルト ~/.claude で起動 → 後から紐付け)
+    // も staleProfile=true として扱う。
     const currentProfileId = this.sessionProfiles.get(tmuxSession.id) ?? null;
     const link = repoPath ? db.getRepoProfileLink(repoPath) : null;
     const desiredProfileId = link?.profileId ?? null;
-    const staleProfile =
-      currentProfileId !== null && currentProfileId !== desiredProfileId;
+    const staleProfile = currentProfileId !== desiredProfileId;
 
     return {
       id: tmuxSession.id,
@@ -302,8 +306,7 @@ export class SessionOrchestrator extends EventEmitter {
     }
 
     // 新規作成パス: 紐付けプロファイルから env / profileId を解決
-    const { env, profileId } =
-      this.resolveProfileForRepo(resolvedRepoPath);
+    const { env, profileId } = this.resolveProfileForRepo(resolvedRepoPath);
 
     // 新規tmuxセッションを作成（envがあれば注入）
     const tmuxSession = await tmuxManager.createSession(
@@ -324,6 +327,7 @@ export class SessionOrchestrator extends EventEmitter {
       worktreePath,
       repoPath: resolvedRepoPath,
       status: "active",
+      profileId,
     });
 
     // profileId をsession-id毎に記憶（restartSession / staleProfile判定用）
