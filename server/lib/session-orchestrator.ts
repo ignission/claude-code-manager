@@ -8,6 +8,7 @@
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
+import path from "node:path";
 import type {
   ManagedSession,
   SessionStatus,
@@ -30,6 +31,16 @@ export class SessionOrchestrator extends EventEmitter {
    * stopSession / 孤立セッションクリーンアップ時に invalidate する。
    */
   private repoPathCache = new Map<string, string | undefined>();
+
+  /**
+   * sessionId → accountProfileId（起動時に確定したプロファイルID）
+   *
+   * tmuxセッション自体はprofileIdを持たないため、SessionOrchestratorで
+   * セッションごとに記憶しておく。restartSession時の再解決や、
+   * staleAccount判定に使う。
+   * 値がnullなら「アカウント未紐付け」、未設定（mapにキーなし）も同義。
+   */
+  private sessionAccounts = new Map<string, string | null>();
 
   constructor() {
     super();
@@ -210,6 +221,52 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
+   * 紐付けアカウントから env / accountProfileId / warning を解決する。
+   *
+   * - 紐付け無し → null env / null id / no warning
+   * - 紐付けあるが profile が無い（削除済等）→ null env / null id / no warning
+   * - 紐付けあり、profile.status !== "authenticated" → null env / null id / no warning
+   * - 紐付けあり、authenticatedだが .credentials.json が無い（外部削除等）
+   *   → null env / null id / warning="config_dir_missing" (P1 preflight)
+   * - 紐付けあり、authenticatedかつ .credentials.json 存在
+   *   → env={CLAUDE_CONFIG_DIR}, accountProfileId, no warning
+   */
+  private resolveAccountForRepo(repoPath: string | undefined): {
+    env: Record<string, string> | undefined;
+    accountProfileId: string | null;
+    warning: string | undefined;
+  } {
+    if (!repoPath) {
+      return { env: undefined, accountProfileId: null, warning: undefined };
+    }
+    const link = db.getRepoAccountLink(repoPath);
+    if (!link) {
+      return { env: undefined, accountProfileId: null, warning: undefined };
+    }
+    const profile = db.getAccountProfile(link.accountProfileId);
+    if (!profile || profile.status !== "authenticated") {
+      return { env: undefined, accountProfileId: null, warning: undefined };
+    }
+    // Preflight (Plan Eng Review P1):
+    // configDir / .credentials.json の存在を同期チェック。
+    // 外部削除や手動cleanup等で消えていた場合は env 注入をスキップし、
+    // ManagedSessionに warning="config_dir_missing" を付与する。
+    const credentialsPath = path.join(profile.configDir, ".credentials.json");
+    if (!fs.existsSync(credentialsPath)) {
+      return {
+        env: undefined,
+        accountProfileId: null,
+        warning: "config_dir_missing",
+      };
+    }
+    return {
+      env: { CLAUDE_CONFIG_DIR: profile.configDir },
+      accountProfileId: profile.id,
+      warning: undefined,
+    };
+  }
+
+  /**
    * 新規セッションを開始
    */
   async startSession(
@@ -243,12 +300,31 @@ export class SessionOrchestrator extends EventEmitter {
       }
 
       const managed = this.toManagedSession(existingTmux, worktreeId);
+
+      // 既存セッションのprofileIdと現在の紐付けを比較し、
+      // staleAccount を再計算する（ユーザがアカウント切替後に再接続したケース）。
+      const currentProfileId =
+        this.sessionAccounts.get(existingTmux.id) ?? null;
+      const link = resolvedRepoPath
+        ? db.getRepoAccountLink(resolvedRepoPath)
+        : null;
+      const desiredProfileId = link?.accountProfileId ?? null;
+      managed.accountProfileId = currentProfileId;
+      managed.staleAccount = currentProfileId !== desiredProfileId;
+
       this.emit("session:restored", managed);
       return managed;
     }
 
-    // 新規tmuxセッションを作成
-    const tmuxSession = await tmuxManager.createSession(worktreePath);
+    // 新規作成パス: 紐付けアカウントから env / profileId / warning を解決
+    const { env, accountProfileId, warning } =
+      this.resolveAccountForRepo(resolvedRepoPath);
+
+    // 新規tmuxセッションを作成（envがあれば注入）
+    const tmuxSession = await tmuxManager.createSession(
+      worktreePath,
+      env ? { env } : undefined
+    );
 
     // ttydインスタンスを起動
     const ttydInstance = await ttydManager.startInstance(
@@ -265,6 +341,9 @@ export class SessionOrchestrator extends EventEmitter {
       status: "active",
     });
 
+    // accountProfileId をsession-id毎に記憶（restartSession / staleAccount判定用）
+    this.sessionAccounts.set(tmuxSession.id, accountProfileId);
+
     const managed: ManagedSession = {
       id: tmuxSession.id,
       worktreeId,
@@ -275,10 +354,79 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSessionName: tmuxSession.tmuxSessionName,
       ttydPort: ttydInstance.port,
       ttydUrl: `/ttyd/${tmuxSession.id}/`,
+      accountProfileId,
+      ...(warning ? { warning } : {}),
     };
+
+    // configDir消失時はクライアントへ警告を通知
+    if (warning === "config_dir_missing") {
+      const link = resolvedRepoPath
+        ? db.getRepoAccountLink(resolvedRepoPath)
+        : null;
+      this.emit("session:warning", {
+        sessionId: tmuxSession.id,
+        code: warning,
+        profileId: link?.accountProfileId,
+      });
+    }
 
     this.emit("session:created", managed);
     return managed;
+  }
+
+  /**
+   * 稼働中セッションを kill して、現在の紐付けで再起動する。
+   * staleAccount となったセッションをユーザが「再起動」した際に呼ぶ。
+   *
+   * 内部処理:
+   * 1. ttyd 停止 / tmux kill / sessionAccounts/repoPathCacheクリア
+   * 2. startSession を再呼び出し（env が再解決される）
+   *
+   * @throws sessionId に対応する tmux セッションが見つからない場合
+   */
+  async restartSession(sessionId: string): Promise<ManagedSession> {
+    const tmuxSession = tmuxManager.getSession(sessionId);
+    if (!tmuxSession) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const worktreePath = tmuxSession.worktreePath;
+    const dbSession = db.getSessionByWorktreePath(worktreePath);
+    const worktreeId = dbSession?.worktreeId || "";
+    // repoPathはDBからの値もしくはgit導出を優先（startSessionで再解決される）
+    const repoPath =
+      dbSession?.repoPath ||
+      (worktreePath ? this.deriveRepoPath(worktreePath) : undefined);
+
+    // 既存リソースを停止
+    ttydManager.stopInstance(sessionId);
+    tmuxManager.killSession(sessionId);
+    this.sessionAccounts.delete(sessionId);
+    this.repoPathCache.delete(worktreePath);
+
+    // 新しい env で再起動
+    const managed = await this.startSession(worktreeId, worktreePath, repoPath);
+    return managed;
+  }
+
+  /**
+   * 指定セッションの staleAccount を再評価する。
+   *
+   * `repo:set-account` 等で紐付けが変わった際に、稼働中セッションの
+   * staleAccount を再計算してクライアントへ反映するためのヘルパー。
+   *
+   * @returns 現在 staleAccount かどうか（セッション不存在時は false）
+   */
+  recomputeStaleAccount(sessionId: string): boolean {
+    const tmuxSession = tmuxManager.getSession(sessionId);
+    if (!tmuxSession) return false;
+    const repoPath = tmuxSession.worktreePath
+      ? this.deriveRepoPath(tmuxSession.worktreePath)
+      : undefined;
+    const link = repoPath ? db.getRepoAccountLink(repoPath) : null;
+    const desiredProfileId = link?.accountProfileId ?? null;
+    const currentProfileId = this.sessionAccounts.get(sessionId) ?? null;
+    return currentProfileId !== desiredProfileId;
   }
 
   /**
@@ -320,6 +468,7 @@ export class SessionOrchestrator extends EventEmitter {
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
     db.deleteSession(sessionId);
+    this.sessionAccounts.delete(sessionId);
     if (worktreePath) {
       this.repoPathCache.delete(worktreePath);
     }
@@ -398,6 +547,7 @@ export class SessionOrchestrator extends EventEmitter {
         if (dbSession) {
           db.deleteSession(dbSession.id);
         }
+        this.sessionAccounts.delete(s.id);
         this.repoPathCache.delete(s.worktreePath);
         this.emit("session:stopped", s.id);
       }
