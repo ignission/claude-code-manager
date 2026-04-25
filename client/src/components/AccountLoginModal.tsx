@@ -12,9 +12,12 @@
  * - `sandbox` 属性は **付けない**（既存 TerminalPane と同じ。CSP/X-Frame-Options
  *   サーバ側で SAMEORIGIN 設定済み）
  * - URL構築は TerminalPane と同じ。Quick Tunnel 利用時は token クエリを引き継ぐ
+ * - `useTerminalLinkInjection` でターミナル内のURLをクリック可能化
+ *   （xterm.jsが折り返し済URLを論理的に1リンクとして認識するので、`claude /login`
+ *   が出すOAuth URLが折り返されていてもクリックで新タブで開ける）
  */
 import { CircleCheck, Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,6 +25,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useTerminalLinkInjection } from "../hooks/useTerminalLinkInjection";
 import type { AccountProfile } from "../../../shared/types";
 
 /** 10分のタイムアウト（サーバ側と一致させる） */
@@ -53,6 +57,17 @@ export function AccountLoginModal({
 }: AccountLoginModalProps) {
   // open になった瞬間を起点にカウントダウンを開始する
   const [remaining, setRemaining] = useState<number>(LOGIN_TIMEOUT_SECONDS);
+  // useTerminalLinkInjection: iframe内xterm.jsのURLをクリック可能化する
+  // iframeKeyはttydUrl変更ごとに再注入させたいので、ttydUrlのハッシュ的な数値を使う
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const iframeKey = useMemo(() => {
+    if (!ttydUrl) return 0;
+    let h = 0;
+    for (let i = 0; i < ttydUrl.length; i++)
+      h = (h * 31 + ttydUrl.charCodeAt(i)) | 0;
+    return h;
+  }, [ttydUrl]);
+  useTerminalLinkInjection(iframeRef, iframeKey);
 
   useEffect(() => {
     if (!open) {
@@ -123,6 +138,7 @@ export function AccountLoginModal({
         <div className="bg-black h-80 w-full">
           {iframeSrc ? (
             <iframe
+              ref={iframeRef}
               src={iframeSrc}
               className="w-full h-full border-0"
               title={`Login terminal - ${profile?.name ?? ""}`}
