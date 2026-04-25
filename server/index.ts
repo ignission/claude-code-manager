@@ -1421,6 +1421,24 @@ async function startServer() {
     };
 
     /**
+     * link.repoPath が session.repoPath と論理的に一致するか判定する。
+     * 新規保存は canonical 形式に揃えているが、旧データ (symlink path で
+     * 保存されているもの) が DB に残っているケースを realpath fallback で救済。
+     */
+    const repoPathMatchesSession = (
+      linkPath: string,
+      sessionRepoPath: string | undefined
+    ): boolean => {
+      if (!sessionRepoPath) return false;
+      if (sessionRepoPath === linkPath) return true;
+      try {
+        return fs.realpathSync(linkPath) === sessionRepoPath;
+      } catch {
+        return false;
+      }
+    };
+
+    /**
      * configDir のバリデーション。
      * @returns 正規化済み configDir、または null（エラーは socket に emit 済み）
      */
@@ -1550,7 +1568,11 @@ async function startServer() {
           .filter(link => link.profileId === id)
           .map(link => link.repoPath);
         for (const sess of sessionOrchestrator.getAllSessions()) {
-          if (sess.repoPath && affectedRepoPaths.includes(sess.repoPath)) {
+          if (
+            affectedRepoPaths.some(p =>
+              repoPathMatchesSession(p, sess.repoPath)
+            )
+          ) {
             io.emit("session:updated", sess);
           }
         }
@@ -1583,8 +1605,10 @@ async function startServer() {
             profileId: null,
           });
           // そのリポジトリで稼働中のセッションを列挙して staleProfile 再計算
+          // (link 側 = 受信値 / 旧 symlink、session 側 = canonical の可能性が
+          //  あるため realpath fallback で判定する)
           for (const sess of sessionOrchestrator.getAllSessions()) {
-            if (sess.repoPath === repoPath) {
+            if (repoPathMatchesSession(repoPath, sess.repoPath)) {
               io.emit("session:updated", sess);
             }
           }
@@ -1606,16 +1630,28 @@ async function startServer() {
         });
         return;
       }
-      // 注: クライアント (repoList / SessionSidebar lookup) は受信した
-      // repoPath をそのまま使うため、ここで realpath 正規化はしない。
-      // session-orchestrator 側で resolveProfileForRepo の realpath fallback
-      // により symlink path / 正規化 path どちらで保存されていても resolve できる。
+      // 全レイヤーで repoPath を canonical (realpath) に統一する。
+      // ManagedSession.repoPath は git rev-parse 由来で常に canonical なので、
+      // ここを揃えることで client 側の repoProfileLinks Map と
+      // session.repoPath を直接比較できる (lookup の不整合を防ぐ)。
+      let canonicalRepoPath: string;
+      try {
+        canonicalRepoPath = fs.realpathSync(repoPath);
+      } catch {
+        socket.emit("profile:error", {
+          message: "リポジトリパスが解決できません",
+          code: "invalid_repo",
+        });
+        return;
+      }
       // repo:select と同等の境界検証: 任意のpathへの書き込みを防ぐ。
-      // allowedRepos が指定されている場合のみ含まれているかを確認する
-      // (allowedRepos 未指定時は repoList リロード復元等で knownRepos に
-      //  まだ反映されていないケースもあるため、後続の isGitRepository
-      //  チェックで実体を保護する)。
-      if (allowedRepos.length > 0 && !allowedRepos.includes(repoPath)) {
+      // allowedRepos が指定されている場合のみ「元 path / canonical path」
+      // どちらかが含まれているかを確認する。
+      if (
+        allowedRepos.length > 0 &&
+        !allowedRepos.includes(repoPath) &&
+        !allowedRepos.includes(canonicalRepoPath)
+      ) {
         socket.emit("profile:error", {
           message: "リポジトリが許可リストに含まれていません",
           code: "repo_not_allowed",
@@ -1623,7 +1659,7 @@ async function startServer() {
         return;
       }
       try {
-        if (!(await isGitRepository(repoPath))) {
+        if (!(await isGitRepository(canonicalRepoPath))) {
           socket.emit("profile:error", {
             message: "リポジトリパスが有効なgitリポジトリではありません",
             code: "invalid_repo",
@@ -1631,28 +1667,21 @@ async function startServer() {
           return;
         }
         if (profileId === null) {
-          db.removeRepoProfileLink(repoPath);
+          db.removeRepoProfileLink(canonicalRepoPath);
         } else {
-          db.setRepoProfileLink(repoPath, profileId);
+          db.setRepoProfileLink(canonicalRepoPath, profileId);
         }
-        io.emit("repo:profile-changed", { repoPath, profileId });
+        // broadcast も canonical で送る (クライアントの Map キーが canonical で
+        // 揃うため、SessionSidebar の lookup と整合する)
+        io.emit("repo:profile-changed", {
+          repoPath: canonicalRepoPath,
+          profileId,
+        });
 
-        // 該当 repoPath 配下の稼働中セッションは紐付け変更で staleProfile が
-        // 切り替わっている可能性があるため、最新の ManagedSession を再 emit する。
-        // ManagedSession.repoPath は git rev-parse 由来 (canonical) のことが
-        // 多いので、受信した repoPath を realpath にも展開して両方で照合する。
-        let canonicalRepoPath: string | null = null;
-        try {
-          canonicalRepoPath = fs.realpathSync(repoPath);
-        } catch {
-          // 解決できなければ受信値のみで照合
-        }
+        // 該当 repoPath 配下の稼働中セッションを再emit
+        // (session.repoPath は canonical なので canonicalRepoPath で直接比較可能)
         for (const session of sessionOrchestrator.getAllSessions()) {
-          if (
-            session.repoPath === repoPath ||
-            (canonicalRepoPath !== null &&
-              session.repoPath === canonicalRepoPath)
-          ) {
+          if (session.repoPath === canonicalRepoPath) {
             io.emit("session:updated", session);
           }
         }
