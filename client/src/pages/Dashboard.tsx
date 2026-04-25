@@ -36,7 +36,7 @@ import { useSocket } from "@/hooks/useSocket";
 import { useViewerTabs } from "@/hooks/useViewerTabs";
 import { getBaseName } from "@/utils/pathUtils";
 import { findRepoForSession } from "@/utils/sessionUtils";
-import type { Worktree } from "../../../shared/types";
+import type { ManagedSession, Worktree } from "../../../shared/types";
 
 export default function Dashboard() {
   const {
@@ -240,6 +240,21 @@ export default function Dashboard() {
   // が届くまで selectedSessionId を「同じ worktreePath を持つ新セッション」
   // に自動migrateするための一時記録。
   const restartingWorktreePathRef = useRef<string | null>(null);
+  // 直近選択中だった ManagedSession のスナップショット。
+  // 別タブで再起動が起きた場合 (initiating tab以外) でも、
+  // selectedSessionId が消えたタイミングで worktreePath を取り出して
+  // restartingWorktreePathRef に保存し、新セッションへ追従できるようにする。
+  const lastSelectedSessionRef = useRef<ManagedSession | null>(null);
+
+  // selectedSessionId に対応する ManagedSession を毎回スナップショット
+  useEffect(() => {
+    if (selectedSessionId && selectedSessionId !== "browser") {
+      const s = sessions.get(selectedSessionId);
+      if (s) lastSelectedSessionRef.current = s;
+    } else {
+      lastSelectedSessionRef.current = null;
+    }
+  }, [selectedSessionId, sessions]);
 
   const handleRestartSession = useCallback(
     (sessionId: string) => {
@@ -261,6 +276,20 @@ export default function Dashboard() {
     // ブラウザ選択中はリセットしない
     if (selectedSessionId === "browser") return;
 
+    // 別タブで再起動が起きた場合のフォールバック:
+    // 選択中セッションが今回の sessions Map から消えた瞬間に、
+    // 直前 snapshot から worktreePath を取り出して restart pending として扱う。
+    // (initiating tab は handleRestartSession で先に値を入れているため上書きしない)
+    if (
+      !restartingWorktreePathRef.current &&
+      selectedSessionId &&
+      !sessions.has(selectedSessionId) &&
+      lastSelectedSessionRef.current?.id === selectedSessionId
+    ) {
+      restartingWorktreePathRef.current =
+        lastSelectedSessionRef.current.worktreePath;
+    }
+
     // 再起動進行中: 新セッションが届いていれば selectedSessionId を新IDへ移す
     if (restartingWorktreePathRef.current) {
       const replacement = Array.from(sessions.values()).find(
@@ -269,6 +298,10 @@ export default function Dashboard() {
       if (replacement && replacement.id !== selectedSessionId) {
         setSelectedSessionId(replacement.id);
         restartingWorktreePathRef.current = null;
+        return;
+      }
+      // まだ届いていない: 通常のフォールバックを抑制して新session到着を待つ
+      if (selectedSessionId && !sessions.has(selectedSessionId)) {
         return;
       }
     }
