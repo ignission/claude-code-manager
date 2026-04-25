@@ -1606,13 +1606,12 @@ async function startServer() {
         });
         return;
       }
-      // repo:select と同等の境界検証: 任意のpathに紐付けを書き込まれないよう、
-      // allowedRepos / knownRepos に含まれており、実体がgitリポジトリで
-      // あることを確認する。
-      const repoListed =
-        (allowedRepos.length === 0 || allowedRepos.includes(repoPath)) &&
-        knownRepos.has(repoPath);
-      if (!repoListed) {
+      // repo:select と同等の境界検証: 任意のpathへの書き込みを防ぐ。
+      // allowedRepos が指定されている場合のみ含まれているかを確認する
+      // (allowedRepos 未指定時は repoList リロード復元等で knownRepos に
+      //  まだ反映されていないケースもあるため、後続の isGitRepository
+      //  チェックで実体を保護する)。
+      if (allowedRepos.length > 0 && !allowedRepos.includes(repoPath)) {
         socket.emit("profile:error", {
           message: "リポジトリが許可リストに含まれていません",
           code: "repo_not_allowed",
