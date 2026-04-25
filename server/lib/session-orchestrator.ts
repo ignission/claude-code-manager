@@ -398,13 +398,18 @@ export class SessionOrchestrator extends EventEmitter {
       dbSession?.repoPath ||
       (worktreePath ? this.deriveRepoPath(worktreePath) : undefined);
 
-    // 既存リソースを停止
+    // 既存リソースを停止 + DB エントリ削除
+    // (新セッションは別の sessionId で作成されるため、古い ID をクライアントから
+    // 消さないと「再起動」のたびにセッション一覧に古いエントリが残ってしまう)
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
+    db.deleteSession(sessionId);
     this.sessionAccounts.delete(sessionId);
     this.repoPathCache.delete(worktreePath);
+    // 古いセッション ID の停止をクライアントへ通知 → UI から消える
+    this.emit("session:stopped", sessionId);
 
-    // 新しい env で再起動
+    // 新しい env で再起動 (新しい sessionId で session:created が発火)
     const managed = await this.startSession(worktreeId, worktreePath, repoPath);
     return managed;
   }
