@@ -2,7 +2,7 @@ import { AlertCircle, Copy, Loader2, Terminal } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AccountManagerDialog } from "@/components/AccountManagerDialog";
+import { ProfileManagerDialog } from "@/components/ProfileManagerDialog";
 import { BrowserPane } from "@/components/BrowserPane";
 import { CreateWorktreeDialog } from "@/components/CreateWorktreeDialog";
 import { FrontLineModal } from "@/components/frontline/FrontLineModal";
@@ -92,15 +92,15 @@ export default function Dashboard() {
     browserSessions,
     startBrowser,
     navigateBrowser,
-    accounts,
-    repoAccountLinks,
+    profiles,
+    repoProfileLinks,
     capabilities,
-    loadAccounts,
-    createAccount,
-    updateAccount,
-    deleteAccount,
-    setRepoAccount,
-    restartSessionWithAccount,
+    loadProfiles,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+    setRepoProfile,
+    restartSessionWithProfile,
   } = useSocket({
     enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
@@ -209,7 +209,7 @@ export default function Dashboard() {
   const [showTunnelDialog, setShowTunnelDialog] = useState(false);
   const [selectedPort, setSelectedPort] = useState<number | null>(null);
   const [showPortSelector, setShowPortSelector] = useState(false);
-  const [showAccountManager, setShowAccountManager] = useState(false);
+  const [showProfileManager, setShowProfileManager] = useState(false);
 
   const copyToClipboard = (text: string | null) => {
     if (text) {
@@ -404,12 +404,12 @@ export default function Dashboard() {
               onSelectBrowser={handleSelectBrowser}
               isBrowserSelected={selectedSessionId === "browser"}
               isRemote={isRemote}
-              accounts={accounts}
-              repoAccountLinks={repoAccountLinks}
+              profiles={profiles}
+              repoProfileLinks={repoProfileLinks}
               capabilities={capabilities}
-              onSetRepoAccount={setRepoAccount}
-              onOpenAccountManager={() => setShowAccountManager(true)}
-              onRestartSession={restartSessionWithAccount}
+              onSetRepoProfile={setRepoProfile}
+              onOpenProfileManager={() => setShowProfileManager(true)}
+              onRestartSession={restartSessionWithProfile}
               onCreateWorktreeForRepo={handleCreateWorktreeForRepo}
             />
           }
@@ -676,15 +676,15 @@ export default function Dashboard() {
         socket={socket}
       />
 
-      {/* アカウント管理 (Linux限定) */}
-      {capabilities.multiAccountSupported && (
-        <AccountManagerDialog
-          open={showAccountManager}
-          onOpenChange={setShowAccountManager}
-          accounts={accounts}
-          onCreate={createAccount}
-          onUpdate={updateAccount}
-          onDelete={deleteAccount}
+      {/* プロファイル管理 (Linux限定) */}
+      {capabilities.multiProfileSupported && (
+        <ProfileManagerDialog
+          open={showProfileManager}
+          onOpenChange={setShowProfileManager}
+          profiles={profiles}
+          onCreate={createProfile}
+          onUpdate={updateProfile}
+          onDelete={deleteProfile}
         />
       )}
     </>

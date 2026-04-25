@@ -1,7 +1,7 @@
 /**
  * System Capability Detection
  *
- * 起動環境がマルチアカウント機能をサポートするか判定するヘルパー。
+ * 起動環境がプロファイル切替機能をサポートするか判定するヘルパー。
  *
  * 条件:
  *   - process.platform === "linux"
@@ -50,10 +50,10 @@ export function checkClaudeCommandExists(): boolean {
 }
 
 /**
- * 複数アカウント切替機能のサポート判定。
+ * プロファイル切替機能のサポート判定。
  * Linux + claude CLI が両方揃った時のみ true。
  */
-export function detectMultiAccountSupported(): boolean {
+export function detectMultiProfileSupported(): boolean {
   if (process.platform !== "linux") return false;
   return checkClaudeCommandExists();
 }

@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { toast } from "sonner";
 import type {
-  AccountProfile,
+  Profile,
   BeaconStreamChunk,
   BrowserSession,
   ChatMessage,
@@ -137,20 +137,20 @@ interface UseSocketReturn {
   stopBrowser: (browserId: string) => void;
   navigateBrowser: (url: string) => void;
 
-  // 複数アカウント切替 (Linux限定)
-  accounts: AccountProfile[];
-  /** repoPath → accountProfileId のマップ */
-  repoAccountLinks: Map<string, string>;
+  // プロファイル切替 (Linux限定)
+  profiles: Profile[];
+  /** repoPath → profileId のマップ */
+  repoProfileLinks: Map<string, string>;
   capabilities: SystemCapabilities;
-  loadAccounts: () => void;
-  createAccount: (name: string, configDir: string) => void;
-  updateAccount: (
+  loadProfiles: () => void;
+  createProfile: (name: string, configDir: string) => void;
+  updateProfile: (
     id: string,
     patch: { name?: string; configDir?: string }
   ) => void;
-  deleteAccount: (id: string) => void;
-  setRepoAccount: (repoPath: string, accountProfileId: string | null) => void;
-  restartSessionWithAccount: (sessionId: string) => void;
+  deleteProfile: (id: string) => void;
+  setRepoProfile: (repoPath: string, profileId: string | null) => void;
+  restartSessionWithProfile: (sessionId: string) => void;
 }
 
 export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
@@ -220,13 +220,13 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   const [beaconStreaming, setBeaconStreaming] = useState(false);
   const [beaconStreamText, setBeaconStreamText] = useState("");
 
-  // 複数アカウント切替 (Linux限定)
-  const [accounts, setAccounts] = useState<AccountProfile[]>([]);
-  const [repoAccountLinks, setRepoAccountLinks] = useState<Map<string, string>>(
+  // プロファイル切替 (Linux限定)
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [repoProfileLinks, setRepoProfileLinks] = useState<Map<string, string>>(
     new Map()
   );
   const [capabilities, setCapabilities] = useState<SystemCapabilities>({
-    multiAccountSupported: false,
+    multiProfileSupported: false,
   });
 
   // repoPathRefをrepoPathの変化に同期させる
@@ -548,44 +548,44 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       setBrowserError(message);
     });
 
-    // 複数アカウント切替 (Linux限定) ----------------------------------
+    // プロファイル切替 (Linux限定) ----------------------------------
     socket.on("system:capabilities", caps => {
       setCapabilities(caps);
-      // 機能利用可能ならアカウント一覧を初回取得
-      if (caps.multiAccountSupported) {
-        socket.emit("account:list");
+      // 機能利用可能ならプロファイル一覧を初回取得
+      if (caps.multiProfileSupported) {
+        socket.emit("profile:list");
       }
     });
 
-    socket.on("account:list", list => {
-      setAccounts(list);
+    socket.on("profile:list", list => {
+      setProfiles(list);
     });
 
-    socket.on("account:created", profile => {
-      // サーバー側でも account:list を再emitするが、即時反映のため楽観更新
-      setAccounts(prev =>
+    socket.on("profile:created", profile => {
+      // サーバー側でも profile:list を再emitするが、即時反映のため楽観更新
+      setProfiles(prev =>
         prev.some(p => p.id === profile.id) ? prev : [...prev, profile]
       );
     });
 
-    socket.on("account:updated", profile => {
-      setAccounts(prev => prev.map(p => (p.id === profile.id ? profile : p)));
+    socket.on("profile:updated", profile => {
+      setProfiles(prev => prev.map(p => (p.id === profile.id ? profile : p)));
     });
 
-    socket.on("account:deleted", ({ id }) => {
-      setAccounts(prev => prev.filter(p => p.id !== id));
+    socket.on("profile:deleted", ({ id }) => {
+      setProfiles(prev => prev.filter(p => p.id !== id));
     });
 
-    socket.on("account:error", ({ message, code }) => {
-      console.error("[Socket] Account error:", message, code);
+    socket.on("profile:error", ({ message, code }) => {
+      console.error("[Socket] Profile error:", message, code);
       toast.error(message);
     });
 
-    socket.on("repo:account-changed", ({ repoPath, accountProfileId }) => {
-      setRepoAccountLinks(prev => {
+    socket.on("repo:profile-changed", ({ repoPath, profileId }) => {
+      setRepoProfileLinks(prev => {
         const next = new Map(prev);
-        if (accountProfileId) {
-          next.set(repoPath, accountProfileId);
+        if (profileId) {
+          next.set(repoPath, profileId);
         } else {
           next.delete(repoPath);
         }
@@ -594,10 +594,10 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     });
 
     // 初期同期: 接続時に全紐付けをまとめて受信 (リロード時のバッジ復元用)
-    socket.on("repo:account-links", links => {
+    socket.on("repo:profile-links", links => {
       const next = new Map<string, string>();
-      for (const link of links) next.set(link.repoPath, link.accountProfileId);
-      setRepoAccountLinks(next);
+      for (const link of links) next.set(link.repoPath, link.profileId);
+      setRepoProfileLinks(next);
     });
 
     // Cleanup on unmount
@@ -860,38 +860,38 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     socketRef.current?.emit("browser:navigate", { url });
   }, []);
 
-  // 複数アカウント切替 (Linux限定) actions
-  const loadAccounts = useCallback(() => {
-    socketRef.current?.emit("account:list");
+  // プロファイル切替 (Linux限定) actions
+  const loadProfiles = useCallback(() => {
+    socketRef.current?.emit("profile:list");
   }, []);
 
-  const createAccount = useCallback((name: string, configDir: string) => {
-    socketRef.current?.emit("account:create", { name, configDir });
+  const createProfile = useCallback((name: string, configDir: string) => {
+    socketRef.current?.emit("profile:create", { name, configDir });
   }, []);
 
-  const updateAccount = useCallback(
+  const updateProfile = useCallback(
     (id: string, patch: { name?: string; configDir?: string }) => {
-      socketRef.current?.emit("account:update", { id, ...patch });
+      socketRef.current?.emit("profile:update", { id, ...patch });
     },
     []
   );
 
-  const deleteAccount = useCallback((id: string) => {
-    socketRef.current?.emit("account:delete", { id });
+  const deleteProfile = useCallback((id: string) => {
+    socketRef.current?.emit("profile:delete", { id });
   }, []);
 
-  const setRepoAccount = useCallback(
-    (repoPath: string, accountProfileId: string | null) => {
-      socketRef.current?.emit("repo:set-account", {
+  const setRepoProfile = useCallback(
+    (repoPath: string, profileId: string | null) => {
+      socketRef.current?.emit("repo:set-profile", {
         repoPath,
-        accountProfileId,
+        profileId,
       });
     },
     []
   );
 
-  const restartSessionWithAccount = useCallback((sessionId: string) => {
-    socketRef.current?.emit("session:restart-with-account", { sessionId });
+  const restartSessionWithProfile = useCallback((sessionId: string) => {
+    socketRef.current?.emit("session:restart-with-profile", { sessionId });
   }, []);
 
   return {
@@ -953,15 +953,15 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     startBrowser,
     stopBrowser,
     navigateBrowser,
-    // 複数アカウント切替 (Linux限定)
-    accounts,
-    repoAccountLinks,
+    // プロファイル切替 (Linux限定)
+    profiles,
+    repoProfileLinks,
     capabilities,
-    loadAccounts,
-    createAccount,
-    updateAccount,
-    deleteAccount,
-    setRepoAccount,
-    restartSessionWithAccount,
+    loadProfiles,
+    createProfile,
+    updateProfile,
+    deleteProfile,
+    setRepoProfile,
+    restartSessionWithProfile,
   };
 }

@@ -1,5 +1,5 @@
 /**
- * SessionDatabase の account_profiles / repo_account_links テーブルに対するCRUD・マイグレーションのテスト
+ * SessionDatabase の profiles / repo_profile_links テーブルに対するCRUD・マイグレーションのテスト
  *
  * - 各テストごとに一時ディレクトリにDBファイルを作成して隔離
  * - シングルトン `db` は使わず、`SessionDatabase` をテスト用パスで直接生成
@@ -12,7 +12,7 @@ import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SessionDatabase } from "./database.js";
 
-describe("SessionDatabase - account_profiles / repo_account_links", () => {
+describe("SessionDatabase - profiles / repo_profile_links", () => {
   let tmpDir: string;
   let dbPath: string;
   let testDb: SessionDatabase;
@@ -29,12 +29,12 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
   });
 
   // ============================================================
-  // account_profiles CRUD
+  // profiles CRUD
   // ============================================================
 
-  describe("createAccountProfile", () => {
+  describe("createProfile", () => {
     it("プロファイルを作成し、id/createdAt/updatedAtが付与される", () => {
-      const profile = testDb.createAccountProfile({
+      const profile = testDb.createProfile({
         name: "仕事Max",
         configDir: "/home/user/.claude-work",
       });
@@ -47,12 +47,12 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
     });
 
     it("同名のプロファイルを作成すると例外が投げられる", () => {
-      testDb.createAccountProfile({
+      testDb.createProfile({
         name: "個人Max",
         configDir: "/home/user/.claude-personal",
       });
       expect(() =>
-        testDb.createAccountProfile({
+        testDb.createProfile({
           name: "個人Max",
           configDir: "/home/user/.claude-personal-2",
         })
@@ -60,52 +60,52 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
     });
   });
 
-  describe("listAccountProfiles", () => {
+  describe("listProfiles", () => {
     it("空の状態で空配列を返す", () => {
-      expect(testDb.listAccountProfiles()).toEqual([]);
+      expect(testDb.listProfiles()).toEqual([]);
     });
 
     it("作成したプロファイルが取得できる", () => {
-      testDb.createAccountProfile({
+      testDb.createProfile({
         name: "A",
         configDir: "/home/user/.claude-a",
       });
-      testDb.createAccountProfile({
+      testDb.createProfile({
         name: "B",
         configDir: "/home/user/.claude-b",
       });
-      const list = testDb.listAccountProfiles();
+      const list = testDb.listProfiles();
       expect(list).toHaveLength(2);
       expect(list.map(p => p.name).sort()).toEqual(["A", "B"]);
     });
   });
 
-  describe("getAccountProfile", () => {
+  describe("getProfile", () => {
     it("存在しないIDはnullを返す", () => {
-      expect(testDb.getAccountProfile("nonexistent")).toBeNull();
+      expect(testDb.getProfile("nonexistent")).toBeNull();
     });
 
     it("作成したプロファイルをIDで取得できる", () => {
-      const created = testDb.createAccountProfile({
+      const created = testDb.createProfile({
         name: "X",
         configDir: "/home/user/.claude-x",
       });
-      const fetched = testDb.getAccountProfile(created.id);
+      const fetched = testDb.getProfile(created.id);
       expect(fetched).not.toBeNull();
       expect(fetched?.name).toBe("X");
       expect(fetched?.configDir).toBe("/home/user/.claude-x");
     });
   });
 
-  describe("updateAccountProfile", () => {
+  describe("updateProfile", () => {
     it("name と configDir を更新できる", async () => {
-      const created = testDb.createAccountProfile({
+      const created = testDb.createProfile({
         name: "Old",
         configDir: "/home/user/.claude-old",
       });
       // updatedAt が変わることを保証するため少し待機
       await new Promise(resolve => setTimeout(resolve, 5));
-      const updated = testDb.updateAccountProfile(created.id, {
+      const updated = testDb.updateProfile(created.id, {
         name: "New",
         configDir: "/home/user/.claude-new",
       });
@@ -115,11 +115,11 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
     });
 
     it("undefined のフィールドはスキップされる", () => {
-      const created = testDb.createAccountProfile({
+      const created = testDb.createProfile({
         name: "Keep",
         configDir: "/home/user/.claude-keep",
       });
-      const updated = testDb.updateAccountProfile(created.id, {
+      const updated = testDb.updateProfile(created.id, {
         name: "Renamed",
       });
       expect(updated.name).toBe("Renamed");
@@ -128,77 +128,77 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
 
     it("存在しないIDの更新は例外を投げる", () => {
       expect(() =>
-        testDb.updateAccountProfile("nonexistent", { name: "X" })
+        testDb.updateProfile("nonexistent", { name: "X" })
       ).toThrow();
     });
   });
 
-  describe("deleteAccountProfile", () => {
+  describe("deleteProfile", () => {
     it("プロファイルを削除する", () => {
-      const created = testDb.createAccountProfile({
+      const created = testDb.createProfile({
         name: "Del",
         configDir: "/home/user/.claude-del",
       });
-      testDb.deleteAccountProfile(created.id);
-      expect(testDb.getAccountProfile(created.id)).toBeNull();
+      testDb.deleteProfile(created.id);
+      expect(testDb.getProfile(created.id)).toBeNull();
     });
 
     it("存在しないIDの削除はno-op", () => {
-      expect(() => testDb.deleteAccountProfile("nonexistent")).not.toThrow();
+      expect(() => testDb.deleteProfile("nonexistent")).not.toThrow();
     });
   });
 
   // ============================================================
-  // repo_account_links CRUD
+  // repo_profile_links CRUD
   // ============================================================
 
-  describe("setRepoAccountLink / getRepoAccountLink", () => {
+  describe("setRepoProfileLink / getRepoProfileLink", () => {
     it("リポジトリとプロファイルを紐付け、取得できる", () => {
-      const profile = testDb.createAccountProfile({
+      const profile = testDb.createProfile({
         name: "P1",
         configDir: "/home/user/.claude-p1",
       });
-      testDb.setRepoAccountLink("/home/user/repos/foo", profile.id);
-      const link = testDb.getRepoAccountLink("/home/user/repos/foo");
+      testDb.setRepoProfileLink("/home/user/repos/foo", profile.id);
+      const link = testDb.getRepoProfileLink("/home/user/repos/foo");
       expect(link).not.toBeNull();
       expect(link?.repoPath).toBe("/home/user/repos/foo");
-      expect(link?.accountProfileId).toBe(profile.id);
+      expect(link?.profileId).toBe(profile.id);
       expect(typeof link?.updatedAt).toBe("number");
     });
 
     it("存在しないリポジトリパスはnullを返す", () => {
-      expect(testDb.getRepoAccountLink("/nonexistent/path")).toBeNull();
+      expect(testDb.getRepoProfileLink("/nonexistent/path")).toBeNull();
     });
 
     it("UPSERT: 同じリポジトリパスを再度setすると上書きされる", () => {
-      const profileA = testDb.createAccountProfile({
+      const profileA = testDb.createProfile({
         name: "A",
         configDir: "/home/user/.claude-a",
       });
-      const profileB = testDb.createAccountProfile({
+      const profileB = testDb.createProfile({
         name: "B",
         configDir: "/home/user/.claude-b",
       });
-      testDb.setRepoAccountLink("/home/user/repos/bar", profileA.id);
-      testDb.setRepoAccountLink("/home/user/repos/bar", profileB.id);
-      const link = testDb.getRepoAccountLink("/home/user/repos/bar");
-      expect(link?.accountProfileId).toBe(profileB.id);
+      testDb.setRepoProfileLink("/home/user/repos/bar", profileA.id);
+      testDb.setRepoProfileLink("/home/user/repos/bar", profileB.id);
+      const link = testDb.getRepoProfileLink("/home/user/repos/bar");
+      expect(link?.profileId).toBe(profileB.id);
     });
   });
 
-  describe("removeRepoAccountLink", () => {
+  describe("removeRepoProfileLink", () => {
     it("紐付けを削除する", () => {
-      const profile = testDb.createAccountProfile({
+      const profile = testDb.createProfile({
         name: "R",
         configDir: "/home/user/.claude-r",
       });
-      testDb.setRepoAccountLink("/home/user/repos/baz", profile.id);
-      testDb.removeRepoAccountLink("/home/user/repos/baz");
-      expect(testDb.getRepoAccountLink("/home/user/repos/baz")).toBeNull();
+      testDb.setRepoProfileLink("/home/user/repos/baz", profile.id);
+      testDb.removeRepoProfileLink("/home/user/repos/baz");
+      expect(testDb.getRepoProfileLink("/home/user/repos/baz")).toBeNull();
     });
 
     it("存在しないリポジトリパスの削除はno-op", () => {
-      expect(() => testDb.removeRepoAccountLink("/nonexistent")).not.toThrow();
+      expect(() => testDb.removeRepoProfileLink("/nonexistent")).not.toThrow();
     });
   });
 
@@ -206,19 +206,19 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
   // CASCADE削除
   // ============================================================
 
-  describe("CASCADE: deleteAccountProfile", () => {
+  describe("CASCADE: deleteProfile", () => {
     it("プロファイル削除時に紐付けレコードも自動削除される", () => {
-      const profile = testDb.createAccountProfile({
+      const profile = testDb.createProfile({
         name: "Cascade",
         configDir: "/home/user/.claude-cascade",
       });
-      testDb.setRepoAccountLink("/home/user/repos/r1", profile.id);
-      testDb.setRepoAccountLink("/home/user/repos/r2", profile.id);
+      testDb.setRepoProfileLink("/home/user/repos/r1", profile.id);
+      testDb.setRepoProfileLink("/home/user/repos/r2", profile.id);
 
-      testDb.deleteAccountProfile(profile.id);
+      testDb.deleteProfile(profile.id);
 
-      expect(testDb.getRepoAccountLink("/home/user/repos/r1")).toBeNull();
-      expect(testDb.getRepoAccountLink("/home/user/repos/r2")).toBeNull();
+      expect(testDb.getRepoProfileLink("/home/user/repos/r1")).toBeNull();
+      expect(testDb.getRepoProfileLink("/home/user/repos/r2")).toBeNull();
     });
   });
 
@@ -265,13 +265,13 @@ describe("SessionDatabase - account_profiles / repo_account_links", () => {
         expect(sessions[0]?.id).toBe("s-legacy");
 
         // 新テーブルが操作可能
-        const profile = upgraded.createAccountProfile({
+        const profile = upgraded.createProfile({
           name: "PostMigrate",
           configDir: "/home/user/.claude-postmigrate",
         });
-        upgraded.setRepoAccountLink("/legacy/path", profile.id);
+        upgraded.setRepoProfileLink("/legacy/path", profile.id);
         expect(
-          upgraded.getRepoAccountLink("/legacy/path")?.accountProfileId
+          upgraded.getRepoProfileLink("/legacy/path")?.profileId
         ).toBe(profile.id);
       } finally {
         upgraded.close();

@@ -54,7 +54,7 @@ import {
 import { getListeningPorts } from "./lib/port-scanner.js";
 import { printRemoteAccessInfo } from "./lib/qrcode.js";
 import { sessionOrchestrator } from "./lib/session-orchestrator.js";
-import { detectMultiAccountSupported } from "./lib/system.js";
+import { detectMultiProfileSupported } from "./lib/system.js";
 import { tmuxManager } from "./lib/tmux-manager.js";
 import { TunnelManager } from "./lib/tunnel.js";
 
@@ -147,12 +147,12 @@ async function startServer() {
     );
   }
 
-  // ===== マルチアカウント機能 (Linux限定) =====
+  // ===== プロファイル切替機能 (Linux限定) =====
   const capabilities: SystemCapabilities = {
-    multiAccountSupported: detectMultiAccountSupported(),
+    multiProfileSupported: detectMultiProfileSupported(),
   };
   console.log(
-    `[Capabilities] multiAccountSupported = ${capabilities.multiAccountSupported}`
+    `[Capabilities] multiProfileSupported = ${capabilities.multiProfileSupported}`
   );
 
   // Create proxy for ttyd WebSocket connections
@@ -769,7 +769,7 @@ async function startServer() {
     // このソケット接続で選択中のリポジトリパス
     let currentRepoPath: string | null = null;
 
-    // マルチアカウント機能のサポート状況を最初に通知
+    // プロファイル切替機能のサポート状況を最初に通知
     socket.emit("system:capabilities", capabilities);
 
     // Send allowed repos list to client on connection
@@ -1410,12 +1410,12 @@ async function startServer() {
       }
     });
 
-    // ===== Multi-Account Commands (Linux限定) =====
+    // ===== Profile Commands (Linux限定) =====
 
-    /** マルチアカウント機能未サポート時の共通レスポンス */
+    /** プロファイル切替機能未サポート時の共通レスポンス */
     const emitUnsupported = () => {
-      socket.emit("account:error", {
-        message: "マルチアカウント機能は Linux + claude CLI 必須です",
+      socket.emit("profile:error", {
+        message: "プロファイル切替機能は Linux + claude CLI 必須です",
         code: "unsupported",
       });
     };
@@ -1426,7 +1426,7 @@ async function startServer() {
      */
     const validateConfigDir = (configDir: string): string | null => {
       if (typeof configDir !== "string" || configDir.trim().length === 0) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "configDir は必須です",
           code: "invalid_path",
         });
@@ -1439,7 +1439,7 @@ async function startServer() {
       }
       // 絶対パス必須
       if (!path.isAbsolute(expanded)) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "configDir は絶対パスで指定してください",
           code: "invalid_path",
         });
@@ -1447,7 +1447,7 @@ async function startServer() {
       }
       // 危険文字チェック (git.ts validatePath と同等)
       if (/[;&|`$(){}[\]<>!"'\\]/.test(expanded)) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "configDir に使用できない文字が含まれています",
           code: "invalid_path",
         });
@@ -1458,7 +1458,7 @@ async function startServer() {
       const forbidden = ["/", "/etc", "/usr", "/var", "/bin", "/sbin"];
       for (const f of forbidden) {
         if (normalized === f || normalized.startsWith(`${f}/`)) {
-          socket.emit("account:error", {
+          socket.emit("profile:error", {
             message: `configDir に禁止パス (${f}) は使用できません`,
             code: "forbidden_path",
           });
@@ -1468,27 +1468,27 @@ async function startServer() {
       return normalized;
     };
 
-    socket.on("account:list", () => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("profile:list", () => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }
       try {
-        socket.emit("account:list", db.listAccountProfiles());
+        socket.emit("profile:list", db.listProfiles());
         // リポジトリ紐付けも同梱送信（リロード時の初期同期用）
-        socket.emit("repo:account-links", db.listRepoAccountLinks());
+        socket.emit("repo:profile-links", db.listRepoProfileLinks());
       } catch (e) {
-        socket.emit("account:error", { message: getErrorMessage(e) });
+        socket.emit("profile:error", { message: getErrorMessage(e) });
       }
     });
 
-    socket.on("account:create", ({ name, configDir }) => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("profile:create", ({ name, configDir }) => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }
       if (typeof name !== "string" || name.trim().length === 0) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "name は必須です",
           code: "invalid_name",
         });
@@ -1497,24 +1497,24 @@ async function startServer() {
       const normalized = validateConfigDir(configDir);
       if (!normalized) return;
       try {
-        const profile = db.createAccountProfile({
+        const profile = db.createProfile({
           name: name.trim(),
           configDir: normalized,
         });
-        io.emit("account:created", profile);
-        io.emit("account:list", db.listAccountProfiles());
+        io.emit("profile:created", profile);
+        io.emit("profile:list", db.listProfiles());
       } catch (e) {
-        socket.emit("account:error", { message: getErrorMessage(e) });
+        socket.emit("profile:error", { message: getErrorMessage(e) });
       }
     });
 
-    socket.on("account:update", ({ id, name, configDir }) => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("profile:update", ({ id, name, configDir }) => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }
       if (typeof id !== "string" || id.length === 0) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "id は必須です",
           code: "invalid_id",
         });
@@ -1523,7 +1523,7 @@ async function startServer() {
       const patch: { name?: string; configDir?: string } = {};
       if (name !== undefined) {
         if (typeof name !== "string" || name.trim().length === 0) {
-          socket.emit("account:error", {
+          socket.emit("profile:error", {
             message: "name は空にできません",
             code: "invalid_name",
           });
@@ -1537,38 +1537,38 @@ async function startServer() {
         patch.configDir = normalized;
       }
       try {
-        const profile = db.updateAccountProfile(id, patch);
-        io.emit("account:updated", profile);
-        io.emit("account:list", db.listAccountProfiles());
+        const profile = db.updateProfile(id, patch);
+        io.emit("profile:updated", profile);
+        io.emit("profile:list", db.listProfiles());
       } catch (e) {
-        socket.emit("account:error", { message: getErrorMessage(e) });
+        socket.emit("profile:error", { message: getErrorMessage(e) });
       }
     });
 
-    socket.on("account:delete", ({ id }) => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("profile:delete", ({ id }) => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }
       try {
         // 削除前に該当紐付け一覧をスナップショット (CASCADE でDB上は消えるため)
         const affectedRepoPaths = db
-          .listRepoAccountLinks()
-          .filter(link => link.accountProfileId === id)
+          .listRepoProfileLinks()
+          .filter(link => link.profileId === id)
           .map(link => link.repoPath);
 
-        db.deleteAccountProfile(id);
-        io.emit("account:deleted", { id });
-        io.emit("account:list", db.listAccountProfiles());
+        db.deleteProfile(id);
+        io.emit("profile:deleted", { id });
+        io.emit("profile:list", db.listProfiles());
 
         // 紐付けが切れた各リポジトリについて、クライアントのバッジ + 稼働中
-        // セッションの staleAccount を更新する
+        // セッションの staleProfile を更新する
         for (const repoPath of affectedRepoPaths) {
-          io.emit("repo:account-changed", {
+          io.emit("repo:profile-changed", {
             repoPath,
-            accountProfileId: null,
+            profileId: null,
           });
-          // そのリポジトリで稼働中のセッションを列挙して staleAccount 再計算
+          // そのリポジトリで稼働中のセッションを列挙して staleProfile 再計算
           for (const sess of sessionOrchestrator.getAllSessions()) {
             if (sess.repoPath === repoPath) {
               io.emit("session:updated", sess);
@@ -1576,37 +1576,37 @@ async function startServer() {
           }
         }
       } catch (e) {
-        socket.emit("account:error", { message: getErrorMessage(e) });
+        socket.emit("profile:error", { message: getErrorMessage(e) });
       }
     });
 
-    socket.on("repo:set-account", ({ repoPath, accountProfileId }) => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("repo:set-profile", ({ repoPath, profileId }) => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }
       if (typeof repoPath !== "string" || repoPath.length === 0) {
-        socket.emit("account:error", {
+        socket.emit("profile:error", {
           message: "repoPath は必須です",
           code: "invalid_repo",
         });
         return;
       }
       try {
-        if (accountProfileId === null) {
-          db.removeRepoAccountLink(repoPath);
+        if (profileId === null) {
+          db.removeRepoProfileLink(repoPath);
         } else {
-          db.setRepoAccountLink(repoPath, accountProfileId);
+          db.setRepoProfileLink(repoPath, profileId);
         }
-        io.emit("repo:account-changed", { repoPath, accountProfileId });
+        io.emit("repo:profile-changed", { repoPath, profileId });
 
-        // 該当 repoPath 配下の稼働中セッションについて staleAccount を再計算
+        // 該当 repoPath 配下の稼働中セッションについて staleProfile を再計算
         // 変化したセッションは session:updated を再 emit してクライアントに反映
         const allSessions = sessionOrchestrator.getAllSessions();
         for (const session of allSessions) {
           if (session.repoPath !== repoPath) continue;
-          const previousStale = session.staleAccount === true;
-          const currentStale = sessionOrchestrator.recomputeStaleAccount(
+          const previousStale = session.staleProfile === true;
+          const currentStale = sessionOrchestrator.recomputeStaleProfile(
             session.id
           );
           if (previousStale !== currentStale) {
@@ -1614,18 +1614,18 @@ async function startServer() {
             if (updated) {
               io.emit("session:updated", {
                 ...updated,
-                staleAccount: currentStale,
+                staleProfile: currentStale,
               });
             }
           }
         }
       } catch (e) {
-        socket.emit("account:error", { message: getErrorMessage(e) });
+        socket.emit("profile:error", { message: getErrorMessage(e) });
       }
     });
 
-    socket.on("session:restart-with-account", async ({ sessionId }) => {
-      if (!capabilities.multiAccountSupported) {
+    socket.on("session:restart-with-profile", async ({ sessionId }) => {
+      if (!capabilities.multiProfileSupported) {
         emitUnsupported();
         return;
       }

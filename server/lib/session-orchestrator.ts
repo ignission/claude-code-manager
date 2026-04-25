@@ -32,14 +32,14 @@ export class SessionOrchestrator extends EventEmitter {
   private repoPathCache = new Map<string, string | undefined>();
 
   /**
-   * sessionId → accountProfileId（起動時に確定したプロファイルID）
+   * sessionId → profileId（起動時に確定したプロファイルID）
    *
    * tmuxセッション自体はprofileIdを持たないため、SessionOrchestratorで
    * セッションごとに記憶しておく。restartSession時の再解決や、
-   * staleAccount判定に使う。
-   * 値がnullなら「アカウント未紐付け」、未設定（mapにキーなし）も同義。
+   * staleProfile判定に使う。
+   * 値がnullなら「プロファイル未紐付け」、未設定（mapにキーなし）も同義。
    */
-  private sessionAccounts = new Map<string, string | null>();
+  private sessionProfiles = new Map<string, string | null>();
 
   constructor() {
     super();
@@ -157,13 +157,13 @@ export class SessionOrchestrator extends EventEmitter {
       db.updateSessionRepoPath(dbSession.id, derivedRepoPath);
     }
 
-    // 起動時に確定したアカウントと、現在のリポジトリ紐付けを比較して
-    // staleAccount を判定する。session:list / session:restored 経由でも
+    // 起動時に確定したプロファイルと、現在のリポジトリ紐付けを比較して
+    // staleProfile を判定する。session:list / session:restored 経由でも
     // 整合性を保つため、再接続/別クライアントでもバッジが復元される。
-    const currentProfileId = this.sessionAccounts.get(tmuxSession.id) ?? null;
-    const link = repoPath ? db.getRepoAccountLink(repoPath) : null;
-    const desiredProfileId = link?.accountProfileId ?? null;
-    const staleAccount =
+    const currentProfileId = this.sessionProfiles.get(tmuxSession.id) ?? null;
+    const link = repoPath ? db.getRepoProfileLink(repoPath) : null;
+    const desiredProfileId = link?.profileId ?? null;
+    const staleProfile =
       currentProfileId !== null && currentProfileId !== desiredProfileId;
 
     return {
@@ -176,8 +176,8 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSessionName: tmuxSession.tmuxSessionName,
       ttydPort: ttydInstance?.port || null,
       ttydUrl: ttydInstance ? `/ttyd/${tmuxSession.id}/` : null,
-      accountProfileId: currentProfileId,
-      staleAccount,
+      profileId: currentProfileId,
+      staleProfile,
     };
   }
 
@@ -231,33 +231,33 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
-   * 紐付けアカウントから env / accountProfileId を解決する。
+   * 紐付けプロファイルから env / profileId を解決する。
    *
    * - 紐付け無し → null env / null id
    * - 紐付けあるが profile が無い（削除済等）→ null env / null id
-   * - 紐付けあり → env={CLAUDE_CONFIG_DIR}, accountProfileId
+   * - 紐付けあり → env={CLAUDE_CONFIG_DIR}, profileId
    *
    * configDir/.credentials.json の存在チェックは行わない。claude CLI が
    * 必要なら自動で /login を促す。
    */
-  private resolveAccountForRepo(repoPath: string | undefined): {
+  private resolveProfileForRepo(repoPath: string | undefined): {
     env: Record<string, string> | undefined;
-    accountProfileId: string | null;
+    profileId: string | null;
   } {
     if (!repoPath) {
-      return { env: undefined, accountProfileId: null };
+      return { env: undefined, profileId: null };
     }
-    const link = db.getRepoAccountLink(repoPath);
+    const link = db.getRepoProfileLink(repoPath);
     if (!link) {
-      return { env: undefined, accountProfileId: null };
+      return { env: undefined, profileId: null };
     }
-    const profile = db.getAccountProfile(link.accountProfileId);
+    const profile = db.getProfile(link.profileId);
     if (!profile) {
-      return { env: undefined, accountProfileId: null };
+      return { env: undefined, profileId: null };
     }
     return {
       env: { CLAUDE_CONFIG_DIR: profile.configDir },
-      accountProfileId: profile.id,
+      profileId: profile.id,
     };
   }
 
@@ -294,16 +294,16 @@ export class SessionOrchestrator extends EventEmitter {
         );
       }
 
-      // toManagedSession 内で sessionAccounts と紐付けを比較して
-      // accountProfileId / staleAccount を反映済み
+      // toManagedSession 内で sessionProfiles と紐付けを比較して
+      // profileId / staleProfile を反映済み
       const managed = this.toManagedSession(existingTmux, worktreeId);
       this.emit("session:restored", managed);
       return managed;
     }
 
-    // 新規作成パス: 紐付けアカウントから env / profileId を解決
-    const { env, accountProfileId } =
-      this.resolveAccountForRepo(resolvedRepoPath);
+    // 新規作成パス: 紐付けプロファイルから env / profileId を解決
+    const { env, profileId } =
+      this.resolveProfileForRepo(resolvedRepoPath);
 
     // 新規tmuxセッションを作成（envがあれば注入）
     const tmuxSession = await tmuxManager.createSession(
@@ -326,8 +326,8 @@ export class SessionOrchestrator extends EventEmitter {
       status: "active",
     });
 
-    // accountProfileId をsession-id毎に記憶（restartSession / staleAccount判定用）
-    this.sessionAccounts.set(tmuxSession.id, accountProfileId);
+    // profileId をsession-id毎に記憶（restartSession / staleProfile判定用）
+    this.sessionProfiles.set(tmuxSession.id, profileId);
 
     const managed: ManagedSession = {
       id: tmuxSession.id,
@@ -339,7 +339,7 @@ export class SessionOrchestrator extends EventEmitter {
       tmuxSessionName: tmuxSession.tmuxSessionName,
       ttydPort: ttydInstance.port,
       ttydUrl: `/ttyd/${tmuxSession.id}/`,
-      accountProfileId,
+      profileId,
     };
 
     this.emit("session:created", managed);
@@ -348,10 +348,10 @@ export class SessionOrchestrator extends EventEmitter {
 
   /**
    * 稼働中セッションを kill して、現在の紐付けで再起動する。
-   * staleAccount となったセッションをユーザが「再起動」した際に呼ぶ。
+   * staleProfile となったセッションをユーザが「再起動」した際に呼ぶ。
    *
    * 内部処理:
-   * 1. ttyd 停止 / tmux kill / sessionAccounts/repoPathCacheクリア
+   * 1. ttyd 停止 / tmux kill / sessionProfiles/repoPathCacheクリア
    * 2. startSession を再呼び出し（env が再解決される）
    *
    * @throws sessionId に対応する tmux セッションが見つからない場合
@@ -376,7 +376,7 @@ export class SessionOrchestrator extends EventEmitter {
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
     db.deleteSession(sessionId);
-    this.sessionAccounts.delete(sessionId);
+    this.sessionProfiles.delete(sessionId);
     this.repoPathCache.delete(worktreePath);
     // 古いセッション ID の停止をクライアントへ通知 → UI から消える
     this.emit("session:stopped", sessionId);
@@ -387,22 +387,22 @@ export class SessionOrchestrator extends EventEmitter {
   }
 
   /**
-   * 指定セッションの staleAccount を再評価する。
+   * 指定セッションの staleProfile を再評価する。
    *
-   * `repo:set-account` 等で紐付けが変わった際に、稼働中セッションの
-   * staleAccount を再計算してクライアントへ反映するためのヘルパー。
+   * `repo:set-profile` 等で紐付けが変わった際に、稼働中セッションの
+   * staleProfile を再計算してクライアントへ反映するためのヘルパー。
    *
-   * @returns 現在 staleAccount かどうか（セッション不存在時は false）
+   * @returns 現在 staleProfile かどうか（セッション不存在時は false）
    */
-  recomputeStaleAccount(sessionId: string): boolean {
+  recomputeStaleProfile(sessionId: string): boolean {
     const tmuxSession = tmuxManager.getSession(sessionId);
     if (!tmuxSession) return false;
     const repoPath = tmuxSession.worktreePath
       ? this.deriveRepoPath(tmuxSession.worktreePath)
       : undefined;
-    const link = repoPath ? db.getRepoAccountLink(repoPath) : null;
-    const desiredProfileId = link?.accountProfileId ?? null;
-    const currentProfileId = this.sessionAccounts.get(sessionId) ?? null;
+    const link = repoPath ? db.getRepoProfileLink(repoPath) : null;
+    const desiredProfileId = link?.profileId ?? null;
+    const currentProfileId = this.sessionProfiles.get(sessionId) ?? null;
     return currentProfileId !== desiredProfileId;
   }
 
@@ -445,7 +445,7 @@ export class SessionOrchestrator extends EventEmitter {
     ttydManager.stopInstance(sessionId);
     tmuxManager.killSession(sessionId);
     db.deleteSession(sessionId);
-    this.sessionAccounts.delete(sessionId);
+    this.sessionProfiles.delete(sessionId);
     if (worktreePath) {
       this.repoPathCache.delete(worktreePath);
     }
@@ -524,7 +524,7 @@ export class SessionOrchestrator extends EventEmitter {
         if (dbSession) {
           db.deleteSession(dbSession.id);
         }
-        this.sessionAccounts.delete(s.id);
+        this.sessionProfiles.delete(s.id);
         this.repoPathCache.delete(s.worktreePath);
         this.emit("session:stopped", s.id);
       }

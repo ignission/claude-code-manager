@@ -1,10 +1,10 @@
 /**
- * RepoAccountMenu - リポジトリ右クリックメニュー内に表示する
- * 「アカウントを変更」サブメニューのコンテンツ
+ * RepoProfileMenu - リポジトリ右クリックメニュー内に表示する
+ * 「プロファイルを変更」サブメニューのコンテンツ
  *
- * - 登録アカウント一覧
+ * - 登録プロファイル一覧
  * - 既定 (~/.claude) で紐付け解除
- * - アカウント管理ダイアログを開く
+ * - プロファイル管理ダイアログを開く
  *
  * NOTE: ContextMenuSubContentにラップする内側のItem群のみを描画する。
  *       SubTriggerは呼び出し側 (SessionSidebar) が担う。
@@ -16,7 +16,7 @@ import {
   ContextMenuLabel,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
-import type { AccountProfile } from "../../../shared/types";
+import type { Profile } from "../../../shared/types";
 
 /** プロファイルバッジのカラーパレット (5色) */
 export const PROFILE_COLORS = [
@@ -44,33 +44,33 @@ export function badgeLabel(name: string): string {
   return `${chars.slice(0, BADGE_MAX_CHARS).join("")}…`;
 }
 
-interface RepoAccountMenuProps {
-  accounts: AccountProfile[];
-  currentAccountId: string | null;
-  onSelect: (accountProfileId: string | null) => void;
+interface RepoProfileMenuProps {
+  profiles: Profile[];
+  currentProfileId: string | null;
+  onSelect: (profileId: string | null) => void;
   onOpenManager: () => void;
 }
 
-export function RepoAccountMenu({
-  accounts,
-  currentAccountId,
+export function RepoProfileMenu({
+  profiles,
+  currentProfileId,
   onSelect,
   onOpenManager,
-}: RepoAccountMenuProps) {
+}: RepoProfileMenuProps) {
   return (
     <>
       <ContextMenuLabel className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-        アカウント
+        プロファイル
       </ContextMenuLabel>
-      {accounts.map(account => {
-        const isCurrent = account.id === currentAccountId;
-        const colorClass = colorFor(account.id);
-        const label = badgeLabel(account.name);
+      {profiles.map(profile => {
+        const isCurrent = profile.id === currentProfileId;
+        const colorClass = colorFor(profile.id);
+        const label = badgeLabel(profile.name);
 
         return (
           <ContextMenuItem
-            key={account.id}
-            onSelect={() => onSelect(account.id)}
+            key={profile.id}
+            onSelect={() => onSelect(profile.id)}
             className="flex items-center justify-between gap-2"
           >
             <span className="flex items-center gap-2 min-w-0">
@@ -79,7 +79,7 @@ export function RepoAccountMenu({
               ) : (
                 <span className="w-3.5 h-3.5 shrink-0" aria-hidden />
               )}
-              <span className="truncate">{account.name}</span>
+              <span className="truncate">{profile.name}</span>
             </span>
             <span
               className={`shrink-0 inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium rounded border ${colorClass}`}
@@ -94,7 +94,7 @@ export function RepoAccountMenu({
         onSelect={() => onSelect(null)}
         className="flex items-center gap-2"
       >
-        {currentAccountId === null ? (
+        {currentProfileId === null ? (
           <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
         ) : (
           <span className="w-3.5 h-3.5 shrink-0" aria-hidden />
@@ -107,7 +107,7 @@ export function RepoAccountMenu({
         className="flex items-center gap-2"
       >
         <Settings className="w-3.5 h-3.5" />
-        <span>アカウント管理を開く...</span>
+        <span>プロファイル管理を開く...</span>
       </ContextMenuItem>
     </>
   );

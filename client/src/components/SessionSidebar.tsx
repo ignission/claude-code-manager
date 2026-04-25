@@ -5,9 +5,9 @@
  * リポジトリごとにヘッダーで区切って表示する。
  * worktree中心のイテレーション: セッション未起動のworktreeも表示する。
  *
- * 複数アカウント機能 (Linux限定):
- * - capabilities.multiAccountSupported === true のときのみ
- *   アカウントバッジ・staleAccount警告・再起動ボタン・右クリックメニュー追加項目を表示する
+ * プロファイル切替機能 (Linux限定):
+ * - capabilities.multiProfileSupported === true のときのみ
+ *   プロファイルバッジ・staleProfile警告・再起動ボタン・右クリックメニュー追加項目を表示する
  * - false の場合は従来通りの挙動 (関連UI完全非表示)
  */
 
@@ -51,12 +51,12 @@ import {
 import { useGroupedWorktreeItems } from "@/hooks/useGroupedWorktreeItems";
 import { getBaseName } from "@/utils/pathUtils";
 import type {
-  AccountProfile,
+  Profile,
   ManagedSession,
   SystemCapabilities,
   Worktree,
 } from "../../../shared/types";
-import { badgeLabel, colorFor, RepoAccountMenu } from "./RepoAccountMenu";
+import { badgeLabel, colorFor, RepoProfileMenu } from "./RepoProfileMenu";
 import { SessionCard } from "./SessionCard";
 
 interface SessionSidebarProps {
@@ -79,15 +79,15 @@ interface SessionSidebarProps {
   isBrowserSelected?: boolean;
   /** リモートアクセス中か */
   isRemote?: boolean;
-  /** 複数アカウント機能用 (Linux限定) */
-  accounts?: AccountProfile[];
-  repoAccountLinks?: Map<string, string>;
+  /** プロファイル切替機能用 (Linux限定) */
+  profiles?: Profile[];
+  repoProfileLinks?: Map<string, string>;
   capabilities?: SystemCapabilities;
-  onSetRepoAccount?: (
+  onSetRepoProfile?: (
     repoPath: string,
-    accountProfileId: string | null
+    profileId: string | null
   ) => void;
-  onOpenAccountManager?: () => void;
+  onOpenProfileManager?: () => void;
   onRestartSession?: (sessionId: string) => void;
   /** リポジトリで新規Worktree作成を要求 */
   onCreateWorktreeForRepo?: (repoPath: string) => void;
@@ -108,11 +108,11 @@ export function SessionSidebar({
   onSelectBrowser,
   isBrowserSelected = false,
   isRemote = false,
-  accounts,
-  repoAccountLinks,
+  profiles,
+  repoProfileLinks,
   capabilities,
-  onSetRepoAccount,
-  onOpenAccountManager,
+  onSetRepoProfile,
+  onOpenProfileManager,
   onRestartSession,
   onCreateWorktreeForRepo,
 }: SessionSidebarProps) {
@@ -135,19 +135,19 @@ export function SessionSidebar({
     string | null
   >(null);
 
-  const multiAccountEnabled = capabilities?.multiAccountSupported === true;
-  const accountList = accounts ?? [];
-  const accountById = useMemo(
-    () => new Map(accountList.map(a => [a.id, a])),
-    [accountList]
+  const multiProfileEnabled = capabilities?.multiProfileSupported === true;
+  const profileList = profiles ?? [];
+  const profileById = useMemo(
+    () => new Map(profileList.map(a => [a.id, a])),
+    [profileList]
   );
 
-  // リポジトリ行に表示するアカウントバッジを描画する
-  const renderRepoAccountBadge = (repoPath: string | undefined) => {
-    if (!multiAccountEnabled || !repoPath) return null;
-    const linkedId = repoAccountLinks?.get(repoPath);
+  // リポジトリ行に表示するプロファイルバッジを描画する
+  const renderRepoProfileBadge = (repoPath: string | undefined) => {
+    if (!multiProfileEnabled || !repoPath) return null;
+    const linkedId = repoProfileLinks?.get(repoPath);
     if (linkedId) {
-      const profile = accountById.get(linkedId);
+      const profile = profileById.get(linkedId);
       if (profile) {
         const colorClass = colorFor(profile.id);
         return (
@@ -185,8 +185,8 @@ export function SessionSidebar({
   };
 
   // 古い設定 警告バッジ + 再起動ボタン
-  const renderStaleAccountControls = (session: ManagedSession) => {
-    if (!multiAccountEnabled || session.staleAccount !== true) return null;
+  const renderStaleProfileControls = (session: ManagedSession) => {
+    if (!multiProfileEnabled || session.staleProfile !== true) return null;
     return (
       <div className="flex items-center gap-1 px-2 pb-1.5 pl-7">
         <Tooltip>
@@ -197,7 +197,7 @@ export function SessionSidebar({
             </span>
           </TooltipTrigger>
           <TooltipContent side="right">
-            リポジトリのアカウント紐付けが変更されました。このセッションは元の設定で動作中です
+            リポジトリのプロファイル紐付けが変更されました。このセッションは元の設定で動作中です
           </TooltipContent>
         </Tooltip>
         {onRestartSession && (
@@ -266,19 +266,19 @@ export function SessionSidebar({
               const repoPath = repoPathByName.get(repoName);
               const canRemove = !!onRemoveRepo && !!repoPath;
               const currentLinkId = repoPath
-                ? (repoAccountLinks?.get(repoPath) ?? null)
+                ? (repoProfileLinks?.get(repoPath) ?? null)
                 : null;
-              const showAccountSubmenu =
-                multiAccountEnabled &&
+              const showProfileSubmenu =
+                multiProfileEnabled &&
                 !!repoPath &&
-                !!onSetRepoAccount &&
-                !!onOpenAccountManager;
+                !!onSetRepoProfile &&
+                !!onOpenProfileManager;
               const canCreateWorktree = !!onCreateWorktreeForRepo && !!repoPath;
-              // Worktree作成 / アカウント変更 / サイドバーから除外
+              // Worktree作成 / プロファイル変更 / サイドバーから除外
               // のいずれかが可能なら repoヘッダに ContextMenu を付ける
               const showRepoContextMenu =
                 !!repoPath &&
-                (canCreateWorktree || showAccountSubmenu || canRemove);
+                (canCreateWorktree || showProfileSubmenu || canRemove);
 
               const repoHeader = (
                 <div className="sticky left-0 flex items-center gap-1.5 px-2 py-1.5">
@@ -286,7 +286,7 @@ export function SessionSidebar({
                   <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider truncate">
                     {repoName}
                   </span>
-                  {renderRepoAccountBadge(repoPath)}
+                  {renderRepoProfileBadge(repoPath)}
                   {canCreateWorktree && (
                     <Button
                       variant="ghost"
@@ -336,20 +336,20 @@ export function SessionSidebar({
                             <ContextMenuSeparator />
                           </>
                         )}
-                        {showAccountSubmenu && (
+                        {showProfileSubmenu && (
                           <>
                             <ContextMenuSub>
                               <ContextMenuSubTrigger>
-                                アカウントを変更
+                                プロファイルを変更
                               </ContextMenuSubTrigger>
                               <ContextMenuSubContent className="w-56">
-                                <RepoAccountMenu
-                                  accounts={accountList}
-                                  currentAccountId={currentLinkId}
+                                <RepoProfileMenu
+                                  profiles={profileList}
+                                  currentProfileId={currentLinkId}
                                   onSelect={profileId =>
-                                    onSetRepoAccount?.(repoPath, profileId)
+                                    onSetRepoProfile?.(repoPath, profileId)
                                   }
-                                  onOpenManager={() => onOpenAccountManager?.()}
+                                  onOpenManager={() => onOpenProfileManager?.()}
                                 />
                               </ContextMenuSubContent>
                             </ContextMenuSub>
@@ -395,7 +395,7 @@ export function SessionSidebar({
                           }
                           onStart={() => (wt ? onStartSession(wt) : undefined)}
                         />
-                        {session && renderStaleAccountControls(session)}
+                        {session && renderStaleProfileControls(session)}
                       </div>
                     ))}
                   </div>
@@ -437,7 +437,7 @@ export function SessionSidebar({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* セッション再起動 確認ダイアログ (staleAccount対応) */}
+      {/* セッション再起動 確認ダイアログ (staleProfile対応) */}
       <AlertDialog
         open={restartTargetSessionId !== null}
         onOpenChange={open => {

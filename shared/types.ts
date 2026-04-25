@@ -45,17 +45,17 @@ export interface ManagedSession extends Session {
   ttydPort: number | null;
   /** ttydのURL（未起動時はnull） */
   ttydUrl: string | null;
-  /** セッション起動時に確定したアカウントプロファイルID（未紐付けはnull/undefined） */
-  accountProfileId?: string | null;
+  /** セッション起動時に確定したプロファイルID（未紐付けはnull/undefined） */
+  profileId?: string | null;
   /** 現在のリポジトリ紐付けと不一致（再起動が必要） */
-  staleAccount?: boolean;
+  staleProfile?: boolean;
 }
 
 /**
- * 複数Anthropicアカウント切替機能 (Linux限定) で使うプロファイル
- * Claude CLIの認証情報ディレクトリ (CLAUDE_CONFIG_DIR) を抽象化する
+ * Claude CLIの設定ディレクトリ (CLAUDE_CONFIG_DIR) プロファイル (Linux限定)
+ * リポジトリ単位で別々のディレクトリを使い分けるための抽象化
  */
-export interface AccountProfile {
+export interface Profile {
   id: string;
   name: string;
   /** 絶対パス。チルダはサーバ側で展開済 */
@@ -65,12 +65,12 @@ export interface AccountProfile {
 }
 
 /**
- * リポジトリとアカウントプロファイルの紐付け
+ * リポジトリとプロファイルの紐付け
  * 1リポジトリ=1プロファイル（多重紐付けは未サポート）
  */
-export interface RepoAccountLink {
+export interface RepoProfileLink {
   repoPath: string;
-  accountProfileId: string;
+  profileId: string;
   updatedAt: number;
 }
 
@@ -79,8 +79,8 @@ export interface RepoAccountLink {
  * クライアントは初期化時に受け取り、UI表示の可否を判断する
  */
 export interface SystemCapabilities {
-  /** 複数アカウント切替が利用可能か（Linux + claudeコマンド存在 で true） */
-  multiAccountSupported: boolean;
+  /** プロファイル切替が利用可能か（Linux + claudeコマンド存在 で true） */
+  multiProfileSupported: boolean;
 }
 
 export type SessionStatus = "active" | "idle" | "error" | "stopped";
@@ -242,17 +242,17 @@ export interface ServerToClientEvents {
   "frontline:record_saved": (data: FrontlineRecordSaved) => void;
   "frontline:error": (data: FrontlineError) => void;
 
-  // 複数アカウント切替 (Linux限定)
+  // プロファイル切替 (Linux限定)
   "system:capabilities": (caps: SystemCapabilities) => void;
-  "account:list": (profiles: AccountProfile[]) => void;
-  "repo:account-links": (links: RepoAccountLink[]) => void;
-  "account:created": (profile: AccountProfile) => void;
-  "account:updated": (profile: AccountProfile) => void;
-  "account:deleted": (data: { id: string }) => void;
-  "account:error": (data: { message: string; code?: string }) => void;
-  "repo:account-changed": (data: {
+  "profile:list": (profiles: Profile[]) => void;
+  "repo:profile-links": (links: RepoProfileLink[]) => void;
+  "profile:created": (profile: Profile) => void;
+  "profile:updated": (profile: Profile) => void;
+  "profile:deleted": (data: { id: string }) => void;
+  "profile:error": (data: { message: string; code?: string }) => void;
+  "repo:profile-changed": (data: {
     repoPath: string;
-    accountProfileId: string | null;
+    profileId: string | null;
   }) => void;
 }
 
@@ -319,20 +319,20 @@ export interface ClientToServerEvents {
   "frontline:get_stats": () => void;
   "frontline:get_records": (data?: { limit?: number }) => void;
 
-  // 複数アカウント切替 (Linux限定)
-  "account:list": () => void;
-  "account:create": (data: { name: string; configDir: string }) => void;
-  "account:update": (data: {
+  // プロファイル切替 (Linux限定)
+  "profile:list": () => void;
+  "profile:create": (data: { name: string; configDir: string }) => void;
+  "profile:update": (data: {
     id: string;
     name?: string;
     configDir?: string;
   }) => void;
-  "account:delete": (data: { id: string }) => void;
-  "repo:set-account": (data: {
+  "profile:delete": (data: { id: string }) => void;
+  "repo:set-profile": (data: {
     repoPath: string;
-    accountProfileId: string | null;
+    profileId: string | null;
   }) => void;
-  "session:restart-with-account": (data: { sessionId: string }) => void;
+  "session:restart-with-profile": (data: { sessionId: string }) => void;
 }
 
 /** Beaconチャットのメッセージ */

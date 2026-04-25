@@ -20,12 +20,12 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import type { AccountProfile } from "../../../shared/types";
+import type { Profile } from "../../../shared/types";
 
-interface AccountManagerDialogProps {
+interface ProfileManagerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  accounts: AccountProfile[];
+  profiles: Profile[];
   onCreate: (name: string, configDir: string) => void;
   onUpdate: (id: string, patch: { name?: string; configDir?: string }) => void;
   onDelete: (id: string) => void;
@@ -64,16 +64,16 @@ function validateForm(
   return { ok: true };
 }
 
-export function AccountManagerDialog({
+export function ProfileManagerDialog({
   open,
   onOpenChange,
-  accounts,
+  profiles,
   onCreate,
   onUpdate,
   onDelete,
-}: AccountManagerDialogProps) {
+}: ProfileManagerDialogProps) {
   const [mode, setMode] = useState<Mode>({ kind: "list" });
-  const [pendingDelete, setPendingDelete] = useState<AccountProfile | null>(
+  const [pendingDelete, setPendingDelete] = useState<Profile | null>(
     null
   );
 
@@ -85,17 +85,17 @@ export function AccountManagerDialog({
     }
   }, [open]);
 
-  const editingAccount =
+  const editingProfile =
     mode.kind === "edit"
-      ? (accounts.find(a => a.id === mode.id) ?? null)
+      ? (profiles.find(a => a.id === mode.id) ?? null)
       : null;
 
   // 編集対象が削除されたらlistに戻る
   useEffect(() => {
-    if (mode.kind === "edit" && !editingAccount) {
+    if (mode.kind === "edit" && !editingProfile) {
       setMode({ kind: "list" });
     }
-  }, [mode, editingAccount]);
+  }, [mode, editingProfile]);
 
   return (
     <>
@@ -103,7 +103,7 @@ export function AccountManagerDialog({
         <DialogContent className="bg-card border-border w-[calc(100%-2rem)] max-w-2xl mx-auto max-h-[85vh] flex flex-col gap-0 p-0 overflow-hidden">
           {mode.kind === "list" && (
             <ListView
-              accounts={accounts}
+              profiles={profiles}
               onAdd={() => setMode({ kind: "add" })}
               onEdit={id => setMode({ kind: "edit", id })}
               onAskDelete={acc => setPendingDelete(acc)}
@@ -122,14 +122,14 @@ export function AccountManagerDialog({
               }}
             />
           )}
-          {mode.kind === "edit" && editingAccount && (
+          {mode.kind === "edit" && editingProfile && (
             <AddOrEditView
               kind="edit"
-              initialName={editingAccount.name}
-              initialConfigDir={editingAccount.configDir}
+              initialName={editingProfile.name}
+              initialConfigDir={editingProfile.configDir}
               onCancel={() => setMode({ kind: "list" })}
               onSubmit={(name, configDir) => {
-                onUpdate(editingAccount.id, {
+                onUpdate(editingProfile.id, {
                   name: name.trim(),
                   configDir: configDir.trim(),
                 });
@@ -149,10 +149,10 @@ export function AccountManagerDialog({
       >
         <AlertDialogContent className="bg-card border-border">
           <AlertDialogHeader>
-            <AlertDialogTitle>アカウントを削除しますか？</AlertDialogTitle>
+            <AlertDialogTitle>プロファイルを削除しますか？</AlertDialogTitle>
             <AlertDialogDescription>
               {pendingDelete
-                ? `「${pendingDelete.name}」を削除します。このアカウントを利用しているリポジトリの紐付けも解除されます。設定ディレクトリ自体は削除されません。`
+                ? `「${pendingDelete.name}」を削除します。このプロファイルを紐付けたリポジトリは紐付けが解除されます。設定ディレクトリ自体は削除されません。`
                 : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -181,16 +181,16 @@ export function AccountManagerDialog({
 // ============================================================
 
 function ListView({
-  accounts,
+  profiles,
   onAdd,
   onEdit,
   onAskDelete,
   onClose,
 }: {
-  accounts: AccountProfile[];
+  profiles: Profile[];
   onAdd: () => void;
   onEdit: (id: string) => void;
-  onAskDelete: (acc: AccountProfile) => void;
+  onAskDelete: (acc: Profile) => void;
   onClose: () => void;
 }) {
   return (
@@ -198,10 +198,10 @@ function ListView({
       <DialogHeader className="px-5 py-4 border-b border-border">
         <DialogTitle className="flex items-center gap-2">
           <UsersRound className="w-4 h-4 text-muted-foreground" />
-          アカウント管理
+          プロファイル管理
         </DialogTitle>
         <DialogDescription>
-          複数のAnthropicアカウントを登録し、リポジトリ単位で使い分けできます。
+          Claude CLI の設定ディレクトリ (CLAUDE_CONFIG_DIR) をリポジトリ単位で使い分けます。
         </DialogDescription>
       </DialogHeader>
 
@@ -215,11 +215,11 @@ function ListView({
         </p>
       </div>
 
-      {/* アカウント一覧 */}
+      {/* プロファイル一覧 */}
       <div className="px-5 py-3 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
           <span className="text-xs text-muted-foreground font-medium">
-            登録済みアカウント ({accounts.length})
+            登録済みプロファイル ({profiles.length})
           </span>
           <Button
             type="button"
@@ -232,18 +232,18 @@ function ListView({
           </Button>
         </div>
 
-        {accounts.length === 0 ? (
+        {profiles.length === 0 ? (
           <div className="text-center py-10 text-sm text-muted-foreground border border-dashed border-border rounded-md">
-            アカウントが未登録です。
+            プロファイルが未登録です。
           </div>
         ) : (
           <div className="space-y-2">
-            {accounts.map(account => (
-              <AccountRow
-                key={account.id}
-                account={account}
-                onEdit={() => onEdit(account.id)}
-                onAskDelete={() => onAskDelete(account)}
+            {profiles.map(profile => (
+              <ProfileRow
+                key={profile.id}
+                profile={profile}
+                onEdit={() => onEdit(profile.id)}
+                onAskDelete={() => onAskDelete(profile)}
               />
             ))}
           </div>
@@ -259,12 +259,12 @@ function ListView({
   );
 }
 
-function AccountRow({
-  account,
+function ProfileRow({
+  profile,
   onEdit,
   onAskDelete,
 }: {
-  account: AccountProfile;
+  profile: Profile;
   onEdit: () => void;
   onAskDelete: () => void;
 }) {
@@ -273,10 +273,10 @@ function AccountRow({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-medium text-sm">{account.name}</span>
+            <span className="font-medium text-sm">{profile.name}</span>
           </div>
           <p className="text-xs text-muted-foreground mt-1 font-mono truncate">
-            {account.configDir}
+            {profile.configDir}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -344,20 +344,20 @@ function AddOrEditView({
       <DialogHeader className="px-5 py-4 border-b border-border">
         <DialogTitle className="flex items-center gap-2">
           <UsersRound className="w-4 h-4 text-blue-400" />
-          {isAdd ? "新規アカウント追加" : "アカウント編集"}
+          {isAdd ? "新規プロファイル追加" : "プロファイル編集"}
         </DialogTitle>
       </DialogHeader>
 
       <div className="px-5 py-4 space-y-4 flex-1 overflow-y-auto">
         <div>
           <Label
-            htmlFor="account-name"
+            htmlFor="profile-name"
             className="text-xs font-medium mb-1.5 block"
           >
             名前
           </Label>
           <Input
-            id="account-name"
+            id="profile-name"
             type="text"
             value={name}
             onChange={e => {
@@ -378,7 +378,7 @@ function AddOrEditView({
 
         <div>
           <Label
-            htmlFor="account-config-dir"
+            htmlFor="profile-config-dir"
             className="text-xs font-medium mb-1.5 block"
           >
             設定ディレクトリ{" "}
@@ -387,7 +387,7 @@ function AddOrEditView({
             </span>
           </Label>
           <Input
-            id="account-config-dir"
+            id="profile-config-dir"
             type="text"
             value={configDir}
             onChange={e => {
@@ -401,7 +401,7 @@ function AddOrEditView({
             <p className="text-xs text-destructive mt-1">{error.message}</p>
           )}
           <p className="text-xs text-muted-foreground mt-1">
-            認証情報・設定の保存先。各アカウントで別ディレクトリにする
+            設定の保存先。各プロファイルで別ディレクトリにする
           </p>
         </div>
 
@@ -410,7 +410,7 @@ function AddOrEditView({
             <Info className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
             <div className="text-xs text-blue-200/80">
               <p>
-                追加後、このアカウントを紐付けたリポジトリでセッションを起動すると、
+                追加後、このプロファイルを紐付けたリポジトリでセッションを起動すると、
                 claude CLIが自動でログイン画面を表示します。
               </p>
             </div>

@@ -1,8 +1,8 @@
 /**
- * SessionOrchestrator のアカウント切替まわりのテスト
+ * SessionOrchestrator のプロファイル切替まわりのテスト
  *
  * - CLAUDE_CONFIG_DIR の env 注入条件
- * - 既存セッション再利用時の staleAccount 判定
+ * - 既存セッション再利用時の staleProfile 判定
  * - restartSession の kill→再作成
  *
  * 外部依存（TmuxManager / TtydManager / SessionDatabase）はモック化する。
@@ -54,8 +54,8 @@ vi.mock("./ttyd-manager.js", async () => {
 
 vi.mock("./database.js", () => {
   const db = {
-    getRepoAccountLink: vi.fn(),
-    getAccountProfile: vi.fn(),
+    getRepoProfileLink: vi.fn(),
+    getProfile: vi.fn(),
     getSessionByWorktreePath: vi.fn(),
     upsertSession: vi.fn(),
     updateSessionRepoPath: vi.fn(),
@@ -66,7 +66,7 @@ vi.mock("./database.js", () => {
 });
 
 // child_process は deriveRepoPath() の execFileSync 用にモック。
-// テスト中は repoPath を resolveAccountForRepo に直接渡せるよう
+// テスト中は repoPath を resolveProfileForRepo に直接渡せるよう
 // worktreePath==="/path/to/work" → repoPath==="/repo" を返す。
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(() => "/repo/.git\n"),
@@ -96,7 +96,7 @@ function makeTmuxSession(overrides: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-describe("SessionOrchestrator - アカウント切替", () => {
+describe("SessionOrchestrator - プロファイル切替", () => {
   let orchestrator: SessionOrchestrator;
 
   beforeEach(() => {
@@ -118,8 +118,8 @@ describe("SessionOrchestrator - アカウント切替", () => {
     } as never);
 
     // db: link / profile / sessionは未設定
-    mockedDb.getRepoAccountLink.mockReturnValue(null);
-    mockedDb.getAccountProfile.mockReturnValue(null);
+    mockedDb.getRepoProfileLink.mockReturnValue(null);
+    mockedDb.getProfile.mockReturnValue(null);
     mockedDb.getSessionByWorktreePath.mockReturnValue(null);
 
     orchestrator = new SessionOrchestrator();
@@ -131,7 +131,7 @@ describe("SessionOrchestrator - アカウント切替", () => {
 
   describe("startSession (新規作成)", () => {
     it("紐付けなし: env無しで createSession が呼ばれる", async () => {
-      mockedDb.getRepoAccountLink.mockReturnValue(null);
+      mockedDb.getRepoProfileLink.mockReturnValue(null);
 
       const managed = await orchestrator.startSession(
         "wt-1",
@@ -143,16 +143,16 @@ describe("SessionOrchestrator - アカウント切替", () => {
       const callArgs = mockedTmux.createSession.mock.calls[0];
       expect(callArgs[0]).toBe("/path/to/work");
       expect(callArgs[1]).toBeUndefined();
-      expect(managed.accountProfileId).toBeNull();
+      expect(managed.profileId).toBeNull();
     });
 
     it("紐付けあり: env 注入される (configDir 存在チェックは行わない)", async () => {
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-1",
+        profileId: "prof-1",
         updatedAt: 0,
       });
-      mockedDb.getAccountProfile.mockReturnValue({
+      mockedDb.getProfile.mockReturnValue({
         id: "prof-1",
         name: "work",
         configDir: "/home/user/.claude-work",
@@ -171,16 +171,16 @@ describe("SessionOrchestrator - アカウント切替", () => {
       expect(callArgs[1]).toEqual({
         env: { CLAUDE_CONFIG_DIR: "/home/user/.claude-work" },
       });
-      expect(managed.accountProfileId).toBe("prof-1");
+      expect(managed.profileId).toBe("prof-1");
     });
 
     it("紐付けあるがプロファイルが削除済 (取得null): env 無し", async () => {
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-deleted",
+        profileId: "prof-deleted",
         updatedAt: 0,
       });
-      mockedDb.getAccountProfile.mockReturnValue(null);
+      mockedDb.getProfile.mockReturnValue(null);
 
       const managed = await orchestrator.startSession(
         "wt-1",
@@ -190,23 +190,23 @@ describe("SessionOrchestrator - アカウント切替", () => {
 
       const callArgs = mockedTmux.createSession.mock.calls[0];
       expect(callArgs[1]).toBeUndefined();
-      expect(managed.accountProfileId).toBeNull();
+      expect(managed.profileId).toBeNull();
     });
   });
 
   // ============================================================
-  // startSession - 既存セッション再利用パス (staleAccount)
+  // startSession - 既存セッション再利用パス (staleProfile)
   // ============================================================
 
   describe("startSession (既存セッション再利用)", () => {
-    it("既存セッションのprofileIdが現在の紐付けと異なる: staleAccount=true", async () => {
+    it("既存セッションのprofileIdが現在の紐付けと異なる: staleProfile=true", async () => {
       // まず prof-1 で新規作成
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-1",
+        profileId: "prof-1",
         updatedAt: 0,
       });
-      mockedDb.getAccountProfile.mockReturnValue({
+      mockedDb.getProfile.mockReturnValue({
         id: "prof-1",
         name: "work",
         configDir: "/home/user/.claude-work",
@@ -216,9 +216,9 @@ describe("SessionOrchestrator - アカウント切替", () => {
       await orchestrator.startSession("wt-1", "/path/to/work", "/repo");
 
       // 紐付けを別プロファイルに変更
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-2",
+        profileId: "prof-2",
         updatedAt: 0,
       });
 
@@ -232,18 +232,18 @@ describe("SessionOrchestrator - アカウント切替", () => {
         "/repo"
       );
 
-      expect(managed.staleAccount).toBe(true);
-      expect(managed.accountProfileId).toBe("prof-1");
+      expect(managed.staleProfile).toBe(true);
+      expect(managed.profileId).toBe("prof-1");
     });
 
-    it("既存セッションのprofileIdが現在の紐付けと一致: staleAccount=false", async () => {
+    it("既存セッションのprofileIdが現在の紐付けと一致: staleProfile=false", async () => {
       // prof-1 で新規作成
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-1",
+        profileId: "prof-1",
         updatedAt: 0,
       });
-      mockedDb.getAccountProfile.mockReturnValue({
+      mockedDb.getProfile.mockReturnValue({
         id: "prof-1",
         name: "work",
         configDir: "/home/user/.claude-work",
@@ -262,13 +262,13 @@ describe("SessionOrchestrator - アカウント切替", () => {
         "/repo"
       );
 
-      expect(managed.staleAccount).toBe(false);
-      expect(managed.accountProfileId).toBe("prof-1");
+      expect(managed.staleProfile).toBe(false);
+      expect(managed.profileId).toBe("prof-1");
     });
 
-    it("両方未紐付け（current=null, desired=null）: staleAccount=false", async () => {
+    it("両方未紐付け（current=null, desired=null）: staleProfile=false", async () => {
       // 新規作成: 紐付けなし
-      mockedDb.getRepoAccountLink.mockReturnValue(null);
+      mockedDb.getRepoProfileLink.mockReturnValue(null);
       await orchestrator.startSession("wt-1", "/path/to/work", "/repo");
 
       // 既存セッション再利用、紐付けは依然としてなし
@@ -281,8 +281,8 @@ describe("SessionOrchestrator - アカウント切替", () => {
         "/repo"
       );
 
-      expect(managed.staleAccount).toBe(false);
-      expect(managed.accountProfileId).toBeNull();
+      expect(managed.staleProfile).toBe(false);
+      expect(managed.profileId).toBeNull();
     });
   });
 
@@ -293,12 +293,12 @@ describe("SessionOrchestrator - アカウント切替", () => {
   describe("restartSession", () => {
     it("既存セッションをkillし、新しい env で再起動する", async () => {
       // 1) prof-1 で起動（古いセッション）
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-1",
+        profileId: "prof-1",
         updatedAt: 0,
       });
-      mockedDb.getAccountProfile.mockImplementation((id: string) => {
+      mockedDb.getProfile.mockImplementation((id: string) => {
         if (id === "prof-1") {
           return {
             id: "prof-1",
@@ -325,12 +325,12 @@ describe("SessionOrchestrator - アカウント切替", () => {
         "/path/to/work",
         "/repo"
       );
-      expect(initial.accountProfileId).toBe("prof-1");
+      expect(initial.profileId).toBe("prof-1");
 
       // 紐付けを prof-2 に切替
-      mockedDb.getRepoAccountLink.mockReturnValue({
+      mockedDb.getRepoProfileLink.mockReturnValue({
         repoPath: "/repo",
-        accountProfileId: "prof-2",
+        profileId: "prof-2",
         updatedAt: 0,
       });
 
@@ -381,7 +381,7 @@ describe("SessionOrchestrator - アカウント切替", () => {
       });
 
       expect(restarted.id).toBe("sess-id-2");
-      expect(restarted.accountProfileId).toBe("prof-2");
+      expect(restarted.profileId).toBe("prof-2");
     });
 
     it("セッションが見つからない場合は throw", async () => {
