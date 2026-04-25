@@ -1540,6 +1540,20 @@ async function startServer() {
         const profile = db.updateProfile(id, patch);
         io.emit("profile:updated", profile);
         io.emit("profile:list", db.listProfiles());
+
+        // configDirが変わった場合、このプロファイルを使っている稼働中セッションは
+        // 古いCLAUDE_CONFIG_DIRで動作している → staleProfile を再計算して通知。
+        // (nameのみ変更でも稼働セッションには影響しないが、副作用は無害なので
+        //  常に再計算する。configDir差分判定はprofileSnapshotsEqualが行う)
+        const affectedRepoPaths = db
+          .listRepoProfileLinks()
+          .filter(link => link.profileId === id)
+          .map(link => link.repoPath);
+        for (const sess of sessionOrchestrator.getAllSessions()) {
+          if (sess.repoPath && affectedRepoPaths.includes(sess.repoPath)) {
+            io.emit("session:updated", sess);
+          }
+        }
       } catch (e) {
         socket.emit("profile:error", { message: getErrorMessage(e) });
       }
