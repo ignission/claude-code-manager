@@ -49,12 +49,13 @@ const XVFB_FB_DIR = "/tmp/.ark-xvfb-fb";
 const ARK_DESKTOP = "ark-browser";
 
 /**
- * Arkが起動したブラウザ関連子プロセスのpidを記録するファイル
- * cleanupOrphanedProcesses() がこのpidfileを読み、現存しArk的cmdを持つものだけを
- * 掃除対象とする。マーカー引数を付けられないwebsockify/Chromiumを
- * 安全に識別するため。
+ * Arkが起動したブラウザ関連子プロセスのpidを記録するディレクトリ。
+ * 各Arkサーバーインスタンスは自身のpidをファイル名にしたファイル
+ * (`<dir>/<serverPid>`) に子pidを書き込む。cleanupOrphanedProcesses()
+ * は「ファイル名のserverPidが現存していない」ファイルだけを孤立扱いし、
+ * 別の生存中サーバー（pm2 reload等での旧インスタンス）の子は触らない。
  */
-const BROWSER_PIDFILE = path.join("data", "browser-pids");
+const BROWSER_PIDFILE_DIR = path.join("data", "browser-pids");
 
 /** Xvfb仮想ディスプレイの解像度 */
 const DISPLAY_RESOLUTION = "1280x900x24";
@@ -136,43 +137,75 @@ export class BrowserManager extends EventEmitter {
    * 自プロセスのreadinessと誤認 → Chromiumのいない空ディスプレイが量産される。
    * 起動時にArk由来プロセスを一掃して再発を防ぐ。
    *
-   * 識別方針（誤kill防止のため pidfile + cmd検証 の両方を必須とする）:
-   * - Arkが起動したpidは BROWSER_PIDFILE に記録される
-   * - 起動時にpidfileを読み、現存pidの cmd を ps で確認
-   * - cmd が Ark系のいずれか（マーカー付きXvfb/x11vnc、Ark固定CDPポートの
-   *   Chromium、websockify）にマッチしたものだけを掃除対象とする
-   * - pidfile に記録されていない他サービスや、pid再利用で別cmdになった
-   *   プロセスは安全に無視される
+   * 識別方針（誤kill防止のため pidfile + cmd検証 + サーバーownership の三段階）:
+   * - 各Arkサーバーは自身のpidをファイル名にしたpidfileに子pidを記録する
+   *   (`<BROWSER_PIDFILE_DIR>/<serverPid>`)
+   * - 起動時にディレクトリをスキャンし、ファイル名のserverPidが現存しない
+   *   （=死亡サーバー）ファイルだけを孤立扱いする。生存中の他サーバー
+   *   インスタンス（pm2 reload等）の子は触らない
+   * - 候補pidは ps -p で cmd を取得し、Ark由来cmd（マーカー付きXvfb/x11vnc、
+   *   Ark固定CDPポートのChromium、websockify）にマッチしたものだけkill対象
+   * - pid再利用で別cmdになったプロセスは無視される
    *
    * 終了確認:
    * - SIGTERM後、最大 ORPHAN_TERM_TIMEOUT_MS まで `kill -0` で終了をポーリング
    * - 残存プロセスは SIGKILL で強制終了
    * - 全プロセスが消えたことを確認した後で X11 ソケットを削除する
-   *   （Xvfb生存中にソケットを消すと findAvailableDisplay() が誤判定する）
+   * - 残存pidが残った場合: 最初のorphanFileに残存pidを書き戻し、ソケット削除は
+   *   スキップする（findAvailableDisplay() の誤判定防止 + 次回起動時の再試行）
    */
   private cleanupOrphanedProcesses(): void {
     try {
-      // pidfile から Ark 由来候補 pid を読み込む。なければ掃除対象なし。
-      let candidatePids: number[];
+      let entries: string[];
       try {
-        const content = fs.readFileSync(BROWSER_PIDFILE, "utf-8");
-        candidatePids = Array.from(
-          new Set(
-            content
-              .split("\n")
-              .map(s => Number.parseInt(s.trim(), 10))
-              .filter(n => Number.isFinite(n) && n > 0)
-          )
-        );
+        entries = fs.readdirSync(BROWSER_PIDFILE_DIR);
       } catch {
-        return; // pidfile未作成 = 過去にArkが起動していない
+        return; // ディレクトリ未作成 = 過去にArkが起動していない
       }
+
+      // 死亡サーバー(=自分以外で生存していないserverPid)のファイルだけ集める
+      const orphanFiles: string[] = [];
+      for (const entry of entries) {
+        const serverPid = Number.parseInt(entry, 10);
+        if (!Number.isFinite(serverPid) || serverPid <= 0) continue;
+        if (serverPid === process.pid) continue; // 自分のファイルは触らない
+        let alive = false;
+        try {
+          process.kill(serverPid, 0);
+          alive = true;
+        } catch {
+          alive = false;
+        }
+        if (!alive) orphanFiles.push(entry);
+      }
+
+      if (orphanFiles.length === 0) return;
+
+      // 候補pidを集める
+      const candidatePidSet = new Set<number>();
+      for (const file of orphanFiles) {
+        try {
+          const content = fs.readFileSync(
+            path.join(BROWSER_PIDFILE_DIR, file),
+            "utf-8"
+          );
+          for (const line of content.split("\n")) {
+            const pid = Number.parseInt(line.trim(), 10);
+            if (Number.isFinite(pid) && pid > 0) candidatePidSet.add(pid);
+          }
+        } catch {
+          // ファイル読めない場合は無視
+        }
+      }
+      const candidatePids = Array.from(candidatePidSet);
+
       if (candidatePids.length === 0) {
-        this.writePidFile([]);
+        // 空のorphanFileは削除して終了
+        this.deleteOrphanFiles(orphanFiles);
         return;
       }
 
-      // ps で対象pidのcmdを取得（pid再利用や別プロセス摩り替わりを検知）
+      // ps で対象pidのcmdを取得（pid再利用検知）
       const pidToCmd = new Map<number, string>();
       try {
         const psOutput = execFileSync(
@@ -186,8 +219,8 @@ export class BrowserManager extends EventEmitter {
           pidToCmd.set(Number.parseInt(m[1], 10), m[2]);
         }
       } catch {
-        // 全pidが既に死んでいると ps は非0を返すことがある → pidfileのみクリア
-        this.writePidFile([]);
+        // 全pidが既に死んでいると ps は非0を返す → orphanFiles削除のみ
+        this.deleteOrphanFiles(orphanFiles);
         return;
       }
 
@@ -240,7 +273,7 @@ export class BrowserManager extends EventEmitter {
       }
 
       if (orphanPids.length === 0) {
-        this.writePidFile([]);
+        this.deleteOrphanFiles(orphanFiles);
         return;
       }
 
@@ -305,7 +338,7 @@ export class BrowserManager extends EventEmitter {
 
       const survivors = Array.from(remainingPids);
       if (survivors.length === 0) {
-        // 全プロセスが終了した → ソケット残骸を削除し、pidfileをクリア
+        // 全プロセスが終了した → ソケット残骸を削除し、orphan files削除
         for (const display of orphanDisplays) {
           try {
             fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
@@ -313,16 +346,32 @@ export class BrowserManager extends EventEmitter {
             // 残存しない/権限なしは無視
           }
         }
-        this.writePidFile([]);
+        this.deleteOrphanFiles(orphanFiles);
       } else {
-        // SIGKILL後も生存しているpidがある → 次回起動時の再試行候補として
-        // pidfileに残存pidだけを書き戻す。ソケット削除も生存Xvfbが所有して
-        // いる可能性があるためスキップする（findAvailableDisplay() の誤判定防止）
+        // SIGKILL後も生存pidあり → 最初のorphan fileに残存pidを書き戻し、
+        // 他は削除。ソケット削除は生存Xvfb所有の可能性があるためスキップ
+        // （findAvailableDisplay()の誤判定防止）。次回起動時に再試行される。
         console.warn(
           `[BrowserManager] 一部の孤立プロセスが終了しませんでした: pids=${survivors.join(",")} ` +
             "（次回起動時に再試行します）"
         );
-        this.writePidFile(survivors);
+        try {
+          fs.writeFileSync(
+            path.join(BROWSER_PIDFILE_DIR, orphanFiles[0]),
+            `${survivors.join("\n")}\n`
+          );
+        } catch (err) {
+          console.warn(
+            `[BrowserManager] survivors書き込み失敗: ${getErrorMessage(err)}`
+          );
+        }
+        for (let i = 1; i < orphanFiles.length; i++) {
+          try {
+            fs.unlinkSync(path.join(BROWSER_PIDFILE_DIR, orphanFiles[i]));
+          } catch {
+            // 既に削除されているなどは無視
+          }
+        }
       }
     } catch (err) {
       console.warn(
@@ -331,12 +380,30 @@ export class BrowserManager extends EventEmitter {
     }
   }
 
+  /** orphan扱いのpidfileを一括削除する */
+  private deleteOrphanFiles(orphanFiles: string[]): void {
+    for (const file of orphanFiles) {
+      try {
+        fs.unlinkSync(path.join(BROWSER_PIDFILE_DIR, file));
+      } catch {
+        // 既に削除されているなどは無視
+      }
+    }
+  }
+
+  /** 自身のpidfileのパス */
+  private ownPidFile(): string {
+    return path.join(BROWSER_PIDFILE_DIR, String(process.pid));
+  }
+
   /**
-   * 現在アクティブなセッションのpidをBROWSER_PIDFILEに書き戻す。
-   * sessions Mapが「現在管理中のArkプロセス」の単一の真実なので、
-   * stop/cleanup/start_internal完了時にこれを呼べばpidfileが常に同期する。
+   * 現在アクティブなセッションのpidを自身のpidfileに書き戻す。
+   * sessions Map が「現在管理中のArkプロセス」の単一の真実だが、
+   * stop()でkillProcess()がtimeoutして子が残るケースに備え、survivors
+   * パラメータで「終了確認できなかったpid」も併せてpidfileに残せる。
+   * その残存pidは自分が死亡した際の次回cleanup候補となる。
    */
-  private syncPidFile(): void {
+  private syncPidFile(survivors: number[] = []): void {
     const activePids: number[] = [];
     for (const session of this.sessions.values()) {
       const pids = [
@@ -349,15 +416,13 @@ export class BrowserManager extends EventEmitter {
         if (pid !== undefined) activePids.push(pid);
       }
     }
-    this.writePidFile(activePids);
-  }
+    activePids.push(...survivors);
 
-  /** BROWSER_PIDFILEに任意のpid配列を書き戻す */
-  private writePidFile(pids: number[]): void {
     try {
-      fs.mkdirSync(path.dirname(BROWSER_PIDFILE), { recursive: true });
-      const content = pids.length === 0 ? "" : `${pids.join("\n")}\n`;
-      fs.writeFileSync(BROWSER_PIDFILE, content);
+      fs.mkdirSync(BROWSER_PIDFILE_DIR, { recursive: true });
+      const content =
+        activePids.length === 0 ? "" : `${activePids.join("\n")}\n`;
+      fs.writeFileSync(this.ownPidFile(), content);
     } catch (err) {
       console.warn(
         `[BrowserManager] pidfile書き込み失敗: ${getErrorMessage(err)}`
@@ -1087,8 +1152,6 @@ export class BrowserManager extends EventEmitter {
 
     // 先にMapから削除して、異常終了監視のハンドラが再度stopを呼ばないようにする
     this.sessions.delete(browserId);
-    // pidfileから当該セッションのpidを除去（古いpidの累積を防ぐ）
-    this.syncPidFile();
 
     // シングルトンセッションをクリア
     if (this.singletonSession?.id === browserId) {
@@ -1104,6 +1167,25 @@ export class BrowserManager extends EventEmitter {
       this.killProcess(processSet.chromium, "chromium"),
       this.killProcess(processSet.xvfb, "xvfb"),
     ]);
+
+    // killProcess() がtimeout等で殺しきれず残ったpidを集めて pidfile に残す。
+    // これらは自分が死亡した際に次回起動時のcleanup候補となる。
+    const survivors: number[] = [];
+    for (const child of [
+      processSet.websockify,
+      processSet.x11vnc,
+      processSet.chromium,
+      processSet.xvfb,
+    ]) {
+      if (child.pid === undefined) continue;
+      try {
+        process.kill(child.pid, 0);
+        survivors.push(child.pid); // まだ生きている
+      } catch {
+        // ESRCH → 死亡 → pidfileに残さない
+      }
+    }
+    this.syncPidFile(survivors);
 
     this.emit("session:stopped", browserId);
     console.log(`[BrowserManager] ブラウザセッション停止完了: ${browserId}`);
