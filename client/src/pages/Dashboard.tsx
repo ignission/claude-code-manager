@@ -47,11 +47,13 @@ export default function Dashboard() {
 
   const savedRepoList = getSetting<string[]>("repoList", []);
   const savedRepoPath = getSetting<string | null>("selectedRepoPath", null);
+  const savedScanBasePath = getSetting<string>("scanBasePath", "");
 
   const {
     socket,
     isConnected,
     error,
+    allowedRepos,
     repoList,
     repoPath,
     selectRepo,
@@ -59,6 +61,7 @@ export default function Dashboard() {
     scannedRepos,
     isScanning,
     scanRepos,
+    listDirectory,
     worktrees,
     createWorktree,
     deleteWorktree,
@@ -736,10 +739,13 @@ export default function Dashboard() {
       <RepoSelectDialog
         isOpen={isSelectRepoOpen}
         onOpenChange={setIsSelectRepoOpen}
+        allowedRepos={allowedRepos}
         scannedRepos={scannedRepos}
         isScanning={isScanning}
         onScanRepos={scanRepos}
         onSelectRepo={handleSelectRepo}
+        listDirectory={listDirectory}
+        initialScanBasePath={savedScanBasePath}
       />
 
       {/* Worktree作成ダイアログ */}

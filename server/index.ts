@@ -44,6 +44,7 @@ import {
   fileUploadManager,
 } from "./lib/file-upload-manager.js";
 import { frontlineManager } from "./lib/frontline-manager.js";
+import { listDirectory } from "./lib/fs-browser.js";
 import {
   createWorktree,
   deleteWorktree,
@@ -881,6 +882,26 @@ async function startServer() {
           status: "error",
           error: getErrorMessage(error),
         });
+      }
+    });
+
+    // フォルダ選択ダイアログ用: 指定パス配下のサブディレクトリを返却（コールバックパターン）
+    // --repos で許可リポジトリが指定されている場合、フォルダブラウザは
+    // allowlistをバイパスして任意のディレクトリを列挙できてしまうため無効化する。
+    // 許可リポジトリは `repos:list` で既に提供されているのでブラウザは不要。
+    socket.on("fs:list", async (data, callback) => {
+      if (allowedRepos.length > 0) {
+        callback({
+          error:
+            "このサーバーでは許可リポジトリのみ利用可能なためフォルダ参照は無効です",
+        });
+        return;
+      }
+      try {
+        const result = await listDirectory(data?.path);
+        callback({ result });
+      } catch (error) {
+        callback({ error: getErrorMessage(error) });
       }
     });
 
