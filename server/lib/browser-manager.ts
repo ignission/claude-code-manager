@@ -68,7 +68,7 @@ const ARK_DESKTOP = "ark-browser";
  * ファイル形式: 1行1エントリ。`<pid>` または `<pid>:<display>`。
  * Xvfbのみdisplay情報を併記してプロセス死亡後もソケット残骸を回収できる。
  */
-const BROWSER_PIDFILE_DIR = path.join("data", "browser-pids");
+const BROWSER_PIDFILE_DIR = path.join(process.cwd(), "data", "browser-pids");
 
 interface PidEntry {
   pid: number;
@@ -135,7 +135,7 @@ export class BrowserManager extends EventEmitter {
     this.checkDependencies();
     if (this.available) {
       try {
-        fs.mkdirSync(XVFB_FB_DIR, { recursive: true });
+        fs.mkdirSync(XVFB_FB_DIR, { recursive: true, mode: 0o700 });
       } catch (err) {
         console.warn(
           `[BrowserManager] ${XVFB_FB_DIR} 作成失敗: ${getErrorMessage(err)}`
@@ -237,7 +237,13 @@ export class BrowserManager extends EventEmitter {
       try {
         const psOutput = execFileSync(
           "ps",
-          ["-o", "pid=,cmd=", "-p", candidates.map(c => c.pid).join(",")],
+          [
+            "-ww",
+            "-o",
+            "pid=,cmd=",
+            "-p",
+            candidates.map(c => c.pid).join(","),
+          ],
           { encoding: "utf-8" }
         );
         for (const line of psOutput.split("\n")) {
@@ -441,9 +447,11 @@ export class BrowserManager extends EventEmitter {
    */
   private isArkServerAlive(serverPid: number): boolean {
     try {
-      const cmd = execFileSync("ps", ["-o", "cmd=", "-p", String(serverPid)], {
-        encoding: "utf-8",
-      }).trim();
+      const cmd = execFileSync(
+        "ps",
+        ["-ww", "-o", "cmd=", "-p", String(serverPid)],
+        { encoding: "utf-8" }
+      ).trim();
       if (!cmd) return false;
       const hasEntry = /\b(dist\/index\.js|server\/index\.ts)\b/.test(cmd);
       const hasRuntime = /\b(node|tsx)\b/.test(cmd);
@@ -575,7 +583,13 @@ export class BrowserManager extends EventEmitter {
       try {
         const psOutput = execFileSync(
           "ps",
-          ["-o", "pid=,cmd=", "-p", candidatePriors.map(e => e.pid).join(",")],
+          [
+            "-ww",
+            "-o",
+            "pid=,cmd=",
+            "-p",
+            candidatePriors.map(e => e.pid).join(","),
+          ],
           { encoding: "utf-8" }
         );
         for (const line of psOutput.split("\n")) {
@@ -655,7 +669,7 @@ export class BrowserManager extends EventEmitter {
     try {
       const psOutput = execFileSync(
         "ps",
-        ["-o", "pid=,cmd=", "-p", candidatePids.join(",")],
+        ["-ww", "-o", "pid=,cmd=", "-p", candidatePids.join(",")],
         { encoding: "utf-8" }
       );
       for (const line of psOutput.split("\n")) {
