@@ -5,9 +5,9 @@
  * ディレクトリのみを結果に含める。`fs.readdir` がEACCESで失敗した場合は
  * 空のentriesを返却し、UI側で表示できるようにする。
  *
- * 返却するパスは `fs.realpath()` で実体パスに正規化する。これは後続の
- * `scanRepositories()` が `find <basePath>` をsymlink追跡なしで実行するため、
- * symlinkパスのままだとスキャン結果が空になる問題を防ぐ目的。
+ * パスはユーザーが入力したsymlinkのまま返却する（realpath()で実体パスに変換しない）。
+ * 実体パスにすると`'` `!` 等を含む path（例: `/Volumes/John's SSD/dev`）に変換され、
+ * 後続の `scanRepositories()` が `validatePath()` で拒否してしまうため。
  */
 
 import { promises as fs } from "node:fs";
@@ -26,22 +26,7 @@ export async function listDirectory(
   if (!path.isAbsolute(target)) {
     throw new Error("pathは絶対パスのみ指定可能");
   }
-
-  // realpathでsymlinkを実体パスに解決（後続のscanRepositoriesが
-  // find <basePath> でsymlinkを辿らないため、symlinkパスのままだと空結果になる）
-  let normalized: string;
-  try {
-    normalized = await fs.realpath(path.resolve(target));
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      throw new Error("ディレクトリが存在しません");
-    }
-    if (code === "EACCES") {
-      throw new Error("権限がありません");
-    }
-    throw err;
-  }
+  const normalized = path.resolve(target);
 
   let stat: Awaited<ReturnType<typeof fs.stat>>;
   try {
@@ -85,19 +70,17 @@ export async function listDirectory(
       .filter(e => e.isDirectory() || e.isSymbolicLink())
       .map(async (e): Promise<FsEntry | null> => {
         const childPath = path.join(normalized, e.name);
-        let realChildPath: string;
         try {
+          // stat でリンク先の実体がディレクトリか確認
           const s = await fs.stat(childPath);
           if (!s.isDirectory()) return null;
-          // symlinkの場合に実体パスへ正規化（リンク先がディレクトリと確認後）
-          realChildPath = await fs.realpath(childPath);
         } catch {
           // リンク切れ等はスキップ
           return null;
         }
         return {
           name: e.name,
-          path: realChildPath,
+          path: childPath,
           isHidden: e.name.startsWith("."),
         };
       })

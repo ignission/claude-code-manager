@@ -53,6 +53,7 @@ export default function Dashboard() {
     socket,
     isConnected,
     error,
+    allowedRepos,
     repoList,
     repoPath,
     selectRepo,
@@ -738,6 +739,7 @@ export default function Dashboard() {
       <RepoSelectDialog
         isOpen={isSelectRepoOpen}
         onOpenChange={setIsSelectRepoOpen}
+        allowedRepos={allowedRepos}
         scannedRepos={scannedRepos}
         isScanning={isScanning}
         onScanRepos={scanRepos}

@@ -25,6 +25,8 @@ import { FolderBrowserDialog } from "./FolderBrowserDialog";
 interface RepoSelectDialogProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
+  /** `--repos` 起動オプション由来の許可リポジトリ一覧。空配列なら制限なし */
+  allowedRepos: string[];
   scannedRepos: RepoInfo[];
   isScanning: boolean;
   onScanRepos: (basePath: string) => void;
@@ -39,6 +41,7 @@ interface RepoSelectDialogProps {
 // --- 共通コンテンツ ---
 function RepoSelectContent({
   variant,
+  allowedRepos,
   scannedRepos,
   isScanning,
   onScanRepos,
@@ -49,6 +52,7 @@ function RepoSelectContent({
   onScanBasePathChange,
 }: {
   variant: "dialog" | "drawer";
+  allowedRepos: string[];
   scannedRepos: RepoInfo[];
   isScanning: boolean;
   onScanRepos: (basePath: string) => void;
@@ -68,17 +72,33 @@ function RepoSelectContent({
     setScanBasePath(initialScanBasePath);
   }, [initialScanBasePath]);
 
+  // allowlistモード: --reposで起動したサーバーは任意ディレクトリ列挙を拒否するため、
+  // フォルダ選択UIを非表示にし、許可リポジトリ一覧のみ提示する
+  const isAllowlistMode = allowedRepos.length > 0;
+
+  // 表示するリポジトリ一覧: allowlistモードでは許可リポジトリ、通常モードではスキャン結果
+  const displayRepos = useMemo<RepoInfo[]>(() => {
+    if (isAllowlistMode) {
+      return allowedRepos.map(p => ({
+        path: p,
+        name: p.split("/").filter(Boolean).pop() ?? p,
+        branch: "",
+      }));
+    }
+    return scannedRepos;
+  }, [isAllowlistMode, allowedRepos, scannedRepos]);
+
   const filteredRepos = useMemo(() => {
     if (!filterQuery.trim()) {
-      return scannedRepos;
+      return displayRepos;
     }
     const query = filterQuery.toLowerCase();
-    return scannedRepos.filter(
+    return displayRepos.filter(
       repo =>
         repo.name.toLowerCase().includes(query) ||
         repo.path.toLowerCase().includes(query)
     );
-  }, [scannedRepos, filterQuery]);
+  }, [displayRepos, filterQuery]);
 
   const handleSelectRepo = () => {
     if (!repoInput.trim()) return;
@@ -96,35 +116,39 @@ function RepoSelectContent({
 
   return (
     <div className="space-y-4 py-4 flex-1 overflow-hidden flex flex-col">
-      {/* スキャンパス選択 */}
-      <div className="space-y-2 px-1">
-        <Label>スキャンするパス</Label>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => setIsFolderBrowserOpen(true)}
-          disabled={isScanning}
-          className="w-full justify-start gap-2 h-12 md:h-10 font-mono text-base md:text-sm"
-        >
-          {isScanning ? (
-            <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
-          ) : (
-            <FolderOpen className="w-4 h-4 shrink-0" />
-          )}
-          <span className="truncate flex-1 text-left">
-            {scanBasePath || "フォルダを選択..."}
-          </span>
-        </Button>
-      </div>
+      {/* スキャンパス選択（allowlistモード時は任意パス列挙が拒否されるため非表示） */}
+      {!isAllowlistMode && (
+        <div className="space-y-2 px-1">
+          <Label>スキャンするパス</Label>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => setIsFolderBrowserOpen(true)}
+            disabled={isScanning}
+            className="w-full justify-start gap-2 h-12 md:h-10 font-mono text-base md:text-sm"
+          >
+            {isScanning ? (
+              <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <FolderOpen className="w-4 h-4 shrink-0" />
+            )}
+            <span className="truncate flex-1 text-left">
+              {scanBasePath || "フォルダを選択..."}
+            </span>
+          </Button>
+        </div>
+      )}
 
-      {/* スキャン結果リスト */}
+      {/* リポジトリ一覧 */}
       <div className="space-y-2 flex-1 overflow-hidden flex flex-col px-1">
         <Label>
-          {isScanning
-            ? "スキャン中..."
-            : scannedRepos.length > 0
-              ? `検出されたリポジトリ (${filteredRepos.length}/${scannedRepos.length})`
-              : "検出されたリポジトリ"}
+          {isAllowlistMode
+            ? `許可されたリポジトリ (${filteredRepos.length}/${displayRepos.length})`
+            : isScanning
+              ? "スキャン中..."
+              : displayRepos.length > 0
+                ? `検出されたリポジトリ (${filteredRepos.length}/${displayRepos.length})`
+                : "検出されたリポジトリ"}
         </Label>
         {/* 検索ボックス */}
         <div className="relative">
@@ -134,7 +158,7 @@ function RepoSelectContent({
             value={filterQuery}
             onChange={e => setFilterQuery(e.target.value)}
             className="pl-9 h-10"
-            disabled={isScanning || scannedRepos.length === 0}
+            disabled={isScanning || displayRepos.length === 0}
           />
         </div>
         <div
@@ -252,6 +276,7 @@ function RepoSelectContent({
 function RepoSelectDialogDesktop({
   isOpen,
   onOpenChange,
+  allowedRepos,
   scannedRepos,
   isScanning,
   onScanRepos,
@@ -260,17 +285,21 @@ function RepoSelectDialogDesktop({
   initialScanBasePath,
   onScanBasePathChange,
 }: RepoSelectDialogProps) {
+  const isAllowlistMode = allowedRepos.length > 0;
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
       <DialogContent className="bg-card border-border w-[calc(100%-2rem)] max-w-lg mx-auto max-h-[80vh] flex flex-col">
         <DialogHeader>
           <DialogTitle>リポジトリを選択</DialogTitle>
           <DialogDescription>
-            スキャンするフォルダを選択するか、直接リポジトリパスを入力してください。
+            {isAllowlistMode
+              ? "許可されたリポジトリ一覧から選択するか、直接リポジトリパスを入力してください。"
+              : "スキャンするフォルダを選択するか、直接リポジトリパスを入力してください。"}
           </DialogDescription>
         </DialogHeader>
         <RepoSelectContent
           variant="dialog"
+          allowedRepos={allowedRepos}
           scannedRepos={scannedRepos}
           isScanning={isScanning}
           onScanRepos={onScanRepos}
@@ -289,6 +318,7 @@ function RepoSelectDialogDesktop({
 function RepoSelectDrawerMobile({
   isOpen,
   onOpenChange,
+  allowedRepos,
   scannedRepos,
   isScanning,
   onScanRepos,
@@ -297,18 +327,22 @@ function RepoSelectDrawerMobile({
   initialScanBasePath,
   onScanBasePathChange,
 }: RepoSelectDialogProps) {
+  const isAllowlistMode = allowedRepos.length > 0;
   return (
     <Drawer open={isOpen} onOpenChange={onOpenChange}>
       <DrawerContent className="max-h-[85dvh] flex flex-col">
         <DrawerHeader>
           <DrawerTitle>リポジトリを選択</DrawerTitle>
           <DrawerDescription>
-            スキャンするフォルダを選択するか、直接リポジトリパスを入力してください。
+            {isAllowlistMode
+              ? "許可されたリポジトリ一覧から選択するか、直接リポジトリパスを入力してください。"
+              : "スキャンするフォルダを選択するか、直接リポジトリパスを入力してください。"}
           </DrawerDescription>
         </DrawerHeader>
         <div className="flex-1 overflow-hidden flex flex-col px-4">
           <RepoSelectContent
             variant="drawer"
+            allowedRepos={allowedRepos}
             scannedRepos={scannedRepos}
             isScanning={isScanning}
             onScanRepos={onScanRepos}

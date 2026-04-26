@@ -86,9 +86,15 @@ function FolderBrowserContent({
     e => showHidden || !e.isHidden
   );
 
-  // エラー発生時はconfirm不可。listingは前回値が残るため
-  // pathDraft（テキスト欄表示）と乖離したまま誤選択するのを防ぐ。
-  const isConfirmDisabled = !listing || error !== null;
+  // confirm 不可条件:
+  // - listing 未取得 / エラー発生中 → 状態が不確定、または前回値が残っている
+  // - ロード中 → 別のパスへ遷移途中、結果が確定していない
+  // - pathDraft が listing.path と乖離 → ユーザーが編集中で未確定
+  const isConfirmDisabled =
+    !listing ||
+    error !== null ||
+    isLoading ||
+    pathDraft.trim() !== listing.path;
 
   const handleConfirm = () => {
     if (isConfirmDisabled || !listing) return;
