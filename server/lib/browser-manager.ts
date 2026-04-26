@@ -187,20 +187,17 @@ export class BrowserManager extends EventEmitter {
         return; // ディレクトリ未作成 = 過去にArkが起動していない
       }
 
-      // 死亡サーバー(=自分以外で生存していないserverPid)のファイルだけ集める
+      // 死亡サーバー(=自分以外でArkサーバーとして生存していないserverPid)の
+      // ファイルだけ集める。pid再利用で別プロセスがそのpidを取っているケース
+      // を `isArkServerAlive` で識別する（kill -0 だけだと永久に skip される）
       const orphanFiles: string[] = [];
       for (const entry of entries) {
         const serverPid = Number.parseInt(entry, 10);
         if (!Number.isFinite(serverPid) || serverPid <= 0) continue;
         if (serverPid === process.pid) continue; // 自分のファイルは触らない
-        let alive = false;
-        try {
-          process.kill(serverPid, 0);
-          alive = true;
-        } catch {
-          alive = false;
+        if (!this.isArkServerAlive(serverPid)) {
+          orphanFiles.push(entry);
         }
-        if (!alive) orphanFiles.push(entry);
       }
 
       if (orphanFiles.length === 0) return;
@@ -432,6 +429,49 @@ export class BrowserManager extends EventEmitter {
     }
   }
 
+  /**
+   * 指定pidが「Arkサーバープロセスとして生存しているか」を判定する。
+   * 単なる kill -0 だけだとpid再利用された別プロセスを「生存」と誤判定して
+   * 旧サーバーのpidfileがcleanup対象から永久に漏れる。ps cmd でArkサーバー
+   * のentry point (`dist/index.js`) パターンを確認する。
+   */
+  private isArkServerAlive(serverPid: number): boolean {
+    try {
+      const cmd = execFileSync("ps", ["-o", "cmd=", "-p", String(serverPid)], {
+        encoding: "utf-8",
+      }).trim();
+      if (!cmd) return false;
+      // pm2 fork mode: `node /path/to/dist/index.js [args]`
+      return /\bnode\b/.test(cmd) && /\bdist\/index\.js\b/.test(cmd);
+    } catch {
+      // ps失敗（pid死亡またはpermission denied）
+      return false;
+    }
+  }
+
+  /**
+   * cmd行が Ark由来のブラウザヘルパープロセスのパターンにマッチするかを判定する。
+   * pidfileに記録されたpidをsurvivorとして保持/kill対象にする前に、pid再利用で
+   * 別プロセスにすり替わっていないかを確認するために使う。
+   */
+  private isArkBrowserCmd(cmd: string): boolean {
+    if (/^Xvfb\s+:\d+\b/.test(cmd)) return true;
+    if (/\bx11vnc\b/.test(cmd) && /-display\s+:\d+/.test(cmd)) return true;
+    if (
+      /\bwebsockify\b/.test(cmd) &&
+      /127\.0\.0\.1:\d+\s+127\.0\.0\.1:\d+/.test(cmd)
+    ) {
+      return true;
+    }
+    if (
+      /\b(chrome|chromium)\b/.test(cmd) &&
+      cmd.includes(`--remote-debugging-port=${CDP_PORT}`)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
   /** orphan扱いのpidfileを一括削除する */
   private deleteOrphanFiles(orphanFiles: string[]): void {
     for (const file of orphanFiles) {
@@ -514,7 +554,9 @@ export class BrowserManager extends EventEmitter {
       }
     }
 
-    // 既存pidfileから「sessions管理外で生存中のpid（過去のsurvivors）」を保持
+    // 既存pidfileから「sessions管理外で生存中のpid（過去のsurvivors）」を保持。
+    // pid再利用で別プロセスが同じpidを取っているケースを排除するため、
+    // ps cmd を取得してArk由来binary形状にマッチするものだけを残す。
     let priorEntries: PidEntry[] = [];
     try {
       const content = fs.readFileSync(this.ownPidFile(), "utf-8");
@@ -522,14 +564,29 @@ export class BrowserManager extends EventEmitter {
     } catch {
       // ファイル未作成は無視
     }
-    for (const e of priorEntries) {
-      if (activePids.has(e.pid)) continue;
+    const candidatePriors = priorEntries.filter(e => !activePids.has(e.pid));
+    if (candidatePriors.length > 0) {
+      const priorPidToCmd = new Map<number, string>();
       try {
-        process.kill(e.pid, 0);
-        entries.push(e); // 生存中の過去survivor → display情報も含めて保持
-        activePids.add(e.pid);
+        const psOutput = execFileSync(
+          "ps",
+          ["-o", "pid=,cmd=", "-p", candidatePriors.map(e => e.pid).join(",")],
+          { encoding: "utf-8" }
+        );
+        for (const line of psOutput.split("\n")) {
+          const m = line.trim().match(/^(\d+)\s+(.*)$/);
+          if (!m) continue;
+          priorPidToCmd.set(Number.parseInt(m[1], 10), m[2]);
+        }
       } catch {
-        // 死亡 → 含めない
+        // 全pid死亡 → priorPidToCmd空のまま、誰も保持されない
+      }
+      for (const e of candidatePriors) {
+        const cmd = priorPidToCmd.get(e.pid);
+        if (!cmd) continue; // pid既に死亡
+        if (!this.isArkBrowserCmd(cmd)) continue; // pid再利用で別プロセス
+        entries.push(e); // 生存中のArk由来survivor → display情報も含めて保持
+        activePids.add(e.pid);
       }
     }
 
