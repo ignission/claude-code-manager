@@ -12,6 +12,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
+import path from "node:path";
 import type { BrowserSession } from "../../shared/types.js";
 import {
   CDP_PORT,
@@ -46,6 +47,14 @@ const XVFB_FB_DIR = "/tmp/.ark-xvfb-fb";
  * Ark由来と判定する
  */
 const ARK_DESKTOP = "ark-browser";
+
+/**
+ * Arkが起動したブラウザ関連子プロセスのpidを記録するファイル
+ * cleanupOrphanedProcesses() がこのpidfileを読み、現存しArk的cmdを持つものだけを
+ * 掃除対象とする。マーカー引数を付けられないwebsockify/Chromiumを
+ * 安全に識別するため。
+ */
+const BROWSER_PIDFILE = path.join("data", "browser-pids");
 
 /** Xvfb仮想ディスプレイの解像度 */
 const DISPLAY_RESOLUTION = "1280x900x24";
@@ -127,12 +136,13 @@ export class BrowserManager extends EventEmitter {
    * 自プロセスのreadinessと誤認 → Chromiumのいない空ディスプレイが量産される。
    * 起動時にArk由来プロセスを一掃して再発を防ぐ。
    *
-   * 識別方針:
-   * - 同一uidのプロセスのみ対象（クロスユーザーで他サービスを誤killしない）
-   * - Xvfb: 起動時に付与する `-fbdir XVFB_FB_DIR` をマーカーとする
-   * - x11vnc: 起動時に付与する `-desktop ARK_DESKTOP` をマーカーとする
-   * - Chromium: Ark専用固定CDPポート(`--remote-debugging-port=9222`)で識別
-   * - websockify: uid限定 + Ark管理ポート範囲で識別
+   * 識別方針（誤kill防止のため pidfile + cmd検証 の両方を必須とする）:
+   * - Arkが起動したpidは BROWSER_PIDFILE に記録される
+   * - 起動時にpidfileを読み、現存pidの cmd を ps で確認
+   * - cmd が Ark系のいずれか（マーカー付きXvfb/x11vnc、Ark固定CDPポートの
+   *   Chromium、websockify）にマッチしたものだけを掃除対象とする
+   * - pidfile に記録されていない他サービスや、pid再利用で別cmdになった
+   *   プロセスは安全に無視される
    *
    * 終了確認:
    * - SIGTERM後、最大 ORPHAN_TERM_TIMEOUT_MS まで `kill -0` で終了をポーリング
@@ -142,26 +152,55 @@ export class BrowserManager extends EventEmitter {
    */
   private cleanupOrphanedProcesses(): void {
     try {
-      const ownUid = process.getuid?.();
-      if (ownUid === undefined) return; // POSIX外環境では何もしない
+      // pidfile から Ark 由来候補 pid を読み込む。なければ掃除対象なし。
+      let candidatePids: number[];
+      try {
+        const content = fs.readFileSync(BROWSER_PIDFILE, "utf-8");
+        candidatePids = Array.from(
+          new Set(
+            content
+              .split("\n")
+              .map(s => Number.parseInt(s.trim(), 10))
+              .filter(n => Number.isFinite(n) && n > 0)
+          )
+        );
+      } catch {
+        return; // pidfile未作成 = 過去にArkが起動していない
+      }
+      if (candidatePids.length === 0) {
+        this.clearPidFile();
+        return;
+      }
 
-      const psOutput = execFileSync(
-        "ps",
-        ["-o", "pid=,cmd=", "-u", String(ownUid)],
-        { encoding: "utf-8" }
-      );
+      // ps で対象pidのcmdを取得（pid再利用や別プロセス摩り替わりを検知）
+      const pidToCmd = new Map<number, string>();
+      try {
+        const psOutput = execFileSync(
+          "ps",
+          ["-o", "pid=,cmd=", "-p", candidatePids.join(",")],
+          { encoding: "utf-8" }
+        );
+        for (const line of psOutput.split("\n")) {
+          const m = line.trim().match(/^(\d+)\s+(.*)$/);
+          if (!m) continue;
+          pidToCmd.set(Number.parseInt(m[1], 10), m[2]);
+        }
+      } catch {
+        // 全pidが既に死んでいると ps は非0を返すことがある → pidfileのみクリア
+        this.clearPidFile();
+        return;
+      }
+
       const orphanPids: number[] = [];
       const orphanDisplays: number[] = [];
       const minDisplay = DISPLAY_START;
       const maxDisplay = DISPLAY_START + 100;
 
-      for (const line of psOutput.split("\n")) {
-        const m = line.trim().match(/^(\d+)\s+(.*)$/);
-        if (!m) continue;
-        const pid = Number.parseInt(m[1], 10);
-        const cmd = m[2];
+      for (const pid of candidatePids) {
+        const cmd = pidToCmd.get(pid);
+        if (!cmd) continue; // pid既に終了済み
 
-        // Xvfb: Ark識別マーカー(-fbdir XVFB_FB_DIR)とdisplayレンジで判定
+        // Xvfb: マーカー(-fbdir XVFB_FB_DIR)とdisplayレンジで判定
         const xvfbMatch = cmd.match(/^Xvfb\s+:(\d+)\b/);
         if (xvfbMatch && cmd.includes(XVFB_FB_DIR)) {
           const display = Number.parseInt(xvfbMatch[1], 10);
@@ -172,7 +211,7 @@ export class BrowserManager extends EventEmitter {
           continue;
         }
 
-        // x11vnc: Ark識別マーカー(-desktop ARK_DESKTOP)とdisplayレンジで判定
+        // x11vnc: マーカー(-desktop ARK_DESKTOP)とdisplayレンジで判定
         const x11vncMatch = cmd.match(/\bx11vnc\b.*?-display\s+:(\d+)\b/);
         if (x11vncMatch && cmd.includes(`-desktop ${ARK_DESKTOP}`)) {
           const display = Number.parseInt(x11vncMatch[1], 10);
@@ -182,23 +221,16 @@ export class BrowserManager extends EventEmitter {
           continue;
         }
 
-        // websockify: uid限定済みなのでArk管理ポート範囲のみで判定
-        const wsMatch = cmd.match(
-          /\bwebsockify\b.*?127\.0\.0\.1:(\d+)\s+127\.0\.0\.1:(\d+)/
-        );
-        if (wsMatch) {
-          const wsPort = Number.parseInt(wsMatch[1], 10);
-          const vncPort = Number.parseInt(wsMatch[2], 10);
-          if (
-            (wsPort >= WS_PORT_START && wsPort <= WS_PORT_END) ||
-            (vncPort >= VNC_PORT_START && vncPort <= VNC_PORT_END)
-          ) {
-            orphanPids.push(pid);
-          }
+        // websockify: pidfile経由でArk由来と確認できているのでcmd形状のみ確認
+        if (
+          /\bwebsockify\b/.test(cmd) &&
+          /127\.0\.0\.1:\d+\s+127\.0\.0\.1:\d+/.test(cmd)
+        ) {
+          orphanPids.push(pid);
           continue;
         }
 
-        // Chromium: Ark固定CDPポートを使うものはArk由来とみなす
+        // Chromium: pidfile経由 + Ark固定CDPポートの両方でArk由来と確認
         if (
           /\b(chrome|chromium)\b/.test(cmd) &&
           cmd.includes(`--remote-debugging-port=${CDP_PORT}`)
@@ -207,7 +239,10 @@ export class BrowserManager extends EventEmitter {
         }
       }
 
-      if (orphanPids.length === 0) return;
+      if (orphanPids.length === 0) {
+        this.clearPidFile();
+        return;
+      }
 
       console.log(
         `[BrowserManager] 孤立プロセスを掃除: pids=${orphanPids.join(",")}`
@@ -276,10 +311,36 @@ export class BrowserManager extends EventEmitter {
           // 残存しない/権限なしは無視
         }
       }
+
+      // 掃除完了 → 古い候補を流すためpidfileを空にする
+      this.clearPidFile();
     } catch (err) {
       console.warn(
         `[BrowserManager] 孤立プロセス掃除に失敗: ${getErrorMessage(err)}`
       );
+    }
+  }
+
+  /**
+   * 起動した子プロセスのpidをBROWSER_PIDFILEに追記する。
+   * 次回起動時の cleanupOrphanedProcesses() がこのpidを候補として読む。
+   */
+  private recordPid(pid: number | undefined): void {
+    if (pid === undefined) return;
+    try {
+      fs.mkdirSync(path.dirname(BROWSER_PIDFILE), { recursive: true });
+      fs.appendFileSync(BROWSER_PIDFILE, `${pid}\n`);
+    } catch (err) {
+      console.warn(`[BrowserManager] pidfile記録失敗: ${getErrorMessage(err)}`);
+    }
+  }
+
+  /** BROWSER_PIDFILEを空にする（cleanup完了時に呼ぶ） */
+  private clearPidFile(): void {
+    try {
+      fs.writeFileSync(BROWSER_PIDFILE, "");
+    } catch {
+      // ファイル未作成等は無視
     }
   }
 
@@ -608,6 +669,7 @@ export class BrowserManager extends EventEmitter {
         { stdio: ["ignore", "pipe", "pipe"], detached: false }
       );
       startedProcesses.push(xvfb);
+      this.recordPid(xvfb.pid);
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -658,6 +720,7 @@ export class BrowserManager extends EventEmitter {
         },
       });
       startedProcesses.push(chromium);
+      this.recordPid(chromium.pid);
 
       // CDPエンドポイントが応答するまでポーリングしてChromium readinessを検出
       // 早期exitやerrorも検出してreject
@@ -732,6 +795,7 @@ export class BrowserManager extends EventEmitter {
         { stdio: ["ignore", "pipe", "pipe"], detached: false }
       );
       startedProcesses.push(x11vnc);
+      this.recordPid(x11vnc.pid);
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
@@ -800,6 +864,7 @@ export class BrowserManager extends EventEmitter {
         { stdio: ["ignore", "pipe", "pipe"], detached: false }
       );
       startedProcesses.push(websockify);
+      this.recordPid(websockify.pid);
 
       await new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(() => {
