@@ -249,46 +249,24 @@ export class BrowserManager extends EventEmitter {
           pidToCmd.set(Number.parseInt(m[1], 10), m[2]);
         }
       } catch {
-        // 全pidが既に死んでいる → display情報のあるpidについてはX11ソケット
-        // 残骸を削除してからorphanFilesを削除する
-        // （crashed Xvfbがソケットだけ残しているケース対応）
-        const deadDisplays = new Set<number>();
-        for (const c of candidates) {
-          if (
-            c.display !== undefined &&
-            c.display >= minDisplay &&
-            c.display <= maxDisplay
-          ) {
-            deadDisplays.add(c.display);
-          }
-        }
-        for (const display of deadDisplays) {
-          try {
-            fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
-          } catch {
-            // 残存しない/権限なしは無視
-          }
-        }
+        // 全pidが既に死んでいる → orphanFiles削除のみ。
+        // ソケット残骸の削除は行わない（pid死亡後にdisplay番号を別の
+        // X11サーバーが再利用している場合に live socket を破壊する恐れ）
         this.deleteOrphanFiles(orphanFiles);
         return;
       }
 
       const orphanPids: number[] = [];
-      const orphanDisplays = new Set<number>();
+      // pid → display のマップ。kill成功確認後にXvfbソケットを削除するため
+      const pidToOrphanDisplay = new Map<number, number>();
 
       for (const c of candidates) {
         const cmd = pidToCmd.get(c.pid);
-        if (!cmd) {
-          // pid既に終了済み → 紐づくdisplay情報があればソケット削除候補に
-          if (
-            c.display !== undefined &&
-            c.display >= minDisplay &&
-            c.display <= maxDisplay
-          ) {
-            orphanDisplays.add(c.display);
-          }
-          continue;
-        }
+        // pid既に終了済みの場合はskip（display単独でのソケット削除はlive socket
+        // 破壊リスクがあるため触らない。crashed Xvfbのソケット残骸は
+        // findAvailableDisplay()側が「使用中」とみなして100displays中1つ
+        // 使えなくなるが、誤動作よりは安全側を優先）
+        if (!cmd) continue;
 
         // Xvfb: マーカー(-fbdir XVFB_FB_DIR)とdisplayレンジで判定
         const xvfbMatch = cmd.match(/^Xvfb\s+:(\d+)\b/);
@@ -296,7 +274,7 @@ export class BrowserManager extends EventEmitter {
           const display = Number.parseInt(xvfbMatch[1], 10);
           if (display >= minDisplay && display <= maxDisplay) {
             orphanPids.push(c.pid);
-            orphanDisplays.add(display);
+            pidToOrphanDisplay.set(c.pid, display);
           }
           continue;
         }
@@ -330,14 +308,6 @@ export class BrowserManager extends EventEmitter {
       }
 
       if (orphanPids.length === 0) {
-        // kill対象pidなしだが、死亡Xvfbのソケット残骸があれば削除
-        for (const display of orphanDisplays) {
-          try {
-            fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
-          } catch {
-            // 残存しない/権限なしは無視
-          }
-        }
         this.deleteOrphanFiles(orphanFiles);
         return;
       }
@@ -402,15 +372,22 @@ export class BrowserManager extends EventEmitter {
       }
 
       const survivors = Array.from(remainingPids);
-      if (survivors.length === 0) {
-        // 全プロセスが終了した → ソケット残骸を削除し、orphan files削除
-        for (const display of orphanDisplays) {
-          try {
-            fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
-          } catch {
-            // 残存しない/権限なしは無視
-          }
+      // kill成功(=remainingPidsに無い)pidのdisplayのみソケット削除する。
+      // remainingに残るpid（SIGKILLでも消えなかった）のソケットは
+      // 触らない（live socket破壊で次のセッションが衝突するのを避ける）
+      for (const pid of orphanPids) {
+        if (remainingPids.has(pid)) continue;
+        const display = pidToOrphanDisplay.get(pid);
+        if (display === undefined) continue;
+        try {
+          fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
+        } catch {
+          // 残存しない/権限なしは無視
         }
+      }
+
+      if (survivors.length === 0) {
+        // 全プロセス終了 → orphan files削除
         this.deleteOrphanFiles(orphanFiles);
       } else {
         // SIGKILL後も生存pidあり → 最初のorphan fileに残存pidを書き戻し、
@@ -620,51 +597,29 @@ export class BrowserManager extends EventEmitter {
         pidToCmd.set(Number.parseInt(m[1], 10), m[2]);
       }
     } catch {
-      // 全pid死亡 → display情報のあるpidについてはソケット削除して、pidfile再sync
-      const deadDisplays = new Set<number>();
-      for (const e of survivorEntries) {
-        if (
-          e.display !== undefined &&
-          e.display >= minDisplay &&
-          e.display <= maxDisplay
-        ) {
-          deadDisplays.add(e.display);
-        }
-      }
-      for (const display of deadDisplays) {
-        try {
-          fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
-        } catch {
-          // 残存しない/権限なしは無視
-        }
-      }
+      // 全pid死亡 → pidfile再syncのみ（ソケット削除はlive socket破壊リスクが
+      // あるためスキップ。crashed Xvfbのソケット残骸は findAvailableDisplay
+      // 側が「使用中」扱いするため、安全側の挙動を優先する）
       this.syncPidFile();
       return;
     }
 
     const reapPids: number[] = [];
-    const reapDisplays = new Set<number>();
+    // pid → display のマップ。kill成功確認後にソケット削除するため
+    const pidToReapDisplay = new Map<number, number>();
 
     for (const e of survivorEntries) {
       const cmd = pidToCmd.get(e.pid);
-      if (!cmd) {
-        // 死亡pid → display情報があればソケット削除候補
-        if (
-          e.display !== undefined &&
-          e.display >= minDisplay &&
-          e.display <= maxDisplay
-        ) {
-          reapDisplays.add(e.display);
-        }
-        continue;
-      }
+      // 死亡pidのソケットは触らない（display単独でのソケット削除は別X11
+      // サーバーの live socket を破壊するリスクがあるため）
+      if (!cmd) continue;
 
       const xvfbMatch = cmd.match(/^Xvfb\s+:(\d+)\b/);
       if (xvfbMatch && cmd.includes(XVFB_FB_DIR)) {
         const display = Number.parseInt(xvfbMatch[1], 10);
         if (display >= minDisplay && display <= maxDisplay) {
           reapPids.push(e.pid);
-          reapDisplays.add(display);
+          pidToReapDisplay.set(e.pid, display);
         }
         continue;
       }
@@ -749,14 +704,19 @@ export class BrowserManager extends EventEmitter {
           }
         }
       }
-    }
 
-    // killしたXvfbのソケット削除
-    for (const display of reapDisplays) {
-      try {
-        fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
-      } catch {
-        // 残存しない/権限なしは無視
+      // kill成功(=remainingにいない)pidのXvfbソケットのみ削除する。
+      // remainingに残るpid（SIGKILLでも消えなかった）のソケットは
+      // 触らない（live socket破壊で次のセッションが衝突するのを避ける）
+      for (const pid of reapPids) {
+        if (remaining.has(pid)) continue;
+        const display = pidToReapDisplay.get(pid);
+        if (display === undefined) continue;
+        try {
+          fs.unlinkSync(`/tmp/.X11-unix/X${display}`);
+        } catch {
+          // 残存しない/権限なしは無視
+        }
       }
     }
 
