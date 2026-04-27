@@ -983,12 +983,12 @@ export class BeaconManager extends EventEmitter {
             session.messages.push(assistantMessage);
             db.addBeaconMessage(assistantMessage);
             this.emit("beacon:message", assistantMessage);
-
-            // turn 終了後に pending external メッセージを flush。
-            // ここで保存することで assistantMessage よりも timestamp が後に
-            // なり、次回履歴取得時の順序が「assistant → external」になる。
-            this.flushPendingExternalMessages();
           }
+
+          // turn 終了後に pending external メッセージを flush。
+          // assistant text の有無に関わらず flush することで、tool-only turn
+          // (text無し) でも queue 滞留を解消する。
+          this.flushPendingExternalMessages();
 
           // 完了チャンクを送信
           const doneChunk: BeaconStreamChunk = {

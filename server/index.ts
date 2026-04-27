@@ -162,7 +162,7 @@ function formatUsageMarkdown(report: UsageReport): string {
   const lines: string[] = ["## Claude Code 使用量サマリ", ""];
   for (const entry of report.entries) {
     lines.push(`### ${entry.profileName}`);
-    lines.push(...formatUsageEntryLines(entry));
+    lines.push(...formatUsageEntryLines(entry, report.collectedAt));
     lines.push("");
   }
   const collected = new Date(report.collectedAt).toLocaleString("ja-JP", {
@@ -202,7 +202,7 @@ const MONTH_NAMES = [
   "Dec",
 ];
 
-function formatResetTimestamp(resets: string): string {
+function formatResetTimestamp(resets: string, refMs: number): string {
   const stripped = resets.replace(/\s*\(Asia\/Tokyo\)\s*$/, "").trim();
 
   const dated =
@@ -220,13 +220,13 @@ function formatResetTimestamp(resets: string): string {
     }
   }
 
-  // 時刻のみのケース (例 "8:20pm") は日付情報が無いので、JST 現在時刻と
-  // 比較して today/tomorrow を判定し、`M/D HH:MM` 形式に揃える。
-  // (週次リセットの "M/D HH:MM" 形式とカラムを揃えるため)
+  // 時刻のみのケース (例 "8:20pm") は日付情報が無いので、refMs 時点の JST
+  // 時刻と比較して today/tomorrow を判定し、`M/D HH:MM` 形式に揃える。
+  // refMs には report.collectedAt を渡すことで深夜跨ぎ時の整合性を担保。
   const timeOnly = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(stripped);
   if (timeOnly) {
     const time24 = to24Hour(timeOnly[1], timeOnly[2], timeOnly[3]);
-    return appendJstDate(time24);
+    return appendJstDate(time24, refMs);
   }
 
   return stripped;
@@ -234,14 +234,18 @@ function formatResetTimestamp(resets: string): string {
 
 /**
  * `HH:MM` 形式の時刻に JST の日付を補って `M/D HH:MM` を返す。
- * 現在 JST 時刻と比較し、与えられた時刻が今日中ならtoday、過ぎていれば
- * tomorrow を採用する (claude /usage が示す reset は常に「次回」)。
+ * `refMs` 時点 (collectedAt) の JST と比較し、与えられた時刻が refMs 以後
+ * 今日中ならtoday、過ぎていれば tomorrow を採用する (claude /usage が示す
+ * reset は常に「次回」)。
+ *
+ * refMs を引数で受け取ることで、render 時刻ではなく capture 時刻を基準に
+ * できる (深夜跨ぎ時の整合性確保)。
  *
  * 注: host TZ に依存しないよう Intl.DateTimeFormat.formatToParts で
  * JST の年/月/日/時/分を直接取得する。`new Date(toLocaleString)` 経由だと
  * UTC コンテナ等で再パース時に host TZ で解釈され翌日判定がズレる。
  */
-function appendJstDate(time24: string): string {
+function appendJstDate(time24: string, refMs: number): string {
   const [hStr, mStr] = time24.split(":");
   const targetH = Number.parseInt(hStr, 10);
   const targetM = Number.parseInt(mStr, 10);
@@ -255,7 +259,7 @@ function appendJstDate(time24: string): string {
     hour: "numeric",
     minute: "numeric",
     hour12: false,
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(refMs));
   const getPart = (type: string) =>
     Number.parseInt(parts.find(p => p.type === type)?.value ?? "0", 10);
   // hour=24 になるケース (formatToParts の en-US 仕様) を 0 に補正
@@ -290,13 +294,13 @@ function to24Hour(
   return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
-function formatUsageEntryLines(entry: UsageEntry): string[] {
+function formatUsageEntryLines(entry: UsageEntry, refMs: number): string[] {
   if (entry.status === "ok" && entry.parsed) {
     const p = entry.parsed;
     const sessionPct = p.sessionPercent.toString().padStart(3, " ");
     const weeklyPct = p.weeklyAllPercent.toString().padStart(3, " ");
-    const sessionReset = formatResetTimestamp(p.sessionResets);
-    const weeklyReset = formatResetTimestamp(p.weeklyAllResets);
+    const sessionReset = formatResetTimestamp(p.sessionResets, refMs);
+    const weeklyReset = formatResetTimestamp(p.weeklyAllResets, refMs);
     // ラベル / バー / % / リセット時刻 を 1 行に並べる。
     // 「セ」「週」は両方 1 文字 (ほとんどの monospace 環境で同じセル幅で
     // 描画される) なので column 整列が壊れない。
