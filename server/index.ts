@@ -23,6 +23,9 @@ import type {
   ClientToServerEvents,
   ServerToClientEvents,
   SystemCapabilities,
+  UsageEntry,
+  UsageProgress,
+  UsageReport,
 } from "../shared/types.js";
 import { authManager } from "./lib/auth.js";
 import { beaconManager } from "./lib/beacon-manager.js";
@@ -58,6 +61,7 @@ import { sessionOrchestrator } from "./lib/session-orchestrator.js";
 import { detectMultiProfileSupported } from "./lib/system.js";
 import { tmuxManager } from "./lib/tmux-manager.js";
 import { TunnelManager } from "./lib/tunnel.js";
+import { UsageCollector } from "./lib/usage-collector.js";
 
 // Parse command line arguments
 const args = process.argv.slice(2);
@@ -135,6 +139,56 @@ function loadTunnelState(): { active: boolean; port: number } | null {
   }
 }
 
+/**
+ * UsageReport をBeaconチャットに表示するMarkdownへ変換する。
+ * 既存のBeacon Markdownレンダラはテーブル非対応の可能性があるため、
+ * 見出し + ビュレットリスト形式で出力する。
+ */
+function formatUsageMarkdown(report: UsageReport): string {
+  const lines: string[] = ["## Claude Code 使用量サマリ", ""];
+  for (const entry of report.entries) {
+    lines.push(`### ${entry.profileName}`);
+    lines.push(...formatUsageEntryLines(entry));
+    lines.push("");
+  }
+  const collected = new Date(report.collectedAt).toLocaleString("ja-JP", {
+    timeZone: "Asia/Tokyo",
+  });
+  const okCount = report.entries.filter(e => e.status === "ok").length;
+  lines.push(
+    `取得時刻: ${collected} (${report.entries.length}件中${okCount}件取得成功)`
+  );
+  return lines.join("\n");
+}
+
+function formatUsageEntryLines(entry: UsageEntry): string[] {
+  if (entry.status === "ok" && entry.parsed) {
+    const p = entry.parsed;
+    // Sonnet only は Team プランで 0% 時に Resets が無い → "Resets ..." を省略
+    const sonnetSuffix = p.weeklySonnetResets
+      ? ` (Resets ${p.weeklySonnetResets})`
+      : "";
+    const out = [
+      `- セッション: ${p.sessionPercent}% (Resets ${p.sessionResets})`,
+      `- 週次 (全モデル): ${p.weeklyAllPercent}% (Resets ${p.weeklyAllResets})`,
+      `- 週次 (Sonnetのみ): ${p.weeklySonnetPercent}%${sonnetSuffix}`,
+    ];
+    if (p.totalCost || p.wallDuration) {
+      const cost = p.totalCost ?? "-";
+      const dur = p.wallDuration ?? "-";
+      out.push(`- コスト: ${cost} / 経過時間: ${dur}`);
+    }
+    return out;
+  }
+  if (entry.status === "unauthenticated") {
+    return ["- 状態: 未認証 (オンボーディング画面)"];
+  }
+  if (entry.status === "timeout") {
+    return ["- 状態: タイムアウト"];
+  }
+  return [`- 状態: エラー (${entry.errorMessage ?? "詳細不明"})`];
+}
+
 async function startServer() {
   const app = express();
   const server = createServer(app);
@@ -155,6 +209,11 @@ async function startServer() {
   console.log(
     `[Capabilities] multiProfileSupported = ${capabilities.multiProfileSupported}`
   );
+
+  // ===== Usage取得 =====
+  const usageCollector = new UsageCollector();
+  // 全クライアント横断で同時実行を1件に制限する
+  let usageInFlight = false;
 
   // Create proxy for ttyd WebSocket connections
   const ttydProxy = httpProxy.createProxyServer({
@@ -1728,6 +1787,76 @@ async function startServer() {
           sessionId,
           error: getErrorMessage(e),
         });
+      }
+    });
+
+    socket.on("usage:request", async () => {
+      if (!capabilities.multiProfileSupported) {
+        socket.emit("usage:error", {
+          message: "この環境ではプロファイル機能が使えません",
+        });
+        return;
+      }
+      if (usageInFlight) {
+        socket.emit("usage:error", {
+          message: "Usage取得が既に進行中です",
+        });
+        return;
+      }
+      const registeredProfiles = db.listProfiles();
+      // デフォルトアカウント (CLAUDE_CONFIG_DIR を設定しないときの ~/.claude) も
+      // 集計対象に含める。既存プロファイルが ~/.claude を指している場合は重複を
+      // 避ける (configDir 空文字 = デフォルト指定として UsageCollector 側で扱う)。
+      const defaultConfigDir = path.join(os.homedir(), ".claude");
+      const hasDefaultProfile = registeredProfiles.some(
+        p => p.configDir === defaultConfigDir
+      );
+      const profiles = hasDefaultProfile
+        ? registeredProfiles
+        : [
+            {
+              id: "__default__",
+              name: "デフォルト",
+              configDir: "",
+              createdAt: 0,
+              updatedAt: 0,
+            },
+            ...registeredProfiles,
+          ];
+
+      if (profiles.length === 0) {
+        socket.emit("usage:error", {
+          message: "プロファイルが登録されていません",
+        });
+        return;
+      }
+
+      usageInFlight = true;
+      const onProgress = (data: UsageProgress) => {
+        io.emit("usage:progress", data);
+      };
+      usageCollector.on("usage:progress", onProgress);
+      console.log(
+        `[UsageCollector] 開始: ${profiles.length} プロファイル (要求元: ${socket.id})`
+      );
+
+      try {
+        const report = await usageCollector.collect(profiles);
+        const markdown = formatUsageMarkdown(report);
+        const message = beaconManager.postExternalMessage(markdown);
+        // postExternalMessage は activeBeaconSocket にのみemitするため、
+        // 全クライアントに向けて明示的にbroadcastする
+        // (Usage取得結果はBeacon利用状況に関わらず全タブで共有される)
+        io.emit("beacon:message", message);
+        io.emit("usage:complete", report);
+        console.log(
+          `[UsageCollector] 完了: ok=${report.entries.filter(e => e.status === "ok").length}/${report.entries.length}`
+        );
+      } catch (e) {
+        socket.emit("usage:error", { message: getErrorMessage(e) });
+      } finally {
+        usageCollector.off("usage:progress", onProgress);
+        usageInFlight = false;
       }
     });
 

@@ -992,6 +992,36 @@ export class BeaconManager extends EventEmitter {
   }
 
   /**
+   * 外部システム（Usage取得など）からassistantメッセージを投稿する。
+   *
+   * 用途: LLM経由ではなく、Arkの内部処理結果（例: 全プロファイル使用量サマリ）を
+   * Beaconの履歴UIに表示するためのバイパスAPI。
+   *
+   * 注意1: このメソッドで投稿したメッセージは LLMコンテキストには注入されない。
+   * BeaconManagerは履歴UIをDBから読み出すので、このメッセージは履歴画面には残るが、
+   * 次回のBeacon会話で参照されることはない（履歴をリセットして新規セッションを
+   * 開始する設計のため）。
+   *
+   * 注意2: `beacon:message` イベントは emit しない。BeaconManagerの通常emitは
+   * activeBeaconSocket にしか転送されないため、Usage取得時のように Beacon未利用
+   * 状態でも全クライアントに届けたい用途では呼び出し側が io.emit で broadcast
+   * する責務を持つ。返り値の ChatMessage を使って呼び出し側で配信すること。
+   */
+  postExternalMessage(content: string): ChatMessage {
+    const message: ChatMessage = {
+      id: randomUUID(),
+      role: "assistant",
+      content,
+      timestamp: new Date(),
+    };
+    db.addBeaconMessage(message);
+    if (this.session) {
+      this.session.messages.push(message);
+    }
+    return message;
+  }
+
+  /**
    * チャット履歴を取得する
    *
    * セッション未開始時はDBから直接ロードする（サーバー再起動・アイドルタイムアウト後も履歴を保持するため）

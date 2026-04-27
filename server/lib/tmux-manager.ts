@@ -110,6 +110,9 @@ export class TmuxManager extends EventEmitter {
 
       for (const name of sessionNames) {
         if (name.startsWith(this.SESSION_PREFIX)) {
+          // ark-usage-* は UsageCollector が一時的に作る短命セッション。
+          // 起動時に拾うとttydを起動しようとして競合する。
+          if (name.startsWith("ark-usage-")) continue;
           const id = name.replace(this.SESSION_PREFIX, "");
           const cwd = this.getTmuxSessionCwd(name);
 

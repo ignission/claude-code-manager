@@ -104,6 +104,9 @@ export default function Dashboard() {
     deleteProfile,
     setRepoProfile,
     restartSessionWithProfile,
+    usageRequesting,
+    usageProgress,
+    requestUsage,
   } = useSocket({
     enabled: !isSettingsLoading,
     initialRepoList: savedRepoList,
@@ -465,6 +468,10 @@ export default function Dashboard() {
           beaconStreamText={beaconStreamText}
           onBeaconSend={beaconSend}
           onBeaconClear={beaconClear}
+          onRequestUsage={requestUsage}
+          usageRequesting={usageRequesting}
+          usageProgress={usageProgress}
+          multiProfileSupported={capabilities.multiProfileSupported}
           activeBrowserSession={activeBrowserSession}
           onSelectBrowser={handleSelectBrowser}
           navigateBrowser={navigateBrowser}
@@ -580,6 +587,10 @@ export default function Dashboard() {
               streamingText={beaconStreamText}
               onSendMessage={beaconSend}
               onClear={beaconClear}
+              onRequestUsage={requestUsage}
+              usageRequesting={usageRequesting}
+              usageProgress={usageProgress}
+              multiProfileSupported={capabilities.multiProfileSupported}
             />
           }
           initialSidebarWidth={getSetting<number>("ark-sidebar-width", 250)}
