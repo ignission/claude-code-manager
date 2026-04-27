@@ -175,22 +175,28 @@ function formatUsageMarkdown(report: UsageReport): string {
   return lines.join("\n");
 }
 
+/**
+ * `8:20pm (Asia/Tokyo)` のような Resets 文字列から JST 表示部分を除去して
+ * `8:20pm` のように簡潔化する。Ark は JST 前提のため明示は不要。
+ */
+function trimTimezone(resets: string): string {
+  return resets.replace(/\s*\(Asia\/Tokyo\)\s*$/, "").trim();
+}
+
 function formatUsageEntryLines(entry: UsageEntry): string[] {
   if (entry.status === "ok" && entry.parsed) {
     const p = entry.parsed;
     const sessionPct = p.sessionPercent.toString().padStart(3, " ");
     const weeklyPct = p.weeklyAllPercent.toString().padStart(3, " ");
-    // code block でバー表示 (monospace で揃える)
-    const bars = [
+    const sessionReset = trimTimezone(p.sessionResets);
+    const weeklyReset = trimTimezone(p.weeklyAllResets);
+    // code block でバー表示 (monospace で揃える)。Reset時刻もインラインで表示
+    return [
       "```",
-      `セッション   ${renderUsageBar(p.sessionPercent)} ${sessionPct}%`,
-      `週次(全)     ${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}%`,
+      `セッション ${renderUsageBar(p.sessionPercent)} ${sessionPct}%  ↻ ${sessionReset}`,
+      `週次       ${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}%  ↻ ${weeklyReset}`,
       "```",
     ];
-    const out = [...bars];
-    out.push(`- セッションリセット: ${p.sessionResets}`);
-    out.push(`- 週次リセット: ${p.weeklyAllResets}`);
-    return out;
   }
   if (entry.status === "unauthenticated") {
     return ["- 状態: 未認証 (オンボーディング画面)"];

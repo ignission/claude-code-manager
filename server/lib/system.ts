@@ -120,27 +120,36 @@ export function checkClaudeCommandExists(): boolean {
 }
 
 /**
- * `tmux` コマンドが利用可能か。
+ * `tmux` コマンドの絶対パスを解決する。利用不可なら null。
  * 1. `which tmux` (PATH チェック)
  * 2. process.env.PATH を分解して各 dir で確認
  *    (pm2 等で which が機能しない / login PATH と異なる場合をカバー)
  * 3. 既知の候補ディレクトリ
+ *
+ * 子プロセス起動時に絶対パスを使うと、pm2/systemd で PATH に tmux が
+ * 含まれていない環境でも spawnSync が ENOENT にならない。
  */
-export function checkTmuxCommandExists(): boolean {
+export function resolveTmuxPath(): string | null {
   try {
-    const r = spawnSync("which", ["tmux"], { stdio: "pipe" });
-    if (r.status === 0) return true;
+    const r = spawnSync("which", ["tmux"], {
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
+    if (r.status === 0 && r.stdout) {
+      const resolved = r.stdout.trim();
+      if (resolved) return resolved;
+    }
   } catch {
     // fallthrough
   }
 
-  // process.env.PATH を辿る (which が使えない環境向けの補完)
+  // process.env.PATH を辿る
   const envPath = process.env.PATH ?? "";
   for (const dir of envPath.split(path.delimiter)) {
     if (!dir) continue;
     const candidate = path.join(dir, "tmux");
     try {
-      if (existsSync(candidate)) return true;
+      if (existsSync(candidate)) return candidate;
     } catch {
       // ignore
     }
@@ -153,13 +162,19 @@ export function checkTmuxCommandExists(): boolean {
     "/opt/homebrew/bin/tmux",
     "/home/linuxbrew/.linuxbrew/bin/tmux",
   ];
-  return candidates.some(p => {
+  for (const p of candidates) {
     try {
-      return existsSync(p);
+      if (existsSync(p)) return p;
     } catch {
-      return false;
+      // ignore
     }
-  });
+  }
+  return null;
+}
+
+/** `tmux` コマンドが利用可能か。 */
+export function checkTmuxCommandExists(): boolean {
+  return resolveTmuxPath() !== null;
 }
 
 /**

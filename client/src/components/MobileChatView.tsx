@@ -608,10 +608,17 @@ export function MobileChatView({
             // Usageボタン: multiProfileSupported のときのみ表示
             if (cmd.kind === "usage") {
               if (!multiProfileSupported || !onRequestUsage) return null;
-              // 進捗中のラベル: 「取得中 (1/2 personal)」のように表示
+              // 進捗中のラベル: 「取得中 (1/2 personal)」のように表示。
+              // completed=N (=total) は最後の取得完了直後にのみ届くため、
+              // ここでは「処理中の index = completed + 1」で表示する
+              const currentIdx = usageProgress
+                ? Math.min(usageProgress.completed + 1, usageProgress.total)
+                : 0;
               const progressLabel = usageProgress
-                ? `${usageProgress.completed + 1}/${usageProgress.total} ${usageProgress.currentProfileName}`
+                ? `${currentIdx}/${usageProgress.total} ${usageProgress.currentProfileName}`
                 : "取得中";
+              // Beacon streaming 中でも Usage は実行可能 (server側で
+              // beacon:external-message を queue 制御し streaming を阻害しない)
               return (
                 <Button
                   key={cmd.label}
@@ -619,7 +626,7 @@ export function MobileChatView({
                   variant="outline"
                   size="sm"
                   className="h-7 px-3 text-xs shrink-0 rounded-full border-border/50 text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
-                  disabled={isInputDisabled || usageRequesting}
+                  disabled={usageRequesting}
                   onClick={onRequestUsage}
                 >
                   {usageRequesting ? (

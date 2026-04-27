@@ -1029,34 +1029,36 @@ export class BeaconManager extends EventEmitter {
       content,
       timestamp: new Date(),
     };
-    // LLM が応答 streaming 中の場合、assistantMessage の timestamp は turn
-    // 完了時に設定されるため、ここで先に DB 保存すると履歴順序が逆転する。
-    // pending queue に入れて turn 完了後に flush する。emit も遅延させて
-    // live UI と DB reload で順序が一致するようにする。
+    // 要求元クライアントに即座に結果を表示するため、live emit は常に行う。
+    // (Beacon turn streaming 中でもユーザに「結果が来た」ことを伝える)
+    this.emit("beacon:external-message", message);
+
     if (this.session?.processing) {
+      // LLM が応答 streaming 中の場合、assistantMessage の DB 永続化は
+      // turn 完了時に行われる。ここで即座に DB 保存すると次回履歴ロード時に
+      // 「assistant より前に external が出る」順序逆転が起きる。
+      // pending queue に入れて、turn 完了後に timestamp を更新して保存する。
       this.pendingExternalMessages.push(message);
     } else {
-      this.persistAndEmitExternal(message);
+      this.persistExternal(message);
     }
     return message;
   }
 
   /**
-   * 外部メッセージを DB / session.messages へ保存し、
-   * `beacon:external-message` イベントで通知する。
+   * 外部メッセージを DB / session.messages に保存する (live emit はしない)。
    */
-  private persistAndEmitExternal(message: ChatMessage): void {
+  private persistExternal(message: ChatMessage): void {
     db.addBeaconMessage(message);
     if (this.session) {
       this.session.messages.push(message);
     }
-    this.emit("beacon:external-message", message);
   }
 
   /**
    * postExternalMessage で待機中の外部メッセージを DB と session.messages に
-   * 反映し、`beacon:external-message` イベントで配信する。
-   * LLM turn 完了時 / セッション close 時 / エラー時に呼び出す。
+   * 反映する。LLM turn 完了時 / セッション close 時 / エラー時に呼び出す。
+   * live emit は postExternalMessage 時点で既に行っているため再emitしない。
    */
   private flushPendingExternalMessages(): void {
     if (this.pendingExternalMessages.length === 0) return;
@@ -1065,7 +1067,7 @@ export class BeaconManager extends EventEmitter {
     for (const message of queued) {
       // 確実に assistantMessage より後の timestamp になるよう更新
       message.timestamp = new Date();
-      this.persistAndEmitExternal(message);
+      this.persistExternal(message);
     }
   }
 

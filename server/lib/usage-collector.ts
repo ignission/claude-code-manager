@@ -27,6 +27,7 @@ import type {
   UsageReport,
 } from "../../shared/types.js";
 import { stripAnsi } from "./ansi.js";
+import { resolveTmuxPath } from "./system.js";
 
 /**
  * 起動完了検出のアンカー文字列（claude CLIのメインプロンプト）
@@ -202,9 +203,16 @@ export interface UsageCollectorDeps {
   sleep: (ms: number) => Promise<void>;
 }
 
+/**
+ * tmux 実行用の絶対パス。`resolveTmuxPath()` で起動時に解決し、なければ
+ * "tmux" にフォールバック (PATH依存)。pm2/systemd で PATH に tmux が無い
+ * 環境でも ENOENT にならないよう絶対パスを使う。
+ */
+const TMUX_BINARY = resolveTmuxPath() ?? "tmux";
+
 const defaultDeps: UsageCollectorDeps = {
   tmuxExec: args => {
-    const r = spawnSync("tmux", args, {
+    const r = spawnSync(TMUX_BINARY, args, {
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
