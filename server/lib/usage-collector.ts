@@ -246,14 +246,23 @@ export class UsageCollector extends EventEmitter {
     this.deps = { ...defaultDeps, ...deps };
   }
 
-  /** 全プロファイルの /usage を順次取得する */
+  /**
+   * 全プロファイルの /usage を順次取得する。
+   *
+   * usage:progress は各プロファイル開始時のみ emit (BEFORE)。
+   * `completed` は「これまでに完了した件数 (= 0-based index of current)」。
+   * client は `completed + 1 / total currentProfileName` で「現在処理中の
+   * 順位」として表示する。最終的な完了通知は usage:complete に集約。
+   *
+   * ※ 以前は完了時にも emit していたが、UI が次のプロファイルを先取りして
+   *   「2/2 personal」と誤表示する問題があったため廃止。
+   */
   async collect(profiles: Profile[]): Promise<UsageReport> {
     const entries: UsageEntry[] = [];
     const total = profiles.length;
 
     for (let i = 0; i < profiles.length; i++) {
       const profile = profiles[i];
-      // 開始時: 「i 件完了済み、これから profile.name を処理開始」
       this.emit("usage:progress", {
         currentProfileName: profile.name,
         completed: i,
@@ -262,14 +271,6 @@ export class UsageCollector extends EventEmitter {
 
       const entry = await this.collectOne(profile);
       entries.push(entry);
-
-      // 完了時: 「i+1 件完了」(typed event を信頼する consumer 用に正確な
-      // completed 件数も配信。最後のループ終了時に completed=total が届く)
-      this.emit("usage:progress", {
-        currentProfileName: profile.name,
-        completed: i + 1,
-        total,
-      });
     }
 
     return {
@@ -350,11 +351,18 @@ export class UsageCollector extends EventEmitter {
       // シェル起動後に claude を送信。CLAUDE_LAUNCH_COMMAND は起動時に
       // 解決した絶対パスを使うので、PATH に claude が無い pm2/systemd 環境
       // でも shell が「command not found」にならない。
+      //
+      // デフォルトプロファイル時は `unset CLAUDE_CONFIG_DIR;` を前置して
+      // tmux/Ark から継承された CLAUDE_CONFIG_DIR を確実に解除する。
+      // (-e CLAUDE_CONFIG_DIR=「空文字」は claude が壊れて使えない実機検証済)
+      const launchCmd = useDefault
+        ? `unset CLAUDE_CONFIG_DIR; ${CLAUDE_LAUNCH_COMMAND}`
+        : CLAUDE_LAUNCH_COMMAND;
       const sendClaude = this.deps.tmuxExec([
         "send-keys",
         "-t",
         sessionName,
-        CLAUDE_LAUNCH_COMMAND,
+        launchCmd,
         "Enter",
       ]);
       if (sendClaude.status !== 0) {
