@@ -1805,14 +1805,20 @@ async function startServer() {
       }
       const registeredProfiles = db.listProfiles();
       // デフォルトアカウント (CLAUDE_CONFIG_DIR を設定しないときの ~/.claude) も
-      // 集計対象に含める。既存プロファイルが ~/.claude を指している場合は重複を
-      // 避ける (configDir 空文字 = デフォルト指定として UsageCollector 側で扱う)。
+      // 集計対象に含める。configDir 空文字 = デフォルト指定として UsageCollector
+      // 側で「CLAUDE_CONFIG_DIR を渡さない」分岐を選ぶ。
+      // 注: ユーザが ~/.claude を明示プロファイル登録している場合、そのまま
+      // CLAUDE_CONFIG_DIR=~/.claude で起動するとオンボーディング画面に詰まるため
+      // (UsageCollector のコメント参照)、ここで configDir を空に正規化する。
       const defaultConfigDir = path.join(os.homedir(), ".claude");
-      const hasDefaultProfile = registeredProfiles.some(
-        p => p.configDir === defaultConfigDir
+      const normalizedRegistered = registeredProfiles.map(p =>
+        p.configDir === defaultConfigDir ? { ...p, configDir: "" } : p
+      );
+      const hasDefaultProfile = normalizedRegistered.some(
+        p => p.configDir === ""
       );
       const profiles = hasDefaultProfile
-        ? registeredProfiles
+        ? normalizedRegistered
         : [
             {
               id: "__default__",
@@ -1821,7 +1827,7 @@ async function startServer() {
               createdAt: 0,
               updatedAt: 0,
             },
-            ...registeredProfiles,
+            ...normalizedRegistered,
           ];
 
       if (profiles.length === 0) {

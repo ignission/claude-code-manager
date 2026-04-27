@@ -17,6 +17,9 @@
 
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type {
   Profile,
   UsageEntry,
@@ -254,11 +257,13 @@ export class UsageCollector extends EventEmitter {
       configDir: profile.configDir,
     };
 
-    // claudeを HOME で起動する。プロファイルごとの「Trust this folder」
-    // 状態は CLAUDE_CONFIG_DIR 内に独立して保存されるため、毎回 trust dialog を
-    // 自動承諾する (waitForReady 内で実装)。HOME を選ぶ理由は: (a) 必ず存在し
-    // 安定、(b) 個別リポジトリの cwd に依存しないので副作用が無い。
-    const home = process.env.HOME || "/tmp";
+    // claude を HOME で起動すると trust 自動承諾が「HOME 全体」に
+    // 永続化されてしまい、後続の通常 Claude セッションで HOME 配下の
+    // 任意のリポジトリの trust 確認がスキップされる副作用があるため、
+    // 毎回ユニークな一時ディレクトリを作って起動する。一時ディレクトリは
+    // finally で削除するので trust state は実質無害（存在しないパスへの
+    // trust エントリが該当 CLAUDE_CONFIG_DIR に残るが、参照されることはない）。
+    const cwd = mkdtempSync(path.join(os.tmpdir(), "ark-usage-"));
 
     try {
       // configDir が空文字 = デフォルトプロファイル指定。
@@ -287,7 +292,7 @@ export class UsageCollector extends EventEmitter {
         "-s",
         sessionName,
         "-c",
-        home,
+        cwd,
         ...envArgs,
       ]);
       if (newSession.status !== 0) {
@@ -394,6 +399,11 @@ export class UsageCollector extends EventEmitter {
         this.deps.tmuxExec(["kill-session", "-t", sessionName]);
       } catch {
         // already gone
+      }
+      try {
+        rmSync(cwd, { recursive: true, force: true });
+      } catch {
+        // tmpdir削除失敗は無視（次回起動時にOSが自動掃除する）
       }
     }
   }

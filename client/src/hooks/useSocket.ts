@@ -970,10 +970,18 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
   // Usage取得
   const requestUsage = useCallback(() => {
     if (usageRequesting) return;
+    // 未接続でemitすると永遠に応答が返らず、ボタンがリロードまでdisabledになる。
+    // socket未確立 or 切断中なら何もせずユーザに通知する。
+    if (!socketRef.current?.connected) {
+      toast.error(
+        "サーバーに接続されていません。少し待ってから再試行してください"
+      );
+      return;
+    }
     setUsageError(null);
     setUsageRequesting(true);
     setUsageProgress(null);
-    socketRef.current?.emit("usage:request");
+    socketRef.current.emit("usage:request");
     toast.info("Usage取得を開始しました（数十秒かかります）");
   }, [usageRequesting]);
 
