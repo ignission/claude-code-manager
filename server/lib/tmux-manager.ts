@@ -221,7 +221,7 @@ export class TmuxManager extends EventEmitter {
       // CLAUDECODE を空にしてネストされたセッション検出を回避
       // CLAUDE_CODE_NO_FLICKER=1 でttydフリッカー抑制
       const newSessionResult = spawnSync(
-        "tmux",
+        TMUX_BINARY_PATH,
         [
           "new-session",
           "-d",
@@ -246,7 +246,7 @@ export class TmuxManager extends EventEmitter {
 
       // マウスモードを有効化
       const setOptionResult = spawnSync(
-        "tmux",
+        TMUX_BINARY_PATH,
         ["set-option", "-t", tmuxSessionName, "mouse", "on"],
         { stdio: "pipe" }
       );
@@ -259,7 +259,7 @@ export class TmuxManager extends EventEmitter {
       // claudeコマンド（または options.commandLine）を送信
       // 終了後もシェルが残るのでvimなども使える
       const sendKeysResult = spawnSync(
-        "tmux",
+        TMUX_BINARY_PATH,
         ["send-keys", "-t", tmuxSessionName, claudeCmd, "Enter"],
         { stdio: "pipe" }
       );
@@ -309,7 +309,7 @@ export class TmuxManager extends EventEmitter {
 
     // send-keys -l でリテラル送信（spawnSyncなのでシェルエスケープ不要）
     const literalResult = spawnSync(
-      "tmux",
+      TMUX_BINARY_PATH,
       ["send-keys", "-t", session.tmuxSessionName, "-l", input],
       { stdio: "pipe" }
     );
@@ -321,7 +321,7 @@ export class TmuxManager extends EventEmitter {
 
     // Enterキーを別途送信
     const enterResult = spawnSync(
-      "tmux",
+      TMUX_BINARY_PATH,
       ["send-keys", "-t", session.tmuxSessionName, "Enter"],
       { stdio: "pipe" }
     );
@@ -354,7 +354,7 @@ export class TmuxManager extends EventEmitter {
     };
     const tmuxKey = keyMap[key] ?? key;
     const result = spawnSync(
-      "tmux",
+      TMUX_BINARY_PATH,
       ["send-keys", "-t", session.tmuxSessionName, tmuxKey],
       { stdio: "pipe" }
     );
@@ -426,7 +426,7 @@ export class TmuxManager extends EventEmitter {
     try {
       // -p: stdoutに出力、-S: 開始行（負数で過去の行）
       const result = spawnSync(
-        "tmux",
+        TMUX_BINARY_PATH,
         [
           "capture-pane",
           "-t",
