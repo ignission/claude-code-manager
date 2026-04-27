@@ -9,6 +9,11 @@ import { execSync, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { nanoid } from "nanoid";
 import type { SpecialKey } from "../../shared/types.js";
+import { resolveTmuxPath } from "./system.js";
+
+// tmux 絶対パス (pm2/systemd で PATH に tmux が無くても動作させるため)。
+// 解決不能なら "tmux" にフォールバック (PATH依存)。
+const TMUX_BINARY_PATH = resolveTmuxPath() ?? "tmux";
 
 /** 送信を許可する特殊キーのホワイトリスト */
 const ALLOWED_SPECIAL_KEYS = new Set<SpecialKey>([
@@ -114,9 +119,11 @@ export class TmuxManager extends EventEmitter {
           // サーバ crash/restart で finally の kill-session が走らずに残った
           // 場合、claude プロセスごと永遠に残留するため、起動時に kill する。
           if (name.startsWith("ark-usage-")) {
-            const killResult = spawnSync("tmux", ["kill-session", "-t", name], {
-              stdio: "pipe",
-            });
+            const killResult = spawnSync(
+              TMUX_BINARY_PATH,
+              ["kill-session", "-t", name],
+              { stdio: "pipe" }
+            );
             if (killResult.status === 0) {
               console.log(
                 `[TmuxManager] Cleaned up orphan usage session: ${name}`

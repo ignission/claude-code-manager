@@ -42,6 +42,95 @@ function existsInVersionedDirs(baseDir: string, suffix: string): boolean {
 }
 
 /**
+ * `claude` コマンドの絶対パスを解決する。利用不可なら null。
+ * 解決ロジックは checkClaudeCommandExists と同じ順序。tmux send-keys に
+ * 絶対パスで claude を送ることで、pm2/systemd の PATH に claude が無い
+ * 環境でも「command not found」にならないようにする。
+ */
+export function resolveClaudePath(): string | null {
+  try {
+    const r = spawnSync("which", ["claude"], {
+      stdio: "pipe",
+      encoding: "utf-8",
+    });
+    if (r.status === 0 && r.stdout) {
+      const resolved = r.stdout.trim();
+      if (resolved) return resolved;
+    }
+  } catch {
+    // fallthrough
+  }
+
+  const envPath = process.env.PATH ?? "";
+  for (const dir of envPath.split(path.delimiter)) {
+    if (!dir) continue;
+    const candidate = path.join(dir, "claude");
+    try {
+      if (existsSync(candidate)) return candidate;
+    } catch {
+      // ignore
+    }
+  }
+
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, ".local/bin/claude"),
+    path.join(home, ".local/share/mise/shims/claude"),
+    path.join(home, ".npm-global/bin/claude"),
+    path.join(home, ".volta/bin/claude"),
+    "/usr/local/bin/claude",
+    "/usr/bin/claude",
+    "/usr/sbin/claude",
+    "/opt/claude/bin/claude",
+    "/home/linuxbrew/.linuxbrew/bin/claude",
+  ];
+  for (const p of candidates) {
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      // ignore
+    }
+  }
+
+  // nvm / fnm: 各 version 配下を走査
+  const nvm = scanVersionedDir(
+    path.join(home, ".nvm/versions/node"),
+    "bin/claude"
+  );
+  if (nvm) return nvm;
+  const fnmShare = scanVersionedDir(
+    path.join(home, ".local/share/fnm/node-versions"),
+    "installation/bin/claude"
+  );
+  if (fnmShare) return fnmShare;
+  const fnm = scanVersionedDir(
+    path.join(home, ".fnm/node-versions"),
+    "bin/claude"
+  );
+  if (fnm) return fnm;
+
+  return null;
+}
+
+/** versioned dir 配下から最初に見つかった絶対パスを返す */
+function scanVersionedDir(baseDir: string, suffix: string): string | null {
+  try {
+    const entries = readdirSync(baseDir);
+    for (const entry of entries) {
+      const candidate = path.join(baseDir, entry, suffix);
+      try {
+        if (existsSync(candidate)) return candidate;
+      } catch {
+        // ignore
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
  * `claude` コマンドが利用可能か。
  * 1. `which claude` (PATH チェック)
  * 2. process.env.PATH を分解して各 dir で確認

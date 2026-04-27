@@ -27,7 +27,7 @@ import type {
   UsageReport,
 } from "../../shared/types.js";
 import { stripAnsi } from "./ansi.js";
-import { resolveTmuxPath } from "./system.js";
+import { resolveClaudePath, resolveTmuxPath } from "./system.js";
 
 /**
  * 起動完了検出のアンカー文字列（claude CLIのメインプロンプト）
@@ -210,6 +210,14 @@ export interface UsageCollectorDeps {
  */
 const TMUX_BINARY = resolveTmuxPath() ?? "tmux";
 
+/**
+ * tmux shell 内に send-keys で渡す claude 起動コマンド。
+ * `resolveClaudePath()` が成功すれば絶対パスを送信し、PATH に claude が
+ * 無い環境でも shell が「command not found」にならないようにする。
+ * 失敗時は "claude" にフォールバック (PATH依存)。
+ */
+const CLAUDE_LAUNCH_COMMAND = resolveClaudePath() ?? "claude";
+
 const defaultDeps: UsageCollectorDeps = {
   tmuxExec: args => {
     const r = spawnSync(TMUX_BINARY, args, {
@@ -326,12 +334,14 @@ export class UsageCollector extends EventEmitter {
         };
       }
 
-      // シェル起動後に claude を送信
+      // シェル起動後に claude を送信。CLAUDE_LAUNCH_COMMAND は起動時に
+      // 解決した絶対パスを使うので、PATH に claude が無い pm2/systemd 環境
+      // でも shell が「command not found」にならない。
       const sendClaude = this.deps.tmuxExec([
         "send-keys",
         "-t",
         sessionName,
-        "claude",
+        CLAUDE_LAUNCH_COMMAND,
         "Enter",
       ]);
       if (sendClaude.status !== 0) {

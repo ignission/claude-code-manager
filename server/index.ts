@@ -176,11 +176,72 @@ function formatUsageMarkdown(report: UsageReport): string {
 }
 
 /**
- * `8:20pm (Asia/Tokyo)` のような Resets 文字列から JST 表示部分を除去して
- * `8:20pm` のように簡潔化する。Ark は JST 前提のため明示は不要。
+ * Claude /usage の Resets 文字列を `M/D HH:MM` (時刻のみなら `HH:MM`)
+ * の 24時間表記に変換する。Ark は JST 前提のため `(Asia/Tokyo)` は除去。
+ *
+ * 入力例:
+ *   `8:20pm (Asia/Tokyo)`         -> `20:20`
+ *   `3am (Asia/Tokyo)`            -> `03:00`
+ *   `May 4, 1pm (Asia/Tokyo)`     -> `5/4 13:00`
+ *   `May 4, 11:30am (Asia/Tokyo)` -> `5/4 11:30`
+ *
+ * パース不能なものは `(Asia/Tokyo)` だけ除いて返す (フォールバック)。
  */
-function trimTimezone(resets: string): string {
-  return resets.replace(/\s*\(Asia\/Tokyo\)\s*$/, "").trim();
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function formatResetTimestamp(resets: string): string {
+  const stripped = resets.replace(/\s*\(Asia\/Tokyo\)\s*$/, "").trim();
+
+  const dated =
+    /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(
+      stripped
+    );
+  if (dated) {
+    const monthIdx = MONTH_NAMES.findIndex(
+      m => m.toLowerCase() === dated[1].slice(0, 3).toLowerCase()
+    );
+    if (monthIdx >= 0) {
+      const day = Number.parseInt(dated[2], 10);
+      const time24 = to24Hour(dated[3], dated[4], dated[5]);
+      return `${monthIdx + 1}/${day} ${time24}`;
+    }
+  }
+
+  const timeOnly = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i.exec(stripped);
+  if (timeOnly) {
+    return to24Hour(timeOnly[1], timeOnly[2], timeOnly[3]);
+  }
+
+  return stripped;
+}
+
+function to24Hour(
+  hourStr: string,
+  minuteStr: string | undefined,
+  ampm: string
+): string {
+  let h = Number.parseInt(hourStr, 10);
+  const m = minuteStr ? Number.parseInt(minuteStr, 10) : 0;
+  const isPm = ampm.toLowerCase() === "pm";
+  if (h === 12) {
+    h = isPm ? 12 : 0;
+  } else if (isPm) {
+    h += 12;
+  }
+  return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}`;
 }
 
 function formatUsageEntryLines(entry: UsageEntry): string[] {
@@ -188,13 +249,17 @@ function formatUsageEntryLines(entry: UsageEntry): string[] {
     const p = entry.parsed;
     const sessionPct = p.sessionPercent.toString().padStart(3, " ");
     const weeklyPct = p.weeklyAllPercent.toString().padStart(3, " ");
-    const sessionReset = trimTimezone(p.sessionResets);
-    const weeklyReset = trimTimezone(p.weeklyAllResets);
-    // code block でバー表示 (monospace で揃える)。Reset時刻もインラインで表示
+    const sessionReset = formatResetTimestamp(p.sessionResets);
+    const weeklyReset = formatResetTimestamp(p.weeklyAllResets);
+    // ラベルとバーを別行に分け、バーは常に column 0 から開始する。
+    // (Japanese fullwidth と halfwidth の混在で renderer によって幅が
+    //  揃わないのを回避)
     return [
       "```",
-      `セッション ${renderUsageBar(p.sessionPercent)} ${sessionPct}%  ↻ ${sessionReset}`,
-      `週次       ${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}%  ↻ ${weeklyReset}`,
+      `セッション ${sessionPct}%  ↻ ${sessionReset}`,
+      renderUsageBar(p.sessionPercent),
+      `週次       ${weeklyPct}%  ↻ ${weeklyReset}`,
+      renderUsageBar(p.weeklyAllPercent),
       "```",
     ];
   }
