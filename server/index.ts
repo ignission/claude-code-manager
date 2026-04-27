@@ -1943,9 +1943,25 @@ async function startServer() {
       // 注: ユーザが ~/.claude を明示プロファイル登録している場合、そのまま
       // CLAUDE_CONFIG_DIR=~/.claude で起動するとオンボーディング画面に詰まるため
       // (UsageCollector のコメント参照)、ここで configDir を空に正規化する。
+      // 比較は fs.realpathSync で canonical 化して symlink / bind mount 経由で
+      // 同じ実体を指す経路でも検出できるようにする。
       const defaultConfigDir = path.join(os.homedir(), ".claude");
+      let canonicalDefaultDir = defaultConfigDir;
+      try {
+        canonicalDefaultDir = fs.realpathSync(defaultConfigDir);
+      } catch {
+        // ~/.claude が無い環境ではそのまま使う (どのプロファイルとも一致しない)
+      }
+      const isDefaultPath = (configDir: string): boolean => {
+        if (configDir === defaultConfigDir) return true;
+        try {
+          return fs.realpathSync(configDir) === canonicalDefaultDir;
+        } catch {
+          return false;
+        }
+      };
       const normalizedRegistered = registeredProfiles.map(p =>
-        p.configDir === defaultConfigDir ? { ...p, configDir: "" } : p
+        isDefaultPath(p.configDir) ? { ...p, configDir: "" } : p
       );
       const hasDefaultProfile = normalizedRegistered.some(
         p => p.configDir === ""
