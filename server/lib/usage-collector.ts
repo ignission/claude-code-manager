@@ -263,9 +263,13 @@ export class UsageCollector extends EventEmitter {
     // 毎回ユニークな一時ディレクトリを作って起動する。一時ディレクトリは
     // finally で削除するので trust state は実質無害（存在しないパスへの
     // trust エントリが該当 CLAUDE_CONFIG_DIR に残るが、参照されることはない）。
-    const cwd = mkdtempSync(path.join(os.tmpdir(), "ark-usage-"));
+    //
+    // mkdtempSync は try ブロック内で呼ぶ。/tmp 書き込み失敗等の例外で
+    // collect() ループ全体を中断させず、当該プロファイルだけ error にする。
+    let cwd: string | null = null;
 
     try {
+      cwd = mkdtempSync(path.join(os.tmpdir(), "ark-usage-"));
       // configDir が空文字 = デフォルトプロファイル指定。
       // CLAUDE_CONFIG_DIR を明示すると、たとえ ~/.claude を指していても claude が
       // 「カスタム設定」扱いし、テーマ未選択のオンボーディング画面が出てしまう
@@ -400,10 +404,12 @@ export class UsageCollector extends EventEmitter {
       } catch {
         // already gone
       }
-      try {
-        rmSync(cwd, { recursive: true, force: true });
-      } catch {
-        // tmpdir削除失敗は無視（次回起動時にOSが自動掃除する）
+      if (cwd) {
+        try {
+          rmSync(cwd, { recursive: true, force: true });
+        } catch {
+          // tmpdir削除失敗は無視（次回起動時にOSが自動掃除する）
+        }
       }
     }
   }
