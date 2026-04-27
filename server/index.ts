@@ -251,15 +251,15 @@ function formatUsageEntryLines(entry: UsageEntry): string[] {
     const weeklyPct = p.weeklyAllPercent.toString().padStart(3, " ");
     const sessionReset = formatResetTimestamp(p.sessionResets);
     const weeklyReset = formatResetTimestamp(p.weeklyAllResets);
-    // ラベルとバーを別行に分け、バーは常に column 0 から開始する。
-    // (Japanese fullwidth と halfwidth の混在で renderer によって幅が
-    //  揃わないのを回避)
+    // ラベル行は単独 (Japanese 幅依存なし)、バー + % + リセット は同じ行に
+    // 並べる。バー は monospace 24 cells で固定なので % の column が両行で
+    // 揃う。Japanese label の幅で % がズレることはない。
     return [
       "```",
-      `セッション ${sessionPct}%  ↻ ${sessionReset}`,
-      renderUsageBar(p.sessionPercent),
-      `週次       ${weeklyPct}%  ↻ ${weeklyReset}`,
-      renderUsageBar(p.weeklyAllPercent),
+      "セッション",
+      `${renderUsageBar(p.sessionPercent)} ${sessionPct}% ↻ ${sessionReset}`,
+      "週次",
+      `${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}% ↻ ${weeklyReset}`,
       "```",
     ];
   }
@@ -1935,6 +1935,10 @@ async function startServer() {
         `[UsageCollector] 開始: ${profiles.length} プロファイル (要求元: ${socket.id})`
       );
 
+      // 完了時に Beacon履歴がクリアされていないか判定するため、開始時の
+      // 世代をcaptureする。背景処理 (~30s) 中に clearHistory されていたら
+      // postExternalMessage は no-op になり、新しい transcript を汚染しない。
+      const beaconVersionAtStart = beaconManager.getHistoryVersion();
       try {
         const report = await usageCollector.collect(profiles);
         const markdown = formatUsageMarkdown(report);
@@ -1942,7 +1946,9 @@ async function startServer() {
         // turn 完了 / セッション close 時に "beacon:external-message" を emit
         // する。emit を購読する beaconManager.on(...) → io.emit が全クライ
         // アントへブロードキャストする (live UI と DB reload の順序を一致)。
-        beaconManager.postExternalMessage(markdown);
+        // expectedVersion を渡すことで、開始後に clearHistory された場合は
+        // 投稿スキップ (cleared chat 復活防止)。
+        beaconManager.postExternalMessage(markdown, beaconVersionAtStart);
         io.emit("usage:complete", report);
         console.log(
           `[UsageCollector] 完了: ok=${report.entries.filter(e => e.status === "ok").length}/${report.entries.length}`

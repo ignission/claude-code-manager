@@ -329,6 +329,12 @@ export class BeaconManager extends EventEmitter {
    * flush する。
    */
   private pendingExternalMessages: ChatMessage[] = [];
+  /**
+   * 履歴の世代カウンタ。clearHistory で +1 する。
+   * /usage のような長時間バックグラウンド処理が、終了時点で
+   * 履歴がクリア済みかを判定するために使う (capture → complete 時に比較)。
+   */
+  private historyVersion = 0;
 
   constructor() {
     super();
@@ -1022,7 +1028,35 @@ export class BeaconManager extends EventEmitter {
    * 状態でも全クライアントに届けたい用途では呼び出し側が io.emit で broadcast
    * する責務を持つ。返り値の ChatMessage を使って呼び出し側で配信すること。
    */
-  postExternalMessage(content: string): ChatMessage {
+  /**
+   * 現在の履歴世代を取得する。
+   * /usage のような長時間バックグラウンド処理は開始時にこの値を capture
+   * しておき、完了時に `postExternalMessage(content, expectedVersion)` を
+   * 呼ぶことで、その間に clearHistory された場合の汚染を回避できる。
+   */
+  getHistoryVersion(): number {
+    return this.historyVersion;
+  }
+
+  /**
+   * 外部メッセージを Beacon 履歴に投稿する。
+   * @param expectedVersion 開始時の `getHistoryVersion()` 値。指定時、現在の
+   *   世代と異なれば (= clearHistory 経由で履歴がリセット済み) 何もせず null
+   *   を返す。指定なしなら無条件で投稿する (旧API互換)。
+   */
+  postExternalMessage(
+    content: string,
+    expectedVersion?: number
+  ): ChatMessage | null {
+    if (
+      expectedVersion !== undefined &&
+      expectedVersion !== this.historyVersion
+    ) {
+      console.log(
+        `[BeaconManager] postExternalMessage skipped (history reset during background task: expected v${expectedVersion}, current v${this.historyVersion})`
+      );
+      return null;
+    }
     const message: ChatMessage = {
       id: randomUUID(),
       role: "assistant",
@@ -1088,10 +1122,15 @@ export class BeaconManager extends EventEmitter {
    *
    * サーバー側のセッション（LLMコンテキスト）も閉じてDB履歴もクリアする。
    * 次のメッセージ送信時に新規セッションが開始される。
+   * historyVersion を増やすことで、進行中の /usage 等が完了時に
+   * postExternalMessage で履歴を復活させないようにする。
    */
   clearHistory(): void {
     this.closeSession();
     db.clearBeaconMessages();
+    this.historyVersion += 1;
+    // pending の外部メッセージも捨てる (clearHistory で消したい意図と一致)
+    this.pendingExternalMessages = [];
     console.log("[BeaconManager] 履歴をクリアしました");
   }
 
