@@ -294,10 +294,14 @@ interface BeaconSession {
    */
   processing: boolean;
   /**
-   * ユーザメッセージ送信後、assistant の `result` が来るまで true。
-   * postExternalMessage はこのフラグを見て LLM streaming 中か判定する。
+   * 進行中の turn 数 (queue+streaming中の合計)。
+   * sendMessage で +1、processOutput の result message ごとに -1。
+   * 多数 turn が queue されているケース (multi-client) でも、count > 0 の
+   * 間は postExternalMessage を defer する必要がある。boolean では
+   * 1回目の result で false になってしまい、後続 turn 中の usage 投稿が
+   * 即時 emit/persist されて順序崩壊するため counter を使う。
    */
-  activeTurn: boolean;
+  activeTurnCount: number;
   /** AbortController（セッション終了時にquery()を中断するため） */
   abortController: AbortController;
 }
@@ -835,7 +839,7 @@ export class BeaconManager extends EventEmitter {
       messages,
       lastActivity: new Date(),
       processing: false,
-      activeTurn: false,
+      activeTurnCount: 0,
       abortController,
     };
 
@@ -875,9 +879,10 @@ export class BeaconManager extends EventEmitter {
     // キューにメッセージをpush（query()のAsyncIterableに供給される）
     session.queue.push(message);
 
-    // この turn が完了 (result message 受信) するまで activeTurn=true。
-    // postExternalMessage はこれを見て LLM streaming 中なら queue する。
-    session.activeTurn = true;
+    // この turn が完了 (result message 受信) するまで activeTurnCount を
+    // 増やす。multi-client で複数 turn が queue されると count が積まれ、
+    // 全 turn の result が揃って 0 に戻るまで postExternalMessage は defer。
+    session.activeTurnCount += 1;
 
     // 出力の処理を開始
     await this.processOutput();
@@ -997,10 +1002,12 @@ export class BeaconManager extends EventEmitter {
           };
           this.emit("beacon:stream", doneChunk);
 
-          // turn 完了 → activeTurn=false。次の sendMessage で再び true になる。
-          // (この期間中に postExternalMessage が来たら即時に persistAndEmit する)
+          // turn 完了 → activeTurnCount を 1 減らす。multi-client で複数
+          // turn が queue されている場合、最後の result が来るまで count > 0
+          // のままなので、後続 turn 中の postExternalMessage は引き続き
+          // pending queue に入る (順序保護)。
           if (this.session === session) {
-            session.activeTurn = false;
+            session.activeTurnCount = Math.max(0, session.activeTurnCount - 1);
           }
 
           // このターンの処理完了。ループを継続して次のターンの出力を待つ
@@ -1026,11 +1033,11 @@ export class BeaconManager extends EventEmitter {
     } finally {
       if (session) {
         session.processing = false;
-        // activeTurn は通常 result message 受信時に false になるが、
+        // activeTurnCount は通常 result message 受信時に decrement するが、
         // query() throw / abort / iterator 終了などでそこへ到達できない
-        // ケースもある。finally で必ず false に戻し、後続 postExternalMessage
+        // ケースもある。finally で必ず 0 に戻し、後続 postExternalMessage
         // が「streaming中」と誤判定して queue 滞留しないようにする。
-        session.activeTurn = false;
+        session.activeTurnCount = 0;
       }
       // エラー / 中断パスでも pending external messages が滞留しないよう
       // 必ず flush。assistant 応答が無くても外部メッセージはユーザに届ける。
@@ -1089,13 +1096,14 @@ export class BeaconManager extends EventEmitter {
       content,
       timestamp: new Date(),
     };
-    if (this.session?.activeTurn) {
-      // LLM が応答 streaming 中 (= activeTurn) の場合、live emit と DB
-      // 永続化を両方 defer する。即時 live emit すると「live UI: external
+    if (this.session && this.session.activeTurnCount > 0) {
+      // LLM が応答 streaming 中 (= activeTurnCount > 0) の場合、live emit と
+      // DB 永続化を両方 defer する。即時 live emit すると「live UI: external
       // →assistant」「DB reload: assistant→external」と順序が食い違うため、
       // turn 完了後にまとめて行う。
       // ※ session.processing は session 生存期間中ずっと true のため判定に
-      //   使えない。activeTurn が「現在 LLM が応答中か」の正確なシグナル。
+      //   使えない。activeTurnCount が「現在進行中の turn 数」の正確な
+      //   シグナル (multi-client で複数 turn が queue されていても安全)。
       this.pendingExternalMessages.push(message);
     } else {
       this.persistAndEmitExternal(message);
