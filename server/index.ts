@@ -1850,10 +1850,11 @@ async function startServer() {
         const report = await usageCollector.collect(profiles);
         const markdown = formatUsageMarkdown(report);
         const message = beaconManager.postExternalMessage(markdown);
-        // postExternalMessage は activeBeaconSocket にのみemitするため、
-        // 全クライアントに向けて明示的にbroadcastする
-        // (Usage取得結果はBeacon利用状況に関わらず全タブで共有される)
-        io.emit("beacon:message", message);
+        // 専用の `beacon:external-message` イベントで全クライアントに配信する。
+        // 通常の `beacon:message` を使うと、Beacon が LLM応答を streaming 中に
+        // 到着した場合に client 側の assistant-message ハンドラが
+        // beaconStreamText を強制クリアし、進行中の応答が切り捨てられるため。
+        io.emit("beacon:external-message", message);
         io.emit("usage:complete", report);
         console.log(
           `[UsageCollector] 完了: ok=${report.entries.filter(e => e.status === "ok").length}/${report.entries.length}`

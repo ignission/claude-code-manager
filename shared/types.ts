@@ -242,6 +242,12 @@ export interface ServerToClientEvents {
 
   // Beacon events
   "beacon:message": (message: ChatMessage) => void;
+  /**
+   * Beacon履歴UIにのみ追加される外部メッセージ (Usage取得結果など)。
+   * `beacon:message` と異なり client 側の streaming state には影響しない。
+   * (LLM streaming 中に到着しても応答が切り捨てられないようにするため)
+   */
+  "beacon:external-message": (message: ChatMessage) => void;
   "beacon:stream": (data: BeaconStreamChunk) => void;
   "beacon:history": (data: { messages: ChatMessage[] }) => void;
   "beacon:error": (data: { error: string }) => void;

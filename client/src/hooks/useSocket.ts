@@ -317,6 +317,11 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
     socket.on("disconnect", () => {
       console.log("Socket disconnected");
       setIsConnected(false);
+      // 切断中に usage:complete/usage:error を受け損ねるとボタンが永遠に
+      // disabled になるため、進行中フラグもリセットする。
+      // (再接続後に再度 requestUsage を呼べる状態に戻す)
+      setUsageRequesting(false);
+      setUsageProgress(null);
     });
 
     socket.on("connect_error", err => {
@@ -506,6 +511,12 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       }
     });
 
+    // 外部メッセージ (Usage取得結果など)。streaming state には影響させない
+    // (LLM応答 streaming 中に到着しても応答を切り捨てない)。
+    socket.on("beacon:external-message", (message: ChatMessage) => {
+      setBeaconMessages(prev => [...prev, message]);
+    });
+
     socket.on("beacon:stream", (data: BeaconStreamChunk) => {
       if (data.done) {
         setBeaconStreaming(false);
@@ -653,6 +664,7 @@ export function useSocket(options: UseSocketOptions = {}): UseSocketReturn {
       socket.off("ports:list");
       socket.off("file:content");
       socket.off("beacon:message");
+      socket.off("beacon:external-message");
       socket.off("beacon:stream");
       socket.off("beacon:history");
       socket.off("beacon:error");
