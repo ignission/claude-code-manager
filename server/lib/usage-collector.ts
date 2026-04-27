@@ -64,11 +64,15 @@ const POLL_INTERVAL_MS = 200;
  */
 const READY_TIMEOUT_MS = 10_000;
 
-/** /usage結果待ちの最大時間 */
-const USAGE_RESULT_TIMEOUT_MS = 5_000;
+/**
+ * /usage結果待ちの最大時間。
+ * 実機で 5s 弱で完了することが多いが、API 遅延 / 大量出力時に 5s ぎりぎりで
+ * timeout する事象が観測されたため余裕を持たせる。
+ */
+const USAGE_RESULT_TIMEOUT_MS = 10_000;
 
 /** 1プロファイルあたりの全体タイムアウト（起動 + 送信 + 結果待ち） */
-const TOTAL_TIMEOUT_MS = 15_000;
+const TOTAL_TIMEOUT_MS = 20_000;
 
 /** /usage結果に必要な "% used" の出現回数（session, weekly all, weekly sonnet） */
 const REQUIRED_USAGE_MARKERS = 3;
@@ -297,11 +301,20 @@ export class UsageCollector extends EventEmitter {
     try {
       cwd = path.join(os.tmpdir(), `ark-usage-cwd-${sanitized}`);
       mkdirSync(cwd, { recursive: true });
-      // configDir が空文字 = デフォルトプロファイル指定。
-      // CLAUDE_CONFIG_DIR を明示すると、たとえ ~/.claude を指していても claude が
-      // 「カスタム設定」扱いし、テーマ未選択のオンボーディング画面が出てしまう
-      // (テーマ等の状態は設定ディレクトリ外に保存されているため)。デフォルト
-      // 動作を再現するには CLAUDE_CONFIG_DIR を渡さない方が確実。
+      // configDir が空文字 = デフォルトプロファイル指定。CLAUDE_CONFIG_DIR を
+      // 渡さないことで claude のデフォルト動作 (~/.claude を使用) に乗せる。
+      //
+      // - 明示的に ~/.claude を渡すと「カスタム設定」扱いでオンボーディング画面が
+      //   出てしまう (実機検証済み)。
+      // - 空文字 (`-e CLAUDE_CONFIG_DIR=`) を渡すと claude が壊れて
+      //   /usage が timeout する (実機検証済み)。
+      // - 残された手段は「渡さない」のみ。
+      //
+      // 既知の制約: tmux server もしくは Ark プロセスが CLAUDE_CONFIG_DIR を
+      // 環境変数として持っている場合、tmux new-session がそれを継承するため
+      // デフォルトプロファイルが意図しない config dir で動く可能性がある。
+      // 通常の deployment では Ark に CLAUDE_CONFIG_DIR を設定しないので
+      // 問題にならないが、テスト/開発環境で global に設定している場合は注意。
       const useDefault = profile.configDir === "";
       const envArgs: string[] = [
         "-e",
