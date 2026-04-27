@@ -236,6 +236,10 @@ function formatResetTimestamp(resets: string): string {
  * `HH:MM` 形式の時刻に JST の日付を補って `M/D HH:MM` を返す。
  * 現在 JST 時刻と比較し、与えられた時刻が今日中ならtoday、過ぎていれば
  * tomorrow を採用する (claude /usage が示す reset は常に「次回」)。
+ *
+ * 注: host TZ に依存しないよう Intl.DateTimeFormat.formatToParts で
+ * JST の年/月/日/時/分を直接取得する。`new Date(toLocaleString)` 経由だと
+ * UTC コンテナ等で再パース時に host TZ で解釈され翌日判定がズレる。
  */
 function appendJstDate(time24: string): string {
   const [hStr, mStr] = time24.split(":");
@@ -243,14 +247,31 @@ function appendJstDate(time24: string): string {
   const targetM = Number.parseInt(mStr, 10);
   const targetMinutes = targetH * 60 + targetM;
 
-  const jstNow = new Date(
-    new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" })
-  );
-  const nowMinutes = jstNow.getHours() * 60 + jstNow.getMinutes();
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    hour12: false,
+  }).formatToParts(new Date());
+  const getPart = (type: string) =>
+    Number.parseInt(parts.find(p => p.type === type)?.value ?? "0", 10);
+  // hour=24 になるケース (formatToParts の en-US 仕様) を 0 に補正
+  const nowH = getPart("hour") % 24;
+  const nowM = getPart("minute");
+  const nowMinutes = nowH * 60 + nowM;
   const isTomorrow = targetMinutes <= nowMinutes;
-  const target = new Date(jstNow);
-  if (isTomorrow) target.setDate(target.getDate() + 1);
-  return `${target.getMonth() + 1}/${target.getDate()} ${time24}`;
+
+  // JST のローカル年/月/日 として扱える Date を構築 (UTC 値で持ちながら
+  // 表示時は JST 換算ではなく getMonth/getDate で参照する。
+  // ※ Date.UTC で組み立てることで host TZ に依存しない)
+  const target = new Date(
+    Date.UTC(getPart("year"), getPart("month") - 1, getPart("day"))
+  );
+  if (isTomorrow) target.setUTCDate(target.getUTCDate() + 1);
+  return `${target.getUTCMonth() + 1}/${target.getUTCDate()} ${time24}`;
 }
 
 function to24Hour(
@@ -276,15 +297,13 @@ function formatUsageEntryLines(entry: UsageEntry): string[] {
     const weeklyPct = p.weeklyAllPercent.toString().padStart(3, " ");
     const sessionReset = formatResetTimestamp(p.sessionResets);
     const weeklyReset = formatResetTimestamp(p.weeklyAllResets);
-    // ラベル行は単独 (Japanese 幅依存なし)、バー + % + リセット は同じ行に
-    // 並べる。バー は monospace 24 cells で固定なので % の column が両行で
-    // 揃う。Japanese label の幅で % がズレることはない。
+    // ラベル / バー / % / リセット時刻 を 1 行に並べる。
+    // 「セ」「週」は両方 1 文字 (ほとんどの monospace 環境で同じセル幅で
+    // 描画される) なので column 整列が壊れない。
     return [
       "```",
-      "セッション",
-      `${renderUsageBar(p.sessionPercent)} ${sessionPct}% ↻ ${sessionReset}`,
-      "週次",
-      `${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}% ↻ ${weeklyReset}`,
+      `セ ${renderUsageBar(p.sessionPercent)} ${sessionPct}% ${sessionReset}`,
+      `週 ${renderUsageBar(p.weeklyAllPercent)} ${weeklyPct}% ${weeklyReset}`,
       "```",
     ];
   }
@@ -1973,7 +1992,19 @@ async function startServer() {
         // アントへブロードキャストする (live UI と DB reload の順序を一致)。
         // expectedVersion を渡すことで、開始後に clearHistory された場合は
         // 投稿スキップ (cleared chat 復活防止)。
-        beaconManager.postExternalMessage(markdown, beaconVersionAtStart);
+        const posted = beaconManager.postExternalMessage(
+          markdown,
+          beaconVersionAtStart
+        );
+        if (!posted) {
+          // 投稿は skip されたが、要求元クライアントには結果が見えなくなる
+          // ので usage:report-text で markdown を直接返してフォールバック表示
+          // (clearHistory レース時のみ。通常パスには影響しない)
+          socket.emit("usage:error", {
+            message:
+              "Beacon履歴がクリアされたためチャットには投稿しませんでした。取得結果は usage:complete を参照してください",
+          });
+        }
         io.emit("usage:complete", report);
         console.log(
           `[UsageCollector] 完了: ok=${report.entries.filter(e => e.status === "ok").length}/${report.entries.length}`
