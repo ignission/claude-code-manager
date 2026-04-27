@@ -322,6 +322,13 @@ export class BeaconManager extends EventEmitter {
   private session: BeaconSession | null = null;
   private idleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private deps: BeaconDeps | null = null;
+  /**
+   * Beacon が assistant 応答を streaming 中に postExternalMessage が呼ばれた場合
+   * のキュー。LLM turn の timestamp は完了時に確定するため、turn 完了前に
+   * 外部メッセージを保存すると DB 上の順序が逆転する。turn 完了後にまとめて
+   * flush する。
+   */
+  private pendingExternalMessages: ChatMessage[] = [];
 
   constructor() {
     super();
@@ -955,6 +962,11 @@ export class BeaconManager extends EventEmitter {
             session.messages.push(assistantMessage);
             db.addBeaconMessage(assistantMessage);
             this.emit("beacon:message", assistantMessage);
+
+            // turn 終了後に pending external メッセージを flush。
+            // ここで保存することで assistantMessage よりも timestamp が後に
+            // なり、次回履歴取得時の順序が「assistant → external」になる。
+            this.flushPendingExternalMessages();
           }
 
           // 完了チャンクを送信
@@ -1014,11 +1026,36 @@ export class BeaconManager extends EventEmitter {
       content,
       timestamp: new Date(),
     };
-    db.addBeaconMessage(message);
-    if (this.session) {
-      this.session.messages.push(message);
+    // LLM が応答 streaming 中の場合、assistantMessage の timestamp は turn
+    // 完了時に設定されるため、ここで先に DB 保存すると履歴順序が逆転する。
+    // pending queue に入れて turn 完了後に flush する。
+    if (this.session?.processing) {
+      this.pendingExternalMessages.push(message);
+    } else {
+      db.addBeaconMessage(message);
+      if (this.session) {
+        this.session.messages.push(message);
+      }
     }
     return message;
+  }
+
+  /**
+   * postExternalMessage で待機中の外部メッセージを DB と session.messages に
+   * 反映する。LLM turn 完了時に呼び出す。
+   */
+  private flushPendingExternalMessages(): void {
+    if (this.pendingExternalMessages.length === 0) return;
+    const queued = this.pendingExternalMessages;
+    this.pendingExternalMessages = [];
+    for (const message of queued) {
+      // 確実に assistantMessage より後の timestamp になるよう更新
+      message.timestamp = new Date();
+      db.addBeaconMessage(message);
+      if (this.session) {
+        this.session.messages.push(message);
+      }
+    }
   }
 
   /**

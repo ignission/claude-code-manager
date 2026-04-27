@@ -120,10 +120,37 @@ export function checkClaudeCommandExists(): boolean {
 }
 
 /**
+ * `tmux` コマンドが利用可能か。
+ */
+export function checkTmuxCommandExists(): boolean {
+  try {
+    const r = spawnSync("which", ["tmux"], { stdio: "pipe" });
+    if (r.status === 0) return true;
+  } catch {
+    // fallthrough
+  }
+  // 既知の場所も確認
+  const candidates = [
+    "/usr/bin/tmux",
+    "/usr/local/bin/tmux",
+    "/opt/homebrew/bin/tmux",
+    "/home/linuxbrew/.linuxbrew/bin/tmux",
+  ];
+  return candidates.some(p => {
+    try {
+      return existsSync(p);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/**
  * プロファイル切替機能のサポート判定。
- * Linux + claude CLI が両方揃った時のみ true。
+ * Linux + claude CLI + tmux が3つ揃った時のみ true。
+ * (UsageCollector も tmux を必要とするため tmux チェックも含める)
  */
 export function detectMultiProfileSupported(): boolean {
   if (process.platform !== "linux") return false;
-  return checkClaudeCommandExists();
+  return checkClaudeCommandExists() && checkTmuxCommandExists();
 }
